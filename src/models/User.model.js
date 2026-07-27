@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const USER_STATUS = require('../constants/userStatus');
+const USER_TYPE = require('../constants/userType');
 
 const { Schema } = mongoose;
 
@@ -15,7 +16,23 @@ const userSchema = new Schema(
       required: true,
       trim: true,
     },
+    // 'vendor' or 'individual', chosen at KYC. Drives which fields are
+    // required and which identity document (GST vs Aadhaar) applies. Null
+    // until KYC is submitted.
+    userType: {
+      type: String,
+      enum: Object.values(USER_TYPE),
+      default: null,
+    },
     name: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+    // Contact phone number captured at KYC (both types). Distinct from
+    // `mobile`, which is the OTP-verified login number — this is the
+    // business/contact number supplied on the KYC form.
+    phone: {
       type: String,
       trim: true,
       default: null,
@@ -70,6 +87,14 @@ const userSchema = new Schema(
       type: String,
       default: null,
     },
+    // Storage provider's public_id for the profile image (e.g. Cloudinary
+    // public_id / S3 object key). Kept internal — used to delete/replace the
+    // asset; stripped from API responses in the toJSON transform below.
+    profileImagePublicId: {
+      type: String,
+      default: null,
+      select: false,
+    },
     isMobileVerified: {
       type: Boolean,
       default: false,
@@ -83,6 +108,19 @@ const userSchema = new Schema(
       enum: Object.values(USER_STATUS),
       default: USER_STATUS.ACTIVE,
     },
+    // Every user gets a unique code at creation to share with others. Sparse
+    // so any legacy row without one doesn't collide on the unique index.
+    referralCode: {
+      type: String,
+      uppercase: true,
+      trim: true,
+    },
+    // Who referred this user (set once, at signup, if a valid code was used).
+    referredBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
   },
   {
     timestamps: true,
@@ -94,12 +132,14 @@ userSchema.index({ panNumber: 1 }, { unique: true, sparse: true });
 userSchema.index({ gstNumber: 1 }, { unique: true, sparse: true });
 userSchema.index({ aadhaarNumberHash: 1 }, { unique: true, sparse: true });
 userSchema.index({ email: 1 }, { unique: true, sparse: true });
+userSchema.index({ referralCode: 1 }, { unique: true, sparse: true });
 
 userSchema.set('toJSON', {
   transform: (_doc, ret) => {
     ret.id = ret._id;
     delete ret._id;
     delete ret.__v;
+    delete ret.profileImagePublicId;
     // These fields intentionally have no schema default (see the sparse
     // index comment above) — normalize to null so the API response shape
     // stays consistent whether or not they've been set.

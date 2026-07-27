@@ -1,23 +1,28 @@
 const User = require('../models/User.model');
+const referralService = require('./referral.service');
 const { hashToken } = require('../utils/hash.util');
 const ApiError = require('../utils/apiError');
 const httpStatus = require('../constants/httpStatus');
 const MESSAGES = require('../constants/messages');
+const USER_TYPE = require('../constants/userType');
 
 /**
  * Finds a user by mobile+countryCode, creating one if this is their first
  * login. OTP verification already happened before this is called, so the new
- * user is marked mobile-verified immediately.
+ * user is marked mobile-verified immediately. Every new user also gets a
+ * unique referral code to share.
  */
 const findOrCreateUserByMobile = async (countryCode, mobile) => {
   let user = await User.findOne({ countryCode, mobile });
   let isNewUser = false;
 
   if (!user) {
+    const referralCode = await referralService.generateUniqueReferralCode();
     user = await User.create({
       countryCode,
       mobile,
       isMobileVerified: true,
+      referralCode,
     });
     isNewUser = true;
   } else if (!user.isMobileVerified) {
@@ -52,10 +57,17 @@ const assertFieldNotTaken = async (field, value, excludeUserId, conflictMessage)
   }
 };
 
+/**
+ * Completes KYC for either a vendor or an individual. The two paths diverge
+ * on their identity document: a vendor is identified by GST (and submits an
+ * owner image); an individual by Aadhaar (verified beforehand via OTP). Email
+ * and PAN are shared. The validator guarantees the type-specific fields are
+ * present before we get here.
+ */
 const completeKyc = async (
   userId,
-  { companyName, email, panNumber, isGstRegistered, gstNumber, aadhaarNumber },
-  profileImageUrl
+  { userType, name, phone, companyName, email, panNumber, gstNumber, aadhaarNumber },
+  profileImage
 ) => {
   const user = await getUserById(userId);
 
@@ -63,31 +75,40 @@ const completeKyc = async (
     throw new ApiError(httpStatus.CONFLICT, MESSAGES.USER.KYC_ALREADY_COMPLETED);
   }
 
-  if (!user.aadhaarVerified) {
-    throw new ApiError(httpStatus.BAD_REQUEST, MESSAGES.USER.KYC_AADHAAR_NOT_VERIFIED);
-  }
-
-  // aadhaarNumber here is for record-keeping in the KYC submission itself —
-  // the actual verification already happened via /user/aadhaar/verify-otp.
-  // Confirm it's the same Aadhaar that was verified, not a different one.
-  if (hashToken(aadhaarNumber) !== user.aadhaarNumberHash) {
-    throw new ApiError(httpStatus.BAD_REQUEST, MESSAGES.USER.KYC_AADHAAR_MISMATCH);
-  }
-
   await assertFieldNotTaken('email', email, userId, MESSAGES.USER.EMAIL_ALREADY_EXISTS);
   await assertFieldNotTaken('panNumber', panNumber, userId, MESSAGES.USER.PAN_ALREADY_EXISTS);
-  if (isGstRegistered) {
-    await assertFieldNotTaken('gstNumber', gstNumber, userId, MESSAGES.USER.GST_ALREADY_EXISTS);
-  }
 
-  user.companyName = companyName;
+  user.userType = userType;
+  user.phone = phone;
   user.email = email;
   user.panNumber = panNumber;
-  user.isGstRegistered = isGstRegistered;
-  // Leave gstNumber unset (not null) when not GST-registered — see the
-  // comment on the sparse indexes in User.model.js for why.
-  user.gstNumber = isGstRegistered ? gstNumber : undefined;
-  user.profileImage = profileImageUrl;
+
+  if (userType === USER_TYPE.VENDOR) {
+    await assertFieldNotTaken('gstNumber', gstNumber, userId, MESSAGES.USER.GST_ALREADY_EXISTS);
+
+    user.companyName = companyName;
+    user.isGstRegistered = true;
+    user.gstNumber = gstNumber;
+    user.profileImage = profileImage.url;
+    user.profileImagePublicId = profileImage.publicId;
+  } else {
+    // Individual: Aadhaar must already be verified via /user/aadhaar/verify-otp.
+    // The submitted aadhaarNumber is checked against that verified value
+    // (never persisted in the clear) to confirm it's the same Aadhaar.
+    if (!user.aadhaarVerified) {
+      throw new ApiError(httpStatus.BAD_REQUEST, MESSAGES.USER.KYC_AADHAAR_NOT_VERIFIED);
+    }
+    if (hashToken(aadhaarNumber) !== user.aadhaarNumberHash) {
+      throw new ApiError(httpStatus.BAD_REQUEST, MESSAGES.USER.KYC_AADHAAR_MISMATCH);
+    }
+
+    user.name = name;
+    user.isGstRegistered = false;
+    // Leave gstNumber unset (not null) — see the sparse-index comment in
+    // User.model.js for why null would collide across individuals.
+    user.gstNumber = undefined;
+  }
+
   user.kycCompleted = true;
 
   await user.save();
@@ -95,7 +116,7 @@ const completeKyc = async (
   return user;
 };
 
-const updateProfile = async (userId, { name, companyName, email }, profileImageUrl) => {
+const updateProfile = async (userId, { name, companyName, email }, profileImage) => {
   const user = await getUserById(userId);
 
   await assertFieldNotTaken('email', email, userId, MESSAGES.USER.EMAIL_ALREADY_EXISTS);
@@ -103,7 +124,10 @@ const updateProfile = async (userId, { name, companyName, email }, profileImageU
   if (name !== undefined) user.name = name;
   if (companyName !== undefined) user.companyName = companyName;
   if (email !== undefined) user.email = email;
-  if (profileImageUrl) user.profileImage = profileImageUrl;
+  if (profileImage) {
+    user.profileImage = profileImage.url;
+    user.profileImagePublicId = profileImage.publicId;
+  }
 
   await user.save();
 

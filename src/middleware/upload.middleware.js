@@ -1,27 +1,14 @@
-const fs = require('fs');
-const path = require('path');
 const multer = require('multer');
 const env = require('../config/env');
 const ApiError = require('../utils/apiError');
 const httpStatus = require('../constants/httpStatus');
 const MESSAGES = require('../constants/messages');
 
-const PROFILE_UPLOAD_DIR = path.join(__dirname, '../uploads/profile');
-
-if (!fs.existsSync(PROFILE_UPLOAD_DIR)) {
-  fs.mkdirSync(PROFILE_UPLOAD_DIR, { recursive: true });
-}
-
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, PROFILE_UPLOAD_DIR),
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
-    const uniqueName = `${req.user.id}-${Date.now()}${ext}`;
-    cb(null, uniqueName);
-  },
-});
+// Keep the uploaded file in memory (req.file.buffer) — it's streamed
+// straight to the storage provider, so it never touches local disk.
+const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
   if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {

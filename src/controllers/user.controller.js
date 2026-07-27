@@ -19,22 +19,28 @@ const verifyAadhaarOtp = asyncHandler(async (req, res) => {
 });
 
 const completeKyc = asyncHandler(async (req, res) => {
-  const profileImageUrl = uploadService.buildProfileImageUrl(req.file.filename);
+  // Only vendors submit an owner image; individuals have no image. The
+  // validator has already enforced its presence for vendors.
+  let profileImage;
+  if (req.file) {
+    profileImage = await uploadService.uploadProfileImage(req.file.buffer, req.user.id);
+  }
 
-  const user = await userService.completeKyc(req.user.id, req.body, profileImageUrl);
+  const user = await userService.completeKyc(req.user.id, req.body, profileImage);
 
   successResponse(res, httpStatus.OK, MESSAGES.USER.KYC_COMPLETED, { user });
 });
 
 const updateProfile = asyncHandler(async (req, res) => {
-  let profileImageUrl;
+  let profileImage;
 
+  // A re-upload uses the same deterministic public_id, so it overwrites the
+  // existing asset in place — no separate delete of the old image needed.
   if (req.file) {
-    profileImageUrl = uploadService.buildProfileImageUrl(req.file.filename);
-    await uploadService.deleteProfileImageByUrl(req.user.profileImage);
+    profileImage = await uploadService.uploadProfileImage(req.file.buffer, req.user.id);
   }
 
-  const user = await userService.updateProfile(req.user.id, req.body, profileImageUrl);
+  const user = await userService.updateProfile(req.user.id, req.body, profileImage);
 
   successResponse(res, httpStatus.OK, MESSAGES.USER.PROFILE_UPDATED, { user });
 });

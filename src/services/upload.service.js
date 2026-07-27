@@ -1,28 +1,29 @@
-const fs = require('fs/promises');
-const path = require('path');
-const env = require('../config/env');
+const { getStorageProvider } = require('./providers/storageProvider');
 
 /**
- * Builds the publicly accessible URL for an uploaded profile image, served
- * statically by express from the /uploads directory.
+ * Storage-agnostic profile-image operations. Delegates to whichever backend
+ * is configured (Cloudinary today, S3 tomorrow) via storageProvider.js, so
+ * nothing here — or upstream — depends on the concrete provider.
  */
-const buildProfileImageUrl = (filename) => `${env.apiBaseUrl}/uploads/profile/${filename}`;
 
 /**
- * Deletes a previously uploaded profile image from disk when it is replaced.
- * Silently ignores a missing file — nothing to clean up.
+ * Uploads a profile-image buffer for a user and returns the hosted URL plus
+ * the storage public_id (persisted so the image can be deleted/replaced).
+ * A deterministic per-user publicId means a re-upload overwrites the old
+ * asset instead of accumulating orphans.
  */
-const deleteProfileImageByUrl = async (imageUrl) => {
-  if (!imageUrl) return;
-
-  const filename = path.basename(imageUrl);
-  const filePath = path.join(__dirname, '../uploads/profile', filename);
-
-  try {
-    await fs.unlink(filePath);
-  } catch (error) {
-    if (error.code !== 'ENOENT') throw error;
-  }
+const uploadProfileImage = async (buffer, userId) => {
+  const storage = getStorageProvider();
+  return storage.uploadImage(buffer, { publicId: String(userId) });
 };
 
-module.exports = { buildProfileImageUrl, deleteProfileImageByUrl };
+/**
+ * Deletes a previously uploaded profile image by its stored public_id.
+ * No-op for a falsy id.
+ */
+const deleteProfileImage = async (publicId) => {
+  const storage = getStorageProvider();
+  await storage.deleteImage(publicId);
+};
+
+module.exports = { uploadProfileImage, deleteProfileImage };

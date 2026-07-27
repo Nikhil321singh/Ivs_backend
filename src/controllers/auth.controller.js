@@ -6,6 +6,7 @@ const env = require('../config/env');
 const otpService = require('../services/otp.service');
 const userService = require('../services/user.service');
 const tokenService = require('../services/token.service');
+const referralService = require('../services/referral.service');
 
 const sendOtp = asyncHandler(async (req, res) => {
   const { mobile, countryCode = env.defaultCountryCode } = req.body;
@@ -21,6 +22,13 @@ const verifyOtp = asyncHandler(async (req, res) => {
   await otpService.verifyOtp(countryCode, mobile, otp);
 
   const { user, isNewUser } = await userService.findOrCreateUserByMobile(countryCode, mobile);
+
+  // Bind a referral only for brand-new users. captureReferral is resilient —
+  // an invalid/self/duplicate code is ignored so it never blocks signup.
+  if (isNewUser && req.body.referralCode) {
+    await referralService.captureReferral(user, req.body.referralCode);
+  }
+
   const { accessToken, refreshToken } = await tokenService.issueTokenPair(user, deviceId);
 
   successResponse(

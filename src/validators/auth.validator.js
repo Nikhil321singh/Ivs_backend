@@ -38,6 +38,11 @@ const verifyOtpValidator = [
     .isLength({ min: 4, max: 6 })
     .withMessage('OTP must be between 4 and 6 digits.'),
   body('deviceId').trim().notEmpty().withMessage('Device ID is required.'),
+  body('referralCode')
+    .optional({ checkFalsy: true })
+    .trim()
+    .isLength({ min: 4, max: 20 })
+    .withMessage('Invalid referral code.'),
 ];
 
 const refreshTokenValidator = [

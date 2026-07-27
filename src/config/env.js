@@ -63,10 +63,53 @@ const env = {
     password: process.env.CDOT_IVS_PASSWORD,
   },
 
+  // Razorpay token top-ups. Lazy-validated in razorpayProvider.js (same as
+  // Paysprint/C-DOT) so the server still boots before they're provisioned.
+  razorpay: {
+    keyId: process.env.RAZORPAY_KEY_ID,
+    keySecret: process.env.RAZORPAY_KEY_SECRET,
+    webhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET,
+    apiBaseUrl: (process.env.RAZORPAY_API_BASE_URL || 'https://api.razorpay.com/v1').replace(/\/+$/, ''),
+  },
+
+  // Third-party device-diagnosis provider. Lazy-validated in
+  // diagnoseProvider.js. Contract TBD — see services/providers/diagnoseProvider.js.
+  diagnose: {
+    baseUrl: (process.env.DIAGNOSE_BASE_URL || '').replace(/\/+$/, ''),
+    apiKey: process.env.DIAGNOSE_API_KEY,
+  },
+
   defaultCountryCode: process.env.DEFAULT_COUNTRY_CODE || '+91',
 
   upload: {
     maxSizeMb: parseInt(process.env.UPLOAD_MAX_SIZE_MB, 10) || 5,
+  },
+
+  // Image/file storage. `driver` selects which provider backs uploads —
+  // swap it (and fill the matching credentials block below) to move from
+  // Cloudinary to another backend (e.g. AWS S3) with no code changes.
+  // See services/providers/storageProvider.js for the driver contract.
+  storage: {
+    driver: process.env.STORAGE_DRIVER || 'cloudinary',
+    imageFolder: process.env.STORAGE_IMAGE_FOLDER || 'ivs/profile',
+  },
+
+  // Cloudinary credentials (used when STORAGE_DRIVER=cloudinary). Lazy-
+  // validated in cloudinaryProvider.js (same pattern as Razorpay/C-DOT) so
+  // the server still boots before it's provisioned.
+  cloudinary: {
+    cloudName: process.env.CLOUDINARY_CLOUD_NAME,
+    apiKey: process.env.CLOUDINARY_API_KEY,
+    apiSecret: process.env.CLOUDINARY_API_SECRET,
+  },
+
+  // AWS S3 credentials (used when STORAGE_DRIVER=s3). Placeholder — add an
+  // s3Provider.js implementing the storage contract when you switch.
+  s3: {
+    region: process.env.AWS_REGION,
+    bucket: process.env.AWS_S3_BUCKET,
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
   },
 
   isProduction: (process.env.NODE_ENV || 'development') === 'production',

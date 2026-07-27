@@ -2,12 +2,12 @@ const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
 const morgan = require('morgan');
-const path = require('path');
 const swaggerUi = require('swagger-ui-express');
 
 const env = require('./config/env');
 const swaggerSpec = require('./docs/swagger');
 const routes = require('./routes');
+const walletController = require('./controllers/wallet.controller');
 const { generalLimiter } = require('./middleware/rateLimiter.middleware');
 const notFoundHandler = require('./middleware/notFound.middleware');
 const errorHandler = require('./middleware/error.middleware');
@@ -22,11 +22,18 @@ app.use(
   })
 );
 app.use(morgan(env.isProduction ? 'combined' : 'dev'));
+
+// Razorpay webhook must see the RAW body to verify the HMAC signature, so it
+// is registered BEFORE express.json() (which would consume/reparse the body).
+// It sits outside the /api/v1 rate limiter and JSON parser by design.
+app.post(
+  '/api/v1/wallet/webhook/razorpay',
+  express.raw({ type: '*/*' }),
+  walletController.handleRazorpayWebhook
+);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-// Publicly serve uploaded profile images.
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 

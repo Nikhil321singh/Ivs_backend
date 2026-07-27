@@ -2,7 +2,7 @@ const express = require('express');
 const userController = require('../controllers/user.controller');
 const authenticate = require('../middleware/auth.middleware');
 const validateRequest = require('../middleware/validateRequest.middleware');
-const { uploadProfileImage, requireProfileImage } = require('../middleware/upload.middleware');
+const { uploadProfileImage } = require('../middleware/upload.middleware');
 const {
   completeKycValidator,
   updateProfileValidator,
@@ -77,7 +77,10 @@ router.post(
  * /user/complete-kyc:
  *   post:
  *     tags: [KYC]
- *     summary: Submit KYC details (company name, email, PAN, GST, profile photo). Requires Aadhaar to already be verified via /user/aadhaar/verify-otp.
+ *     summary: Submit KYC. Two shapes keyed off userType — vendor (GST-based) or individual (Aadhaar-based). Email and PAN are required for both.
+ *     description: >-
+ *       For userType=vendor, submit companyName, email, panNumber, gstNumber and an owner image (profileImage) — no Aadhaar.
+ *       For userType=individual, submit name, email, panNumber and aadhaarNumber (which must already be verified via /user/aadhaar/verify-otp) — no GST, no image.
  *     security: [{ bearerAuth: [] }]
  *     requestBody:
  *       required: true
@@ -85,18 +88,20 @@ router.post(
  *         multipart/form-data:
  *           schema:
  *             type: object
- *             required: [companyName, email, panNumber, isGstRegistered, aadhaarNumber, profileImage]
+ *             required: [userType, phone, email, panNumber]
  *             properties:
- *               companyName: { type: string }
+ *               userType: { type: string, enum: [vendor, individual] }
+ *               phone: { type: string, example: "9876543210", description: "10-digit contact number" }
  *               email: { type: string }
  *               panNumber: { type: string, example: "ABCDE1234F" }
- *               isGstRegistered: { type: boolean }
- *               gstNumber: { type: string, example: "22AAAAA0000A1Z5", description: "Required when isGstRegistered is true" }
- *               aadhaarNumber: { type: string, example: "234567890123", description: "Must match the Aadhaar number already verified via /user/aadhaar/verify-otp" }
- *               profileImage: { type: string, format: binary }
+ *               companyName: { type: string, description: "Business name — required for userType=vendor" }
+ *               gstNumber: { type: string, example: "22AAAAA0000A1Z5", description: "Required for userType=vendor" }
+ *               profileImage: { type: string, format: binary, description: "Owner image — required for userType=vendor" }
+ *               name: { type: string, description: "Required for userType=individual" }
+ *               aadhaarNumber: { type: string, example: "234567890123", description: "Required for userType=individual; must match the Aadhaar already verified via /user/aadhaar/verify-otp" }
  *     responses:
  *       200: { description: KYC completed successfully }
- *       400: { description: Aadhaar not yet verified, or aadhaarNumber does not match the verified Aadhaar }
+ *       400: { description: (individual) Aadhaar not yet verified, or aadhaarNumber does not match the verified Aadhaar }
  *       409: { description: KYC already completed or PAN/GST/email already in use }
  *       422: { description: Validation failed }
  */
@@ -104,7 +109,6 @@ router.post(
   '/complete-kyc',
   authenticate,
   uploadProfileImage,
-  requireProfileImage,
   completeKycValidator,
   validateRequest,
   userController.completeKyc

@@ -1,6 +1,7 @@
 const express = require('express');
 const ivsController = require('../controllers/ivs.controller');
 const authenticate = require('../middleware/auth.middleware');
+const requireBalance = require('../middleware/requireBalance.middleware');
 const validateRequest = require('../middleware/validateRequest.middleware');
 const { imeiVerificationLimiter } = require('../middleware/rateLimiter.middleware');
 const { verifyImeiValidator } = require('../validators/ivs.validator');
@@ -33,6 +34,7 @@ const router = express.Router();
 router.post(
   '/verify',
   authenticate,
+  requireBalance('IVS_CHECK'),
   imeiVerificationLimiter,
   verifyImeiValidator,
   validateRequest,

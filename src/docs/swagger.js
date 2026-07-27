@@ -23,6 +23,10 @@ const options = {
       { name: 'KYC', description: 'Aadhaar e-KYC authentication and KYC submission' },
       { name: 'User', description: 'Profile management' },
       { name: 'IVS', description: 'Device IMEI blocklist verification (C-DOT CEIR)' },
+      { name: 'Wallet', description: 'Token wallet: balance, ledger, and Razorpay top-ups' },
+      { name: 'Referral', description: 'Referral code and earnings' },
+      { name: 'Diagnose', description: 'Third-party device diagnosis (token-billed)' },
+      { name: 'Pricing', description: 'Per-feature token costs and referral rewards' },
     ],
     components: {
       securitySchemes: {

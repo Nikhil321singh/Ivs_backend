@@ -43,6 +43,8 @@ module.exports = {
     AADHAAR_PROVIDER_CONFIG_MISSING: 'Aadhaar verification is not configured. Please contact support.',
     EMAIL_ALREADY_EXISTS: 'This email is already linked to another account.',
     PROFILE_IMAGE_REQUIRED: 'Profile image is required.',
+    OWNER_IMAGE_REQUIRED: 'Owner image is required for a vendor.',
+    USER_TYPE_INVALID: 'User type must be either "vendor" or "individual".',
   },
   IVS: {
     VERIFIED: 'IMEI verification completed.',
@@ -55,6 +57,35 @@ module.exports = {
     IMEI1_STOLEN: 'Device IMEI 1 is reported as stolen. This device cannot be purchased.',
     IMEI1_UNKNOWN: 'IMEI not found in CEIR database. Supervisor approval required.',
     UNABLE_TO_VERIFY: 'Unable to verify IMEI status. Please try again or use supervisor override.',
+  },
+  WALLET: {
+    FETCHED: 'Wallet fetched successfully.',
+    TRANSACTIONS_FETCHED: 'Wallet transactions fetched successfully.',
+    INSUFFICIENT_BALANCE: 'Insufficient token balance. Please top up your wallet to continue.',
+    INVALID_AMOUNT: 'Invalid transaction amount.',
+  },
+  PAYMENT: {
+    ORDER_CREATED: 'Top-up order created successfully.',
+    VERIFIED: 'Payment verified and tokens credited successfully.',
+    WEBHOOK_RECEIVED: 'Webhook processed.',
+    NOT_CONFIGURED: 'Payments are not configured. Please contact support.',
+    ORDER_CREATE_FAILED: 'Unable to create a payment order right now. Please try again.',
+    SIGNATURE_INVALID: 'Payment verification failed. Invalid signature.',
+    ORDER_NOT_FOUND: 'Payment order not found.',
+    MIN_AMOUNT: 'Top-up amount is below the minimum allowed.',
+    MAX_AMOUNT: 'Top-up amount is above the maximum allowed.',
+  },
+  REFERRAL: {
+    FETCHED: 'Referral details fetched successfully.',
+  },
+  DIAGNOSE: {
+    COMPLETED: 'Device diagnosis completed.',
+    NOT_CONFIGURED: 'Diagnosis service is not configured. Contact system administrator.',
+    SERVICE_UNAVAILABLE: 'Diagnosis service is unavailable. Please try again later.',
+    FAILED: 'Unable to complete the diagnosis. Please try again.',
+  },
+  PRICING: {
+    FETCHED: 'Pricing fetched successfully.',
   },
   VALIDATION: {
     FAILED: 'Validation failed. Please check your input.',
