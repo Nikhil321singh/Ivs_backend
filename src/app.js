@@ -38,6 +38,14 @@ app.post(
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Top-level liveness endpoints for platform health checks (Render pings
+// `/health`) and a friendly root. The full API health check lives at
+// /api/v1/health. Kept outside the rate limiter so probes never get throttled.
+app.get('/health', (req, res) => res.status(200).json({ status: 'ok' }));
+app.get('/', (req, res) =>
+  res.status(200).json({ name: 'IVS API', docs: '/api-docs', health: '/api/v1/health' })
+);
+
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 app.use('/api/v1', generalLimiter, routes);
