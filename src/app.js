@@ -21,7 +21,10 @@ app.use(
     credentials: true,
   })
 );
-app.use(morgan(env.isProduction ? 'combined' : 'dev'));
+// Skip HTTP request logging under test to keep the test output readable.
+if (env.nodeEnv !== 'test') {
+  app.use(morgan(env.isProduction ? 'combined' : 'dev'));
+}
 
 // Razorpay webhook must see the RAW body to verify the HMAC signature, so it
 // is registered BEFORE express.json() (which would consume/reparse the body).

@@ -29,12 +29,18 @@ const createTopupOrder = async (userId, amountInr) => {
   const amountPaise = Math.round(amountInr * 100);
   const tokens = amountInr * PRICING.TOKEN_PER_INR;
 
+  // Razorpay caps `receipt` at 40 chars. A full ObjectId (24) + prefix +
+  // timestamp overflows that, so use the last 8 chars of the userId plus a
+  // base36 timestamp — unique per user per ms and comfortably under 40. The
+  // full userId is still recorded in `notes` and on our Payment row.
+  const receipt = `topup_${String(userId).slice(-8)}_${Date.now().toString(36)}`;
+
   let order;
   try {
     order = await razorpay.createOrder({
       amountPaise,
       currency: 'INR',
-      receipt: `topup_${userId}_${Date.now()}`,
+      receipt,
       notes: { userId: String(userId), tokens: String(tokens) },
     });
   } catch (err) {

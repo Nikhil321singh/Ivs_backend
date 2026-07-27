@@ -11,10 +11,19 @@ const options = {
       description:
         'REST API for the IVS Mobile Application. Handles Mobile Number + OTP authentication (via MSG91), JWT + Refresh Token session management, and KYC.',
     },
+    // A relative server URL ('/api/v1') makes Swagger UI's "Try it out" target
+    // whatever host is actually serving the docs — localhost in dev, the Render
+    // URL in production — with no API_BASE_URL to keep in sync. The configured
+    // absolute URL is offered as a second option in the dropdown for
+    // convenience (e.g. hitting the deployed API from a local docs page).
     servers: [
       {
+        url: '/api/v1',
+        description: 'Current host',
+      },
+      {
         url: `${env.apiBaseUrl}/api/v1`,
-        description: `${env.nodeEnv} server`,
+        description: `Configured ${env.nodeEnv} server`,
       },
     ],
     tags: [
