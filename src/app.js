@@ -14,10 +14,32 @@ const errorHandler = require('./middleware/error.middleware');
 
 const app = express();
 
+// Render (and most PaaS) put a single reverse proxy in front of the app, so the
+// real client IP arrives in X-Forwarded-For. Trust exactly one hop so
+// express-rate-limit can key on the true client IP instead of throwing
+// ERR_ERL_UNEXPECTED_X_FORWARDED_FOR. Use 1 (not `true`) so clients can't spoof
+// the header to dodge the rate limiter.
+app.set('trust proxy', 1);
+
 app.use(helmet());
+
+// Allowed browser origins: the web dev client plus the Capacitor mobile
+// WebView. On Android with androidScheme "http" the WebView origin is
+// http://localhost (no port); iOS/other configs use capacitor://localhost or
+// https://localhost. Requests with no Origin (curl, server-to-server, adb) are
+// allowed through.
+const allowedOrigins = [
+  env.clientUrl,
+  'http://localhost',
+  'https://localhost',
+  'capacitor://localhost',
+];
 app.use(
   cors({
-    origin: env.clientUrl,
+    origin(origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+      return callback(new Error(`Not allowed by CORS: ${origin}`));
+    },
     credentials: true,
   })
 );
