@@ -11,7 +11,12 @@ const env = require('../../config/env');
 
 const REQUEST_TIMEOUT = 10000;
 
-const isConfigured = () => !!env.razorpay.keyId && !!env.razorpay.keySecret;
+// Require a real Razorpay key id (rzp_test_/rzp_live_ prefix), not just a
+// non-empty value — otherwise leftover .env placeholders pass this guard and
+// fail deep inside a live API call with a confusing 500. This way an
+// unconfigured setup fails fast with MESSAGES.PAYMENT.NOT_CONFIGURED.
+const isConfigured = () =>
+  /^rzp_(test|live)_/.test(env.razorpay.keyId || '') && !!env.razorpay.keySecret;
 
 const getKeyId = () => env.razorpay.keyId;
 
