@@ -21,7 +21,9 @@ if (missingVars.length > 0) {
 const env = {
   nodeEnv: process.env.NODE_ENV || 'development',
   port: parseInt(process.env.PORT, 10) || 5000,
-  apiBaseUrl: process.env.API_BASE_URL || 'http://localhost:5000',
+  // Strip any trailing slash so `${apiBaseUrl}/api-docs` never doubles up
+  // (a trailing slash in API_BASE_URL was producing `...onrender.com//api-docs`).
+  apiBaseUrl: (process.env.API_BASE_URL || 'http://localhost:5000').replace(/\/+$/, ''),
 
   mongodbUri: process.env.MONGODB_URI,
 

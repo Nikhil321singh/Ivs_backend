@@ -55,4 +55,32 @@ const requireProfileImage = (req, res, next) => {
   next();
 };
 
-module.exports = { uploadProfileImage, requireProfileImage };
+// CSV upload for bulk IMEI verification. Kept in memory (req.file.buffer) and
+// parsed downstream; capped at 1MB (a 10-row CSV is tiny). Accepts by .csv
+// extension since CSV MIME types vary wildly across clients.
+const CSV_MAX_BYTES = 1 * 1024 * 1024;
+const csvUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: CSV_MAX_BYTES },
+  fileFilter: (req, file, cb) => {
+    if (!/\.csv$/i.test(file.originalname || '')) {
+      return cb(new ApiError(httpStatus.BAD_REQUEST, 'Only .csv files are allowed.'));
+    }
+    cb(null, true);
+  },
+});
+
+const uploadCsv = (req, res, next) => {
+  csvUpload.single('file')(req, res, (err) => {
+    if (err instanceof multer.MulterError) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return next(new ApiError(httpStatus.BAD_REQUEST, 'CSV file must be smaller than 1MB.'));
+      }
+      return next(new ApiError(httpStatus.BAD_REQUEST, err.message));
+    }
+    if (err) return next(err);
+    next();
+  });
+};
+
+module.exports = { uploadProfileImage, requireProfileImage, uploadCsv };

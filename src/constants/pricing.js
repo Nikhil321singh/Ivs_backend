@@ -14,6 +14,10 @@ module.exports = Object.freeze({
   MIN_TOPUP_INR: 10,
   MAX_TOPUP_INR: 100000,
 
+  // Max devices per bulk IMEI verification (CSV upload). Each row is billed
+  // at FEATURES.IVS_CHECK, so a full batch costs IVS_BULK_MAX_ROWS × that.
+  IVS_BULK_MAX_ROWS: 10,
+
   // Per-feature cost, in tokens. Keys are the featureKey passed to
   // requireBalance() and used as the ledger referenceType.
   FEATURES: Object.freeze({

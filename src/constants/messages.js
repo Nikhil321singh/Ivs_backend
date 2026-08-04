@@ -57,6 +57,13 @@ module.exports = {
     IMEI1_STOLEN: 'Device IMEI 1 is reported as stolen. This device cannot be purchased.',
     IMEI1_UNKNOWN: 'IMEI not found in CEIR database. Supervisor approval required.',
     UNABLE_TO_VERIFY: 'Unable to verify IMEI status. Please try again or use supervisor override.',
+    HISTORY_FETCHED: 'Verification history fetched successfully.',
+    BULK_COMPLETED: 'Bulk IMEI verification completed.',
+    CSV_REQUIRED: 'A CSV file is required (form field "file").',
+    CSV_INVALID: 'Could not parse the CSV file. Please check the format and headers.',
+    BULK_EMPTY: 'The CSV file has no data rows.',
+    BULK_TOO_MANY: 'A maximum of 10 devices can be verified per bulk upload.',
+    CSV_ROW_ERRORS: 'Some rows failed validation. Please fix them and re-upload.',
   },
   WALLET: {
     FETCHED: 'Wallet fetched successfully.',
