@@ -30,22 +30,28 @@ app.use(helmet());
 // allowed through.
 const allowedOrigins = [
   env.clientUrl,
-  env.apiBaseUrl, // the API's own origin, so Swagger UI "Try it out" (served from this host) works
   'http://localhost:5713', // Vite dev frontend
   'http://localhost:3000',
   'http://localhost',
   'https://localhost',
   'capacitor://localhost',
 ];
-app.use(
-  cors({
-    origin(origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
-      return callback(new Error(`Not allowed by CORS: ${origin}`));
-    },
-    credentials: true,
-  })
-);
+
+// Per-request CORS: besides the static allow-list, always accept requests whose
+// Origin matches the host actually serving this request. That covers Swagger
+// UI's "Try it out" (served from the API's own host, e.g. the Render URL) on
+// any deployment without depending on API_BASE_URL being set correctly. We also
+// return origin:false (rather than throwing) for disallowed origins so the
+// browser gets a clean CORS rejection instead of a 500.
+const corsDelegate = (req, callback) => {
+  const origin = req.header('Origin');
+  const host = req.header('Host'); // trusted via `trust proxy` (X-Forwarded-Host)
+  const selfOrigins = host ? [`https://${host}`, `http://${host}`] : [];
+  const isAllowed =
+    !origin || allowedOrigins.includes(origin) || selfOrigins.includes(origin);
+  callback(null, { origin: isAllowed, credentials: true });
+};
+app.use(cors(corsDelegate));
 // Skip HTTP request logging under test to keep the test output readable.
 if (env.nodeEnv !== 'test') {
   app.use(morgan(env.isProduction ? 'combined' : 'dev'));
