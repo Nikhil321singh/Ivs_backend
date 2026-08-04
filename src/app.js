@@ -30,6 +30,8 @@ app.use(helmet());
 // allowed through.
 const allowedOrigins = [
   env.clientUrl,
+  'http://localhost:5713', // Vite dev frontend
+  'http://localhost:3000',
   'http://localhost',
   'https://localhost',
   'capacitor://localhost',

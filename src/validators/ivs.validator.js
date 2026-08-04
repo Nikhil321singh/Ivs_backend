@@ -1,6 +1,7 @@
 const { body } = require('express-validator');
 
 const IMEI_REGEX = /^\d{15}$/;
+const AADHAAR_REGEX = /^[2-9]{1}[0-9]{11}$/;
 
 const verifyImeiValidator = [
   body('imei1')
@@ -23,4 +24,33 @@ const verifyImeiValidator = [
     .withMessage('Device model must be at most 200 characters.'),
 ];
 
-module.exports = { verifyImeiValidator };
+// Customer Aadhaar OTP (IMEI flow).
+const customerAadhaarSendOtpValidator = [
+  body('aadhaarNumber')
+    .trim()
+    .notEmpty()
+    .withMessage('Aadhaar number is required.')
+    .matches(AADHAAR_REGEX)
+    .withMessage('Please provide a valid 12-digit Aadhaar number.'),
+];
+
+const customerAadhaarVerifyOtpValidator = [
+  body('refId')
+    .trim()
+    .notEmpty()
+    .withMessage('refId is required.'),
+  body('otp')
+    .trim()
+    .notEmpty()
+    .withMessage('OTP is required.')
+    .isNumeric()
+    .withMessage('OTP must contain digits only.')
+    .isLength({ min: 6, max: 6 })
+    .withMessage('OTP must be 6 digits.'),
+];
+
+module.exports = {
+  verifyImeiValidator,
+  customerAadhaarSendOtpValidator,
+  customerAadhaarVerifyOtpValidator,
+};

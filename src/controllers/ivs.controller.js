@@ -3,6 +3,7 @@ const { successResponse } = require('../helpers/apiResponse');
 const httpStatus = require('../constants/httpStatus');
 const MESSAGES = require('../constants/messages');
 const ivsService = require('../services/ivs.service');
+const aadhaarService = require('../services/aadhaar.service');
 const walletService = require('../services/wallet.service');
 const PRICING = require('../constants/pricing');
 const { TXN_REASON, TXN_REF_TYPE } = require('../constants/walletEnums');
@@ -39,4 +40,17 @@ const verifyImei = asyncHandler(async (req, res) => {
   });
 });
 
-module.exports = { verifyImei };
+// Customer Aadhaar OTP for the IMEI flow — verifies the device seller's Aadhaar
+// (a third party), independent of the logged-in user's own KYC. Stateless: the
+// refId from send-otp is returned to the client and passed back to verify-otp.
+const sendCustomerAadhaarOtp = asyncHandler(async (req, res) => {
+  const data = await aadhaarService.sendCustomerAadhaarOtp(req.body.aadhaarNumber);
+  successResponse(res, httpStatus.OK, MESSAGES.USER.AADHAAR_OTP_SENT, data);
+});
+
+const verifyCustomerAadhaarOtp = asyncHandler(async (req, res) => {
+  const data = await aadhaarService.verifyCustomerAadhaarOtp(req.body.refId, req.body.otp);
+  successResponse(res, httpStatus.OK, MESSAGES.USER.AADHAAR_VERIFIED, data);
+});
+
+module.exports = { verifyImei, sendCustomerAadhaarOtp, verifyCustomerAadhaarOtp };

@@ -88,4 +88,31 @@ const verifyAadhaarOtp = async (userId, otp) => {
   return user;
 };
 
-module.exports = { sendAadhaarOtp, verifyAadhaarOtp };
+/**
+ * Customer Aadhaar OTP for the IVS/IMEI flow. Unlike the account-KYC functions
+ * above, this verifies a THIRD PARTY's Aadhaar (the customer selling the device),
+ * so it does NOT check/require the logged-in user's aadhaarVerified state and does
+ * NOT write anything onto the user. It's stateless: send-otp returns the provider
+ * refId which the client passes back to verify-otp. Can be run any number of times.
+ */
+const sendCustomerAadhaarOtp = async (aadhaarNumber) => {
+  const { refId } = await provider.sendOtp(aadhaarNumber);
+  return { refId };
+};
+
+const verifyCustomerAadhaarOtp = async (refId, otp) => {
+  const { success } = await provider.verifyOtp(refId, otp);
+
+  if (!success) {
+    throw new ApiError(httpStatus.BAD_REQUEST, MESSAGES.USER.AADHAAR_OTP_INVALID);
+  }
+
+  return { verified: true };
+};
+
+module.exports = {
+  sendAadhaarOtp,
+  verifyAadhaarOtp,
+  sendCustomerAadhaarOtp,
+  verifyCustomerAadhaarOtp,
+};
