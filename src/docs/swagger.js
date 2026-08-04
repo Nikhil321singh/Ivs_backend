@@ -8,8 +8,21 @@ const options = {
     info: {
       title: 'IVS Mobile Application API',
       version: '1.0.0',
-      description:
+      description: [
         'REST API for the IVS Mobile Application. Handles Mobile Number + OTP authentication (via MSG91), JWT + Refresh Token session management, and KYC.',
+        '',
+        '## CORS',
+        'Browser requests must originate from an allowed origin, and credentials (cookies/Authorization headers) are permitted (`Access-Control-Allow-Credentials: true`).',
+        '',
+        'Allowed origins:',
+        '- The configured client URL (`CLIENT_URL`)',
+        '- `http://localhost:5713` (Vite dev frontend)',
+        '- `http://localhost:3000`',
+        '- `http://localhost` / `https://localhost` (Capacitor WebView)',
+        '- `capacitor://localhost` (Capacitor WebView)',
+        '',
+        'Requests without an `Origin` header (curl, server-to-server) are allowed through.',
+      ].join('\n'),
     },
     // A relative server URL ('/api/v1') makes Swagger UI's "Try it out" target
     // whatever host is actually serving the docs — localhost in dev, the Render
