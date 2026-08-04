@@ -30,6 +30,7 @@ app.use(helmet());
 // allowed through.
 const allowedOrigins = [
   env.clientUrl,
+  env.apiBaseUrl, // the API's own origin, so Swagger UI "Try it out" (served from this host) works
   'http://localhost:5713', // Vite dev frontend
   'http://localhost:3000',
   'http://localhost',

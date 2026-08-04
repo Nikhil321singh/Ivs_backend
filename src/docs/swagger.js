@@ -16,6 +16,7 @@ const options = {
         '',
         'Allowed origins:',
         '- The configured client URL (`CLIENT_URL`)',
+        "- The API's own base URL (`API_BASE_URL`) — so Swagger UI \"Try it out\" works from this docs page",
         '- `http://localhost:5713` (Vite dev frontend)',
         '- `http://localhost:3000`',
         '- `http://localhost` / `https://localhost` (Capacitor WebView)',
