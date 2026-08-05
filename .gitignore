@@ -1,0 +1,8 @@
+node_modules/
+.env
+npm-debug.log*
+.DS_Store
+
+# Uploaded files (keep the folder, ignore its contents)
+src/uploads/profile/*
+!src/uploads/profile/.gitkeep
