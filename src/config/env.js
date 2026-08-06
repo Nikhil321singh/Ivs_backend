@@ -92,14 +92,16 @@ const env = {
     imageFolder: process.env.STORAGE_IMAGE_FOLDER || 'ivs/profile',
   },
 
-  // AWS S3 credentials. Lazy-validated in s3Provider.isConfigured() (same
-  // pattern as Razorpay/C-DOT) so the server still boots before they're
-  // provisioned.
+  // AWS S3. Credentials come from a Cognito Identity Pool (identityPoolId) —
+  // fromCognitoIdentityPool vends temporary creds, so no static access keys.
+  // identityPoolRegion is the pool's region (falls back to the bucket region
+  // when unset). Lazy-validated in s3Provider.isConfigured() (same pattern as
+  // Razorpay/C-DOT) so the server still boots before it's provisioned.
   s3: {
     region: process.env.AWS_REGION,
     bucket: process.env.AWS_S3_BUCKET,
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+    identityPoolId: process.env.AWS_COGNITO_IDENTITY_POOL_ID,
+    identityPoolRegion: process.env.AWS_COGNITO_REGION,
   },
 
   isProduction: (process.env.NODE_ENV || 'development') === 'production',

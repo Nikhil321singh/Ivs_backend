@@ -1,4 +1,5 @@
 const { S3Client, PutObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
+const { fromCognitoIdentityPool } = require('@aws-sdk/credential-providers');
 const env = require('../../config/env');
 
 /**
@@ -15,25 +16,29 @@ const env = require('../../config/env');
  * certificates, signatures) can reuse the same client without going through
  * the image-specific contract.
  *
- * The client is created lazily and the `isConfigured()` guard mirrors the
- * other integrations (Razorpay/C-DOT) so the server still boots before AWS
- * credentials are provisioned. Uploads take an in-memory buffer (multer
- * memory storage) — nothing touches local disk. No object ACL is set: modern
- * buckets have ACLs disabled, so public read comes from the bucket policy.
+ * Credentials come from an AWS Cognito Identity Pool: fromCognitoIdentityPool
+ * exchanges the pool id for temporary, auto-refreshing S3 credentials (the
+ * pool's unauthenticated/guest role must grant s3:PutObject/DeleteObject on
+ * the bucket). No long-lived access keys live in the backend. The client is
+ * created lazily and the `isConfigured()` guard mirrors the other
+ * integrations (Razorpay/C-DOT) so the server still boots before the pool is
+ * provisioned. Uploads take an in-memory buffer (multer memory storage) —
+ * nothing touches local disk. No object ACL is set: modern buckets have ACLs
+ * disabled, so public read comes from the bucket policy.
  */
 
 const isConfigured = () =>
-  !!env.s3.region && !!env.s3.bucket && !!env.s3.accessKeyId && !!env.s3.secretAccessKey;
+  !!env.s3.region && !!env.s3.bucket && !!env.s3.identityPoolId;
 
 let cachedClient;
 const client = () => {
   if (!cachedClient) {
     cachedClient = new S3Client({
       region: env.s3.region,
-      credentials: {
-        accessKeyId: env.s3.accessKeyId,
-        secretAccessKey: env.s3.secretAccessKey,
-      },
+      credentials: fromCognitoIdentityPool({
+        identityPoolId: env.s3.identityPoolId,
+        clientConfig: { region: env.s3.identityPoolRegion || env.s3.region },
+      }),
     });
   }
   return cachedClient;
