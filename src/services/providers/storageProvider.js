@@ -1,35 +1,17 @@
-const env = require('../../config/env');
-const cloudinaryProvider = require('./cloudinaryProvider');
+const s3Provider = require('./s3Provider');
 
 /**
- * Storage driver registry / resolver. Decouples the rest of the app from any
- * specific storage backend: callers go through upload.service.js, which asks
- * here for the active driver selected by env.storage.driver (STORAGE_DRIVER).
+ * Storage driver resolver. The app stores all images/files in AWS S3; this
+ * indirection stays so callers (upload.service.js) remain decoupled from the
+ * concrete driver and a different backend could be swapped in later without
+ * touching them.
  *
- * Every driver implements the same contract:
+ * The driver implements:
  *   isConfigured(): boolean
  *   uploadImage(buffer, { folder, publicId }): Promise<{ url, publicId }>
  *   deleteImage(publicId): Promise<void>
- *
- * To add AWS S3 later: create s3Provider.js implementing this contract
- * (put/delete against the bucket, publicId = the object key, url = the
- * object URL), register it below, and set STORAGE_DRIVER=s3. No other file
- * changes required.
+ * (plus generic putObject/deleteObject/getPublicUrl helpers on s3Provider).
  */
-
-const DRIVERS = {
-  cloudinary: cloudinaryProvider,
-  // s3: require('./s3Provider'),
-};
-
-const getStorageProvider = () => {
-  const provider = DRIVERS[env.storage.driver];
-  if (!provider) {
-    throw new Error(
-      `Unknown STORAGE_DRIVER "${env.storage.driver}". Available: ${Object.keys(DRIVERS).join(', ')}`
-    );
-  }
-  return provider;
-};
+const getStorageProvider = () => s3Provider;
 
 module.exports = { getStorageProvider };
