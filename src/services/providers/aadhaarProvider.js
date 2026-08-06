@@ -13,6 +13,12 @@ const MESSAGES = require('../../constants/messages');
  *   verifyOtp(refId, otp)  => { success }
  */
 
+// Dev-only bypass so local/QA testing doesn't depend on the flaky UIDAI/Paysprint
+// upstream. Guarded twice: the env flag must be set AND we must not be in
+// production. When on, sendOtp mints a fake refId and verifyOtp accepts devOtp.
+const devBypassEnabled = () => !env.isProduction && env.aadhaar.devBypass;
+const DEV_REF_ID_PREFIX = 'dev-bypass-';
+
 const hasPaysprintConfig = () => !!env.paysprint.partnerId && !!env.paysprint.authorisedKey;
 
 const assertConfigured = () => {
@@ -75,6 +81,10 @@ const logProviderError = (action, details) => {
 /* eslint-enable no-console */
 
 const sendOtp = async (aadhaarNumber) => {
+  if (devBypassEnabled()) {
+    return { refId: `${DEV_REF_ID_PREFIX}${Date.now()}` };
+  }
+
   assertConfigured();
 
   let response;
@@ -118,6 +128,10 @@ const sendOtp = async (aadhaarNumber) => {
 };
 
 const verifyOtp = async (refId, otp) => {
+  if (devBypassEnabled()) {
+    return { success: otp === env.aadhaar.devOtp };
+  }
+
   assertConfigured();
 
   let response;

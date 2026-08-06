@@ -54,6 +54,14 @@ const env = {
     partnerId: process.env.PAYSPRINT_PARTNER_ID,
     authorisedKey: process.env.PAYSPRINT_AUTHORISED_KEY,
   },
+  aadhaar: {
+    // Dev-only escape hatch for local/QA testing when the UIDAI/Paysprint
+    // upstream is down or flaky: skip the real OTP call and accept devOtp.
+    // Only honored when AADHAAR_DEV_BYPASS=true AND NODE_ENV !== production
+    // (see aadhaarProvider.js) — can never take effect in production.
+    devBypass: process.env.AADHAAR_DEV_BYPASS === 'true',
+    devOtp: process.env.AADHAAR_DEV_OTP || '123456',
+  },
 
   // IMEI blocklist verification via C-DOT's CEIR (Sanchar Saathi) API.
   // Same lazy-validation approach as Paysprint above.
@@ -92,16 +100,22 @@ const env = {
     imageFolder: process.env.STORAGE_IMAGE_FOLDER || 'ivs/profile',
   },
 
-  // AWS S3. Credentials come from a Cognito Identity Pool (identityPoolId) —
-  // fromCognitoIdentityPool vends temporary creds, so no static access keys.
-  // identityPoolRegion is the pool's region (falls back to the bucket region
-  // when unset). Lazy-validated in s3Provider.isConfigured() (same pattern as
-  // Razorpay/C-DOT) so the server still boots before it's provisioned.
+  // AWS S3. The Cognito Identity Pool has guest access disabled, so the backend
+  // signs in a shared "service account" User Pool user (svcUsername/svcPassword
+  // against userPoolClientId) to get an ID token, which the Identity Pool
+  // (identityPoolId) exchanges for temporary S3 creds — no static access keys.
+  // identityPoolRegion falls back to the bucket region when unset. Lazy-
+  // validated in s3Provider.isConfigured() (same pattern as Razorpay/C-DOT) so
+  // the server still boots before Cognito is provisioned.
   s3: {
     region: process.env.AWS_REGION,
     bucket: process.env.AWS_S3_BUCKET,
     identityPoolId: process.env.AWS_COGNITO_IDENTITY_POOL_ID,
     identityPoolRegion: process.env.AWS_COGNITO_REGION,
+    userPoolId: process.env.AWS_COGNITO_USER_POOL_ID,
+    userPoolClientId: process.env.AWS_COGNITO_USER_POOL_WEB_CLIENT_ID,
+    svcUsername: process.env.AWS_COGNITO_SVC_USERNAME,
+    svcPassword: process.env.AWS_COGNITO_SVC_PASSWORD,
   },
 
   isProduction: (process.env.NODE_ENV || 'development') === 'production',

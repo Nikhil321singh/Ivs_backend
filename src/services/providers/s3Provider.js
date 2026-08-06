@@ -1,5 +1,9 @@
 const { S3Client, PutObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 const { fromCognitoIdentityPool } = require('@aws-sdk/credential-providers');
+const {
+  CognitoIdentityProviderClient,
+  InitiateAuthCommand,
+} = require('@aws-sdk/client-cognito-identity-provider');
 const env = require('../../config/env');
 
 /**
@@ -16,27 +20,60 @@ const env = require('../../config/env');
  * certificates, signatures) can reuse the same client without going through
  * the image-specific contract.
  *
- * Credentials come from an AWS Cognito Identity Pool: fromCognitoIdentityPool
- * exchanges the pool id for temporary, auto-refreshing S3 credentials (the
- * pool's unauthenticated/guest role must grant s3:PutObject/DeleteObject on
- * the bucket). No long-lived access keys live in the backend. The client is
- * created lazily and the `isConfigured()` guard mirrors the other
- * integrations (Razorpay/C-DOT) so the server still boots before the pool is
+ * Credentials: the Cognito Identity Pool has guest access DISABLED, so it only
+ * vends credentials to an authenticated User Pool identity. The backend signs
+ * in a shared "service account" User Pool user (USER_PASSWORD_AUTH) to get an
+ * ID token, then fromCognitoIdentityPool exchanges that token for temporary,
+ * auto-refreshing S3 credentials whose IAM role (EcommAuthRole) allows
+ * s3:PutObject/DeleteObject on the bucket. The ID token is cached and
+ * re-fetched on expiry via the logins provider function. No long-lived AWS
+ * access keys live in the backend. `isConfigured()` mirrors the other
+ * integrations (Razorpay/C-DOT) so the server still boots before Cognito is
  * provisioned. Uploads take an in-memory buffer (multer memory storage) —
  * nothing touches local disk. No object ACL is set: modern buckets have ACLs
  * disabled, so public read comes from the bucket policy.
  */
 
 const isConfigured = () =>
-  !!env.s3.region && !!env.s3.bucket && !!env.s3.identityPoolId;
+  !!env.s3.region &&
+  !!env.s3.bucket &&
+  !!env.s3.identityPoolId &&
+  !!env.s3.userPoolId &&
+  !!env.s3.userPoolClientId &&
+  !!env.s3.svcUsername &&
+  !!env.s3.svcPassword;
+
+// --- Cognito User Pool sign-in: cache the service account's ID token and
+// re-authenticate a minute before it expires. Passed to fromCognitoIdentityPool
+// as a logins provider, so the SDK calls it whenever it needs a fresh token.
+let cachedIdToken = null;
+let idTokenExpiresAt = 0;
+const getServiceAccountIdToken = async () => {
+  if (cachedIdToken && Date.now() < idTokenExpiresAt - 60_000) return cachedIdToken;
+  const idp = new CognitoIdentityProviderClient({ region: env.s3.region });
+  const res = await idp.send(
+    new InitiateAuthCommand({
+      AuthFlow: 'USER_PASSWORD_AUTH',
+      ClientId: env.s3.userPoolClientId,
+      AuthParameters: { USERNAME: env.s3.svcUsername, PASSWORD: env.s3.svcPassword },
+    })
+  );
+  const auth = res.AuthenticationResult;
+  if (!auth || !auth.IdToken) throw new Error('Cognito sign-in returned no ID token');
+  cachedIdToken = auth.IdToken;
+  idTokenExpiresAt = Date.now() + (auth.ExpiresIn || 3600) * 1000;
+  return cachedIdToken;
+};
 
 let cachedClient;
 const client = () => {
   if (!cachedClient) {
+    const loginKey = `cognito-idp.${env.s3.region}.amazonaws.com/${env.s3.userPoolId}`;
     cachedClient = new S3Client({
       region: env.s3.region,
       credentials: fromCognitoIdentityPool({
         identityPoolId: env.s3.identityPoolId,
+        logins: { [loginKey]: getServiceAccountIdToken },
         clientConfig: { region: env.s3.identityPoolRegion || env.s3.region },
       }),
     });
