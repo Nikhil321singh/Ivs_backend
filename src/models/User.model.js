@@ -87,9 +87,9 @@ const userSchema = new Schema(
       type: String,
       default: null,
     },
-    // Storage provider's public_id for the profile image (e.g. Cloudinary
-    // public_id / S3 object key). Kept internal — used to delete/replace the
-    // asset; stripped from API responses in the toJSON transform below.
+    // The S3 object key for the profile image. Kept internal — used to
+    // delete/replace the asset; stripped from API responses in the toJSON
+    // transform below.
     profileImagePublicId: {
       type: String,
       default: null,

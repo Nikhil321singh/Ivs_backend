@@ -1,4 +1,9 @@
 module.exports = {
+  MEDIA: {
+    UPLOADED: 'Files uploaded successfully.',
+    NO_FILES: 'No files were uploaded.',
+    INVALID_CATEGORY: 'Invalid upload category.',
+  },
   AUTH: {
     OTP_SENT: 'OTP sent successfully.',
     OTP_VERIFIED: 'OTP verified successfully.',

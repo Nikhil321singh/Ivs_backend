@@ -85,31 +85,23 @@ const env = {
     maxSizeMb: parseInt(process.env.UPLOAD_MAX_SIZE_MB, 10) || 5,
   },
 
-  // Image/file storage. `driver` selects which provider backs uploads —
-  // swap it (and fill the matching credentials block below) to move from
-  // Cloudinary to another backend (e.g. AWS S3) with no code changes.
-  // See services/providers/storageProvider.js for the driver contract.
+  // Image/file storage — AWS S3. imageFolder is the default object-key prefix
+  // for uploaded images (-> <imageFolder>/<userId>). See
+  // services/providers/s3Provider.js for the driver.
   storage: {
-    driver: process.env.STORAGE_DRIVER || 'cloudinary',
     imageFolder: process.env.STORAGE_IMAGE_FOLDER || 'ivs/profile',
   },
 
-  // Cloudinary credentials (used when STORAGE_DRIVER=cloudinary). Lazy-
-  // validated in cloudinaryProvider.js (same pattern as Razorpay/C-DOT) so
-  // the server still boots before it's provisioned.
-  cloudinary: {
-    cloudName: process.env.CLOUDINARY_CLOUD_NAME,
-    apiKey: process.env.CLOUDINARY_API_KEY,
-    apiSecret: process.env.CLOUDINARY_API_SECRET,
-  },
-
-  // AWS S3 credentials (used when STORAGE_DRIVER=s3). Placeholder — add an
-  // s3Provider.js implementing the storage contract when you switch.
+  // AWS S3. Credentials come from a Cognito Identity Pool (identityPoolId) —
+  // fromCognitoIdentityPool vends temporary creds, so no static access keys.
+  // identityPoolRegion is the pool's region (falls back to the bucket region
+  // when unset). Lazy-validated in s3Provider.isConfigured() (same pattern as
+  // Razorpay/C-DOT) so the server still boots before it's provisioned.
   s3: {
     region: process.env.AWS_REGION,
     bucket: process.env.AWS_S3_BUCKET,
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+    identityPoolId: process.env.AWS_COGNITO_IDENTITY_POOL_ID,
+    identityPoolRegion: process.env.AWS_COGNITO_REGION,
   },
 
   isProduction: (process.env.NODE_ENV || 'development') === 'production',

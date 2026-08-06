@@ -14,8 +14,9 @@
   },
   "license": "UNLICENSED",
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1104.0",
+    "@aws-sdk/credential-providers": "^3.1104.0",
     "axios": "^1.7.9",
-    "cloudinary": "^2.10.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",

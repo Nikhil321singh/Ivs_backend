@@ -1,9 +1,9 @@
 const { getStorageProvider } = require('./providers/storageProvider');
 
 /**
- * Storage-agnostic profile-image operations. Delegates to whichever backend
- * is configured (Cloudinary today, S3 tomorrow) via storageProvider.js, so
- * nothing here — or upstream — depends on the concrete provider.
+ * Storage-agnostic profile-image operations. Delegates to the configured
+ * storage backend (AWS S3) via storageProvider.js, so nothing here — or
+ * upstream — depends on the concrete provider.
  */
 
 /**
