@@ -1,10 +1,10 @@
-const asyncHandler = require('../helpers/asyncHandler');
-const { successResponse } = require('../helpers/apiResponse');
-const httpStatus = require('../constants/httpStatus');
-const MESSAGES = require('../constants/messages');
+const asyncHandler = require('../../helpers/asyncHandler');
+const { successResponse } = require('../../helpers/apiResponse');
+const httpStatus = require('../../constants/httpStatus');
+const MESSAGES = require('../../constants/messages');
 const adminService = require('../services/admin.service');
-const settingsService = require('../services/settings.service');
-const { SETTING_DEFINITIONS } = require('../constants/settings');
+const settingsService = require('../../services/settings.service');
+const { SETTING_DEFINITIONS } = require('../../constants/settings');
 
 const login = asyncHandler(async (req, res) => {
   const { admin, token } = await adminService.login(req.body.email, req.body.password);

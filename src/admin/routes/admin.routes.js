@@ -1,8 +1,8 @@
 const express = require('express');
 const adminController = require('../controllers/admin.controller');
 const adminAuth = require('../middleware/adminAuth.middleware');
-const validateRequest = require('../middleware/validateRequest.middleware');
-const { adminLoginLimiter } = require('../middleware/rateLimiter.middleware');
+const validateRequest = require('../../middleware/validateRequest.middleware');
+const { adminLoginLimiter } = require('../../middleware/rateLimiter.middleware');
 const { loginValidator, updateSettingsValidator } = require('../validators/admin.validator');
 
 const router = express.Router();

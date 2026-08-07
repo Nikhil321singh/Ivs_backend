@@ -13,8 +13,8 @@
 const crypto = require('crypto');
 const mongoose = require('mongoose');
 const env = require('../src/config/env');
-const Admin = require('../src/models/Admin.model');
-const { hashPassword } = require('../src/utils/password.util');
+const Admin = require('../src/admin/models/Admin.model');
+const { hashPassword } = require('../src/admin/utils/password.util');
 
 const EMAIL = (process.env.ADMIN_EMAIL || 'admin@grest.in').toLowerCase().trim();
 const NAME = process.env.ADMIN_NAME || 'Administrator';

@@ -1,5 +1,5 @@
 const { body } = require('express-validator');
-const { SETTING_DEFINITIONS } = require('../constants/settings');
+const { SETTING_DEFINITIONS } = require('../../constants/settings');
 
 const loginValidator = [
   body('email')

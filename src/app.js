@@ -1,4 +1,3 @@
-const path = require('path');
 const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
@@ -8,6 +7,7 @@ const swaggerUi = require('swagger-ui-express');
 const env = require('./config/env');
 const swaggerSpec = require('./docs/swagger');
 const routes = require('./routes');
+const adminModule = require('./admin');
 const walletController = require('./controllers/wallet.controller');
 const { generalLimiter } = require('./middleware/rateLimiter.middleware');
 const notFoundHandler = require('./middleware/notFound.middleware');
@@ -83,7 +83,8 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 // Admin portal: a static page that talks to /api/v1/admin/*. Served from the
 // API's own origin so the browser's same-origin rules cover it and helmet's
 // default CSP (script-src 'self') allows its JS without any inline scripts.
-app.use('/admin', express.static(path.join(__dirname, 'public', 'admin')));
+// Assets live inside the self-contained admin module — see src/admin/README.md.
+app.use('/admin', express.static(adminModule.publicDir));
 
 app.use('/api/v1', generalLimiter, routes);
 

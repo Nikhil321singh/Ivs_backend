@@ -1,8 +1,8 @@
-const asyncHandler = require('../helpers/asyncHandler');
+const asyncHandler = require('../../helpers/asyncHandler');
 const adminService = require('../services/admin.service');
-const ApiError = require('../utils/apiError');
-const httpStatus = require('../constants/httpStatus');
-const MESSAGES = require('../constants/messages');
+const ApiError = require('../../utils/apiError');
+const httpStatus = require('../../constants/httpStatus');
+const MESSAGES = require('../../constants/messages');
 
 /**
  * Gate for /admin routes. Requires a token carrying `typ: "admin"` (which user

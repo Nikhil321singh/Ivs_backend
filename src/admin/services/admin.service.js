@@ -1,13 +1,13 @@
 const jwt = require('jsonwebtoken');
 const Admin = require('../models/Admin.model');
-const WalletTransaction = require('../models/WalletTransaction.model');
-const ImeiVerificationLog = require('../models/ImeiVerificationLog.model');
-const User = require('../models/User.model');
+const WalletTransaction = require('../../models/WalletTransaction.model');
+const ImeiVerificationLog = require('../../models/ImeiVerificationLog.model');
+const User = require('../../models/User.model');
 const { verifyPassword, hashPassword } = require('../utils/password.util');
-const ApiError = require('../utils/apiError');
-const httpStatus = require('../constants/httpStatus');
-const MESSAGES = require('../constants/messages');
-const env = require('../config/env');
+const ApiError = require('../../utils/apiError');
+const httpStatus = require('../../constants/httpStatus');
+const MESSAGES = require('../../constants/messages');
+const env = require('../../config/env');
 
 // Distinguishes an admin token from a user token even when both are signed with
 // the same secret — adminAuth requires this claim, and user tokens never carry it.
