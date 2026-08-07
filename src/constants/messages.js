@@ -87,6 +87,19 @@ module.exports = {
   PRICING: {
     FETCHED: 'Pricing fetched successfully.',
   },
+  ADMIN: {
+    LOGGED_IN: 'Signed in successfully.',
+    INVALID_CREDENTIALS: 'Invalid email or password.',
+    ACCOUNT_DISABLED: 'This admin account is disabled.',
+    TOKEN_MISSING: 'Admin authentication required.',
+    TOKEN_INVALID: 'Admin session is invalid or has expired.',
+    PROFILE_FETCHED: 'Admin profile fetched successfully.',
+    SETTINGS_FETCHED: 'Settings fetched successfully.',
+    SETTINGS_UPDATED: 'Settings updated successfully.',
+    TRANSACTIONS_FETCHED: 'Transactions fetched successfully.',
+    IMEI_CHECKS_FETCHED: 'IMEI checks fetched successfully.',
+    STATS_FETCHED: 'Dashboard stats fetched successfully.',
+  },
   VALIDATION: {
     FAILED: 'Validation failed. Please check your input.',
   },

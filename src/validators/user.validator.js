@@ -79,11 +79,21 @@ const completeKycValidator = [
     .withMessage('Name is required.')
     .isLength({ min: 2, max: 100 })
     .withMessage('Name must be between 2 and 100 characters.'),
+  // `req.aadhaarRequired` is set by loadAadhaarPolicy, mounted ahead of this
+  // chain. While the admin kill switch is off the field becomes optional, so
+  // an individual can complete KYC without an Aadhaar number at all. It is
+  // still format-checked when supplied.
   body('aadhaarNumber')
-    .if((value, { req }) => isIndividual(req))
+    .if((value, { req }) => isIndividual(req) && req.aadhaarRequired !== false)
     .trim()
     .notEmpty()
     .withMessage('Aadhaar number is required.')
+    .matches(AADHAAR_REGEX)
+    .withMessage('Please provide a valid 12-digit Aadhaar number.'),
+  body('aadhaarNumber')
+    .if((value, { req }) => isIndividual(req) && req.aadhaarRequired === false)
+    .optional({ checkFalsy: true })
+    .trim()
     .matches(AADHAAR_REGEX)
     .withMessage('Please provide a valid 12-digit Aadhaar number.'),
 ];

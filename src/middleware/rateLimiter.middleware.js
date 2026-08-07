@@ -33,4 +33,12 @@ const imeiVerificationLimiter = buildLimiter({
   message: 'Too many IMEI verification requests. Please try again after some time.',
 });
 
-module.exports = { generalLimiter, otpLimiter, imeiVerificationLimiter };
+// Admin login is a password endpoint, so it's the one place brute force is
+// worth paying for. Tighter than the OTP limiter and keyed per IP.
+const adminLoginLimiter = buildLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: 'Too many sign-in attempts. Please try again after some time.',
+});
+
+module.exports = { generalLimiter, otpLimiter, imeiVerificationLimiter, adminLoginLimiter };

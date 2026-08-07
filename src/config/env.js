@@ -34,6 +34,16 @@ const env = {
     refreshExpiry: process.env.JWT_REFRESH_EXPIRY || '30d',
   },
 
+  // Admin portal sessions. Falls back to the user access secret so the portal
+  // works without extra config, but admin tokens carry a `typ: "admin"` claim
+  // that the admin middleware requires and user tokens never have — so a user
+  // token can't be replayed against admin routes either way. Set a distinct
+  // ADMIN_JWT_SECRET in production to keep the two blast radii separate.
+  adminJwt: {
+    secret: process.env.ADMIN_JWT_SECRET || process.env.JWT_ACCESS_SECRET,
+    expiry: process.env.ADMIN_JWT_EXPIRY || '12h',
+  },
+
   msg91: {
     authKey: process.env.MSG91_AUTH_KEY,
     flowId: process.env.MSG91_FLOW_ID,

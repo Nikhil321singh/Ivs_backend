@@ -3,6 +3,7 @@ const userController = require('../controllers/user.controller');
 const authenticate = require('../middleware/auth.middleware');
 const validateRequest = require('../middleware/validateRequest.middleware');
 const { uploadProfileImage } = require('../middleware/upload.middleware');
+const loadAadhaarPolicy = require('../middleware/aadhaarPolicy.middleware');
 const {
   completeKycValidator,
   updateProfileValidator,
@@ -109,6 +110,7 @@ router.post(
   '/complete-kyc',
   authenticate,
   uploadProfileImage,
+  loadAadhaarPolicy,
   completeKycValidator,
   validateRequest,
   userController.completeKyc

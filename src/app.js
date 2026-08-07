@@ -1,3 +1,4 @@
+const path = require('path');
 const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
@@ -78,6 +79,11 @@ app.get('/', (req, res) =>
 );
 
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+
+// Admin portal: a static page that talks to /api/v1/admin/*. Served from the
+// API's own origin so the browser's same-origin rules cover it and helmet's
+// default CSP (script-src 'self') allows its JS without any inline scripts.
+app.use('/admin', express.static(path.join(__dirname, 'public', 'admin')));
 
 app.use('/api/v1', generalLimiter, routes);
 

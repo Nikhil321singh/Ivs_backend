@@ -5,6 +5,7 @@ const ivsRoutes = require('./ivs.routes');
 const walletRoutes = require('./wallet.routes');
 const referralRoutes = require('./referral.routes');
 const diagnoseRoutes = require('./diagnose.routes');
+const adminRoutes = require('./admin.routes');
 const PRICING = require('../constants/pricing');
 
 const router = express.Router();
@@ -49,5 +50,6 @@ router.use('/ivs', ivsRoutes);
 router.use('/wallet', walletRoutes);
 router.use('/referral', referralRoutes);
 router.use('/diagnose', diagnoseRoutes);
+router.use('/admin', adminRoutes);
 
 module.exports = router;

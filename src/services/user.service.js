@@ -1,6 +1,7 @@
 const User = require('../models/User.model');
 const referralService = require('./referral.service');
 const { hashAadhaar } = require('../utils/hash.util');
+const settingsService = require('./settings.service');
 const ApiError = require('../utils/apiError');
 const httpStatus = require('../constants/httpStatus');
 const MESSAGES = require('../constants/messages');
@@ -95,11 +96,16 @@ const completeKyc = async (
     // Individual: Aadhaar must already be verified via /user/aadhaar/verify-otp.
     // The submitted aadhaarNumber is checked against that verified value
     // (never persisted in the clear) to confirm it's the same Aadhaar.
-    if (!user.aadhaarVerified) {
-      throw new ApiError(httpStatus.BAD_REQUEST, MESSAGES.USER.KYC_AADHAAR_NOT_VERIFIED);
-    }
-    if (hashAadhaar(aadhaarNumber, userId) !== user.aadhaarNumberHash) {
-      throw new ApiError(httpStatus.BAD_REQUEST, MESSAGES.USER.KYC_AADHAAR_MISMATCH);
+    //
+    // Both checks are skipped while the admin kill switch is off — that is the
+    // whole point of the switch, so KYC can complete when UIDAI is unreachable.
+    if (await settingsService.isAadhaarVerificationEnabled()) {
+      if (!user.aadhaarVerified) {
+        throw new ApiError(httpStatus.BAD_REQUEST, MESSAGES.USER.KYC_AADHAAR_NOT_VERIFIED);
+      }
+      if (hashAadhaar(aadhaarNumber, userId) !== user.aadhaarNumberHash) {
+        throw new ApiError(httpStatus.BAD_REQUEST, MESSAGES.USER.KYC_AADHAAR_MISMATCH);
+      }
     }
 
     user.name = name;
