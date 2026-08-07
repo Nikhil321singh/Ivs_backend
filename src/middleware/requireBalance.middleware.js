@@ -18,7 +18,20 @@ const requireBalance = (featureKey) =>
     const balance = await walletService.getBalance(req.user.id);
 
     if (balance < cost) {
-      throw new ApiError(httpStatus.PAYMENT_REQUIRED, MESSAGES.WALLET.INSUFFICIENT_BALANCE);
+      // Carry the actual numbers in `errors`. Without them the 402 body has no
+      // balance at all, so a client reading it renders 0 and the user is told
+      // they have nothing when they may have most of the cost. Enough here to
+      // show "you have 10 of the 20 tokens this needs" with no extra request.
+      throw new ApiError(httpStatus.PAYMENT_REQUIRED, MESSAGES.WALLET.INSUFFICIENT_BALANCE, [
+        {
+          field: 'balance',
+          message: `This costs ${cost} tokens and your balance is ${balance}.`,
+          balance,
+          required: cost,
+          shortfall: cost - balance,
+          feature: featureKey,
+        },
+      ]);
     }
 
     req.featureKey = featureKey;
