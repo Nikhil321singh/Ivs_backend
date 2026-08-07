@@ -9,7 +9,8 @@
     "dev": "nodemon src/server.js",
     "test": "jest --runInBand",
     "seed:test-user": "node scripts/seed-test-user.js",
-    "seed:admin": "node scripts/seed-admin.js"
+    "seed:admin": "node scripts/seed-admin.js",
+    "seed:credit": "node scripts/seed-credit.js"
   },
   "engines": {
     "node": ">=18.0.0"

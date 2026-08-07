@@ -34,12 +34,14 @@ const verifyImei = asyncHandler(async (req, res) => {
   const cost = PRICING.FEATURES.IVS_CHECK;
   const chargeRef = `IVSCHG-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
 
+  // chargeRef goes in metadata, NOT referenceId: that column is an ObjectId
+  // (it points at a Payment/Referral document), so a string there throws a
+  // Mongoose cast error and surfaces as a 422 on every check.
   await walletService.debit(req.user.id, cost, {
     reason: TXN_REASON.FEATURE_CHARGE,
     referenceType: TXN_REF_TYPE.IVS_CHECK,
-    referenceId: chargeRef,
     idempotencyKey: `${chargeRef}:charge`,
-    metadata: { feature: 'IVS_CHECK' },
+    metadata: { feature: 'IVS_CHECK', chargeRef },
   });
 
   // Never let a refund failure mask the verification outcome — the tokens are
@@ -50,9 +52,10 @@ const verifyImei = asyncHandler(async (req, res) => {
       await walletService.credit(req.user.id, cost, {
         reason: TXN_REASON.REFUND,
         referenceType: TXN_REF_TYPE.IVS_CHECK,
-        referenceId: referenceId || chargeRef,
         idempotencyKey: `${chargeRef}:refund`,
-        metadata: { chargeRef, cause },
+        // Same reason as the debit above — both ids are strings, so they
+        // belong in metadata, where they stay queryable for support.
+        metadata: { chargeRef, cause, verificationRef: referenceId || null },
       });
       return true;
     } catch (err) {
