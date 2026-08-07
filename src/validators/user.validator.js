@@ -19,7 +19,7 @@ const isIndividual = (req) => req.body.userType === USER_TYPE.INDIVIDUAL;
  * Shared fields (phone, email, panNumber) are validated unconditionally; the
  * rest apply only to their type via `.if()`.
  */
-const completeKycValidator = [
+const strictKycChain = [
   body('userType')
     .trim()
     .isIn(Object.values(USER_TYPE))
@@ -79,10 +79,10 @@ const completeKycValidator = [
     .withMessage('Name is required.')
     .isLength({ min: 2, max: 100 })
     .withMessage('Name must be between 2 and 100 characters.'),
-  // `req.aadhaarRequired` is set by loadAadhaarPolicy, mounted ahead of this
-  // chain. While the admin kill switch is off the field becomes optional, so
-  // an individual can complete KYC without an Aadhaar number at all. It is
-  // still format-checked when supplied.
+  // `req.aadhaarRequired` is set by loadPolicy, mounted ahead of this chain.
+  // While the admin kill switch is off the field becomes optional, so an
+  // individual can complete KYC without an Aadhaar number at all. It is still
+  // format-checked when supplied.
   body('aadhaarNumber')
     .if((value, { req }) => isIndividual(req) && req.aadhaarRequired !== false)
     .trim()
@@ -97,6 +97,79 @@ const completeKycValidator = [
     .matches(AADHAAR_REGEX)
     .withMessage('Please provide a valid 12-digit Aadhaar number.'),
 ];
+
+/**
+ * Used instead of strictKycChain while the "KYC required" switch is off:
+ * nothing is mandatory, but anything supplied must still be well-formed, so a
+ * typo'd PAN is caught rather than silently stored.
+ */
+const relaxedKycChain = [
+  body('userType')
+    .optional({ checkFalsy: true })
+    .trim()
+    .isIn(Object.values(USER_TYPE))
+    .withMessage(MESSAGES.USER.USER_TYPE_INVALID),
+  body('name')
+    .optional({ checkFalsy: true })
+    .trim()
+    .isLength({ min: 2, max: 100 })
+    .withMessage('Name must be between 2 and 100 characters.'),
+  body('companyName')
+    .optional({ checkFalsy: true })
+    .trim()
+    .isLength({ min: 2, max: 150 })
+    .withMessage('Company name must be between 2 and 150 characters.'),
+  body('phone')
+    .optional({ checkFalsy: true })
+    .trim()
+    .matches(MOBILE_REGEX)
+    .withMessage('Please provide a valid 10-digit phone number.'),
+  body('email')
+    .optional({ checkFalsy: true })
+    .trim()
+    .isEmail()
+    .withMessage('Please provide a valid email address.')
+    .normalizeEmail(),
+  body('panNumber')
+    .optional({ checkFalsy: true })
+    .trim()
+    .toUpperCase()
+    .matches(PAN_REGEX)
+    .withMessage('Please provide a valid PAN number.'),
+  body('gstNumber')
+    .optional({ checkFalsy: true })
+    .trim()
+    .toUpperCase()
+    .matches(GST_REGEX)
+    .withMessage('Please provide a valid GST number.'),
+  body('aadhaarNumber')
+    .optional({ checkFalsy: true })
+    .trim()
+    .matches(AADHAAR_REGEX)
+    .withMessage('Please provide a valid 12-digit Aadhaar number.'),
+];
+
+/**
+ * Picks the chain at request time. express-validator chains expose `.run(req)`,
+ * so they can be executed imperatively — which is the only way to choose
+ * between two chains based on an async setting. Errors land in the same place,
+ * so validateRequest downstream is unchanged.
+ */
+const completeKycValidator = async (req, res, next) => {
+  const chain = req.kycRequired === false ? relaxedKycChain : strictKycChain;
+
+  try {
+    for (const validator of chain) {
+      // Sequential, not Promise.all: sanitizers mutate req.body and later
+      // `.if()` predicates read it.
+      // eslint-disable-next-line no-await-in-loop
+      await validator.run(req);
+    }
+    next();
+  } catch (err) {
+    next(err);
+  }
+};
 
 const updateProfileValidator = [
   body('name')

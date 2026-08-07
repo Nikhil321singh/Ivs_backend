@@ -8,6 +8,8 @@ const diagnoseRoutes = require('./diagnose.routes');
 // Self-contained admin module — see src/admin/README.md.
 const adminModule = require('../admin');
 const PRICING = require('../constants/pricing');
+const settingsService = require('../services/settings.service');
+const asyncHandler = require('../helpers/asyncHandler');
 
 const router = express.Router();
 
@@ -44,6 +46,29 @@ router.get('/pricing', (req, res) => {
     },
   });
 });
+
+/**
+ * @openapi
+ * /settings:
+ *   get:
+ *     tags: [Settings]
+ *     summary: Public feature flags
+ *     description: Unauthenticated. Lets a client decide which onboarding steps to show — e.g. hide the KYC screen when kycRequired is false, or the Aadhaar step when aadhaarVerificationEnabled is false. Values are operator-controlled from the admin console and change without a deploy.
+ *     responses:
+ *       200: { description: Settings fetched successfully }
+ */
+router.get(
+  '/settings',
+  asyncHandler(async (req, res) => {
+    const settings = await settingsService.getPublic();
+
+    res.status(200).json({
+      success: true,
+      message: 'Settings fetched successfully.',
+      data: settings,
+    });
+  })
+);
 
 router.use('/auth', authRoutes);
 router.use('/user', userRoutes);

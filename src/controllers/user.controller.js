@@ -31,6 +31,12 @@ const completeKyc = asyncHandler(async (req, res) => {
   successResponse(res, httpStatus.OK, MESSAGES.USER.KYC_COMPLETED, { user });
 });
 
+const skipKyc = asyncHandler(async (req, res) => {
+  const user = await userService.skipKyc(req.user.id);
+
+  successResponse(res, httpStatus.OK, MESSAGES.USER.KYC_SKIPPED, { user });
+});
+
 const updateProfile = asyncHandler(async (req, res) => {
   let profileImage;
 
@@ -49,4 +55,11 @@ const getProfile = asyncHandler(async (req, res) => {
   successResponse(res, httpStatus.OK, MESSAGES.USER.PROFILE_FETCHED, { user: req.user });
 });
 
-module.exports = { sendAadhaarOtp, verifyAadhaarOtp, completeKyc, updateProfile, getProfile };
+module.exports = {
+  sendAadhaarOtp,
+  verifyAadhaarOtp,
+  completeKyc,
+  skipKyc,
+  updateProfile,
+  getProfile,
+};

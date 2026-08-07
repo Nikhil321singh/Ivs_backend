@@ -26,6 +26,8 @@ module.exports = {
     PROFILE_UPDATED: 'Profile updated successfully.',
     KYC_ALREADY_COMPLETED: 'KYC has already been completed for this account.',
     KYC_COMPLETED: 'KYC completed successfully.',
+    KYC_SKIPPED: 'KYC skipped successfully.',
+    KYC_SKIP_NOT_ALLOWED: 'KYC is required and cannot be skipped.',
     KYC_AADHAAR_NOT_VERIFIED: 'Please complete Aadhaar authentication before submitting KYC.',
     KYC_AADHAAR_MISMATCH:
       'The Aadhaar number provided does not match the one verified via OTP for this account.',

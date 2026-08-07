@@ -1,5 +1,10 @@
 const Setting = require('../models/Setting.model');
-const { SETTING_DEFINITIONS, DEFAULTS, SETTING_KEYS } = require('../constants/settings');
+const {
+  SETTING_DEFINITIONS,
+  DEFAULTS,
+  SETTING_KEYS,
+  PUBLIC_KEYS,
+} = require('../constants/settings');
 
 /**
  * Reads runtime settings through a short-lived in-process cache.
@@ -85,13 +90,26 @@ const update = async (patch, adminId = null) => {
   return { applied, settings: await getAll() };
 };
 
-/** Convenience reader for the Aadhaar kill switch — the hot-path caller. */
+/** Convenience readers for the kill switches — the hot-path callers. */
 const isAadhaarVerificationEnabled = () => get(SETTING_KEYS.AADHAAR_VERIFICATION_ENABLED);
+const isKycRequired = () => get(SETTING_KEYS.KYC_REQUIRED);
+
+/**
+ * The subset safe to hand to any caller (see `public` in constants/settings.js).
+ * Backs the unauthenticated GET /api/v1/settings that clients read to decide
+ * whether to show the KYC and Aadhaar screens at all.
+ */
+const getPublic = async () => {
+  const all = await getAll();
+  return Object.fromEntries(PUBLIC_KEYS.map((key) => [key, all[key]]));
+};
 
 module.exports = {
   getAll,
   get,
+  getPublic,
   update,
   invalidateCache,
   isAadhaarVerificationEnabled,
+  isKycRequired,
 };

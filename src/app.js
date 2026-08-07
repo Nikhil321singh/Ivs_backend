@@ -35,9 +35,10 @@ app.use(helmet());
 const allowedOrigins = [
   env.clientUrl,
   env.adminUrl,
-  'http://localhost:5713', // Vite dev frontend
+  'http://localhost:5173', // Vite dev server default
+  'http://localhost:5713', // kept: pre-existing entry, likely a typo for 5173
   'http://localhost:3000',
-  'http://localhost:8080', // admin console dev server default
+  'http://localhost:8080',
   'http://localhost',
   'https://localhost',
   'capacitor://localhost',

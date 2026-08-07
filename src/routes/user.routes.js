@@ -3,7 +3,7 @@ const userController = require('../controllers/user.controller');
 const authenticate = require('../middleware/auth.middleware');
 const validateRequest = require('../middleware/validateRequest.middleware');
 const { uploadProfileImage } = require('../middleware/upload.middleware');
-const loadAadhaarPolicy = require('../middleware/aadhaarPolicy.middleware');
+const loadPolicy = require('../middleware/policy.middleware');
 const {
   completeKycValidator,
   updateProfileValidator,
@@ -110,11 +110,26 @@ router.post(
   '/complete-kyc',
   authenticate,
   uploadProfileImage,
-  loadAadhaarPolicy,
+  loadPolicy,
   completeKycValidator,
   validateRequest,
   userController.completeKyc
 );
+
+/**
+ * @openapi
+ * /user/skip-kyc:
+ *   post:
+ *     tags: [User]
+ *     summary: Finish onboarding without submitting KYC
+ *     description: Only available while the admin "KYC required" setting is off — otherwise returns 403. Marks the account complete without storing any identity data. Check GET /settings to know whether to offer this.
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: KYC skipped }
+ *       403: { description: KYC is required and cannot be skipped }
+ *       409: { description: KYC already completed }
+ */
+router.post('/skip-kyc', authenticate, userController.skipKyc);
 
 /**
  * @openapi

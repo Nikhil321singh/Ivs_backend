@@ -76,30 +76,45 @@ const completeKyc = async (
     throw new ApiError(httpStatus.CONFLICT, MESSAGES.USER.KYC_ALREADY_COMPLETED);
   }
 
+  // While the "KYC required" switch is off the validator lets every field
+  // through empty, so assign only what was actually supplied rather than
+  // writing undefined over existing values. In strict mode the validator has
+  // already guaranteed presence, so these guards change nothing there.
+  const kycRequired = await settingsService.isKycRequired();
+  const set = (field, value) => {
+    if (value !== undefined && value !== null && value !== '') user[field] = value;
+  };
+
   await assertFieldNotTaken('email', email, userId, MESSAGES.USER.EMAIL_ALREADY_EXISTS);
   await assertFieldNotTaken('panNumber', panNumber, userId, MESSAGES.USER.PAN_ALREADY_EXISTS);
 
-  user.userType = userType;
-  user.phone = phone;
-  user.email = email;
-  user.panNumber = panNumber;
+  // Falls back to individual so a body with no userType still resolves to a
+  // valid shape when KYC is optional.
+  const resolvedType = userType || user.userType || USER_TYPE.INDIVIDUAL;
 
-  if (userType === USER_TYPE.VENDOR) {
+  user.userType = resolvedType;
+  set('phone', phone);
+  set('email', email);
+  set('panNumber', panNumber);
+
+  if (resolvedType === USER_TYPE.VENDOR) {
     await assertFieldNotTaken('gstNumber', gstNumber, userId, MESSAGES.USER.GST_ALREADY_EXISTS);
 
-    user.companyName = companyName;
+    set('companyName', companyName);
     user.isGstRegistered = true;
-    user.gstNumber = gstNumber;
-    user.profileImage = profileImage.url;
-    user.profileImagePublicId = profileImage.publicId;
+    set('gstNumber', gstNumber);
+    if (profileImage) {
+      user.profileImage = profileImage.url;
+      user.profileImagePublicId = profileImage.publicId;
+    }
   } else {
     // Individual: Aadhaar must already be verified via /user/aadhaar/verify-otp.
     // The submitted aadhaarNumber is checked against that verified value
     // (never persisted in the clear) to confirm it's the same Aadhaar.
     //
-    // Both checks are skipped while the admin kill switch is off — that is the
-    // whole point of the switch, so KYC can complete when UIDAI is unreachable.
-    if (await settingsService.isAadhaarVerificationEnabled()) {
+    // Skipped when either switch is off: no Aadhaar means nothing to match, and
+    // optional KYC cannot demand a verified Aadhaar to complete.
+    if (kycRequired && (await settingsService.isAadhaarVerificationEnabled())) {
       if (!user.aadhaarVerified) {
         throw new ApiError(httpStatus.BAD_REQUEST, MESSAGES.USER.KYC_AADHAAR_NOT_VERIFIED);
       }
@@ -108,13 +123,41 @@ const completeKyc = async (
       }
     }
 
-    user.name = name;
+    set('name', name);
     user.isGstRegistered = false;
     // Leave gstNumber unset (not null) — see the sparse-index comment in
     // User.model.js for why null would collide across individuals.
     user.gstNumber = undefined;
   }
 
+  user.kycCompleted = true;
+
+  await user.save();
+
+  return user;
+};
+
+/**
+ * Marks onboarding done without collecting any KYC data.
+ *
+ * Only permitted while the "KYC required" switch is off — otherwise it would be
+ * a way for any authenticated user to bypass KYC entirely, which is the one
+ * thing this endpoint must not become. Writes nothing but userType and the
+ * completion flag, so no partial or fabricated identity data is stored.
+ */
+const skipKyc = async (userId) => {
+  const user = await getUserById(userId);
+
+  if (await settingsService.isKycRequired()) {
+    throw new ApiError(httpStatus.FORBIDDEN, MESSAGES.USER.KYC_SKIP_NOT_ALLOWED);
+  }
+
+  if (user.kycCompleted) {
+    throw new ApiError(httpStatus.CONFLICT, MESSAGES.USER.KYC_ALREADY_COMPLETED);
+  }
+
+  user.userType = user.userType || USER_TYPE.INDIVIDUAL;
+  user.isGstRegistered = false;
   user.kycCompleted = true;
 
   await user.save();
@@ -144,5 +187,6 @@ module.exports = {
   findOrCreateUserByMobile,
   getUserById,
   completeKyc,
+  skipKyc,
   updateProfile,
 };
