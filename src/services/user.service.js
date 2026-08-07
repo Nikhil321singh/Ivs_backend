@@ -1,6 +1,6 @@
 const User = require('../models/User.model');
 const referralService = require('./referral.service');
-const { hashToken } = require('../utils/hash.util');
+const { hashAadhaar } = require('../utils/hash.util');
 const ApiError = require('../utils/apiError');
 const httpStatus = require('../constants/httpStatus');
 const MESSAGES = require('../constants/messages');
@@ -98,7 +98,7 @@ const completeKyc = async (
     if (!user.aadhaarVerified) {
       throw new ApiError(httpStatus.BAD_REQUEST, MESSAGES.USER.KYC_AADHAAR_NOT_VERIFIED);
     }
-    if (hashToken(aadhaarNumber) !== user.aadhaarNumberHash) {
+    if (hashAadhaar(aadhaarNumber, userId) !== user.aadhaarNumberHash) {
       throw new ApiError(httpStatus.BAD_REQUEST, MESSAGES.USER.KYC_AADHAAR_MISMATCH);
     }
 

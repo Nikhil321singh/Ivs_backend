@@ -1,7 +1,7 @@
 const AadhaarOtp = require('../models/AadhaarOtp.model');
 const User = require('../models/User.model');
 const provider = require('./providers/aadhaarProvider');
-const { hashToken } = require('../utils/hash.util');
+const { hashAadhaar } = require('../utils/hash.util');
 const ApiError = require('../utils/apiError');
 const httpStatus = require('../constants/httpStatus');
 const MESSAGES = require('../constants/messages');
@@ -26,7 +26,7 @@ const sendAadhaarOtp = async (userId, aadhaarNumber) => {
     throw new ApiError(httpStatus.CONFLICT, MESSAGES.USER.AADHAAR_ALREADY_VERIFIED);
   }
 
-  const aadhaarNumberHash = hashToken(aadhaarNumber);
+  const aadhaarNumberHash = hashAadhaar(aadhaarNumber, userId);
   const existing = await User.findOne({ aadhaarNumberHash, _id: { $ne: userId } });
 
   if (existing) {
@@ -65,7 +65,7 @@ const verifyAadhaarOtp = async (userId, otp) => {
     throw new ApiError(httpStatus.BAD_REQUEST, MESSAGES.USER.AADHAAR_OTP_INVALID);
   }
 
-  const aadhaarNumberHash = hashToken(session.aadhaarNumber);
+  const aadhaarNumberHash = hashAadhaar(session.aadhaarNumber, userId);
   const existing = await User.findOne({ aadhaarNumberHash, _id: { $ne: userId } });
 
   if (existing) {
