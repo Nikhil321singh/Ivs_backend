@@ -6,3 +6,6 @@ npm-debug.log*
 # Uploaded files (keep the folder, ignore its contents)
 src/uploads/profile/*
 !src/uploads/profile/.gitkeep
+
+# PM2 logs
+logs/
