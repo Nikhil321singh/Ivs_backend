@@ -1,8 +1,14 @@
-# Admin module
+# Admin module (API half)
 
-Self-contained admin console: a static portal served at `/admin` backed by
-`/api/v1/admin/*`. Kept in its own folder so it can be lifted into a separate
-repository without unpicking it from the main API.
+Backend for the admin console: `/api/v1/admin/*`. Kept in its own folder so it
+can be lifted into a separate service without unpicking it from the main API.
+
+**The console UI is not here.** It lives in its own repository,
+[`ivs-admin-frontend`](https://github.com/Nikhil321singh/ivs-admin-frontend),
+and is deployed as a static site. Because it is cross-origin to this API, its
+origin must be allow-listed via the `ADMIN_URL` env var — see the CORS block in
+`src/app.js`. Without it the console gets a browser CORS failure on every
+request while this API answers perfectly well.
 
 ```
 src/admin/
@@ -13,21 +19,33 @@ src/admin/
 ├── routes/               # /api/v1/admin/* + OpenAPI annotations
 ├── services/             # login, listings, dashboard stats
 ├── utils/                # scrypt password hashing
-├── validators/           # login + settings-patch validation
-└── public/               # the portal UI (HTML/CSS/JS, no build step)
+└── validators/           # login + settings-patch validation
 ```
 
 ## How it attaches to the core API
 
-Exactly two lines, both consuming `src/admin/index.js`:
+One line, consuming `src/admin/index.js`:
 
 | File | Line |
 | --- | --- |
 | `src/routes/index.js` | `router.use('/admin', adminModule.router)` |
-| `src/app.js` | `app.use('/admin', express.static(adminModule.publicDir))` |
 
 Nothing else in the app reaches into `src/admin/**`. Keep it that way — it is
 what makes extraction a copy rather than a refactor.
+
+## Endpoints
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| POST | `/api/v1/admin/login` | email + password → admin JWT |
+| GET | `/api/v1/admin/me` | current admin |
+| GET | `/api/v1/admin/stats` | dashboard counters |
+| GET | `/api/v1/admin/settings` | current values + definitions for the UI |
+| PATCH | `/api/v1/admin/settings` | partial update, live in ~15s |
+| GET | `/api/v1/admin/transactions` | wallet ledger, paged/filtered |
+| GET | `/api/v1/admin/imei-checks` | CEIR audit log, paged/filtered |
+
+Create the first account with `npm run seed:admin` from the repo root.
 
 ## What it depends on from core
 
@@ -66,10 +84,12 @@ a message queue or webhook between them would buy nothing over that cache.
 2. Copy the shared plumbing and data files listed above.
 3. Rewrite the `../../` requires — they are the only paths that reach outside
    this folder, so `grep -rn "require('\.\./\.\./" src/` finds all of them.
-4. Add an entry point that mounts `routes/admin.routes.js` and serves `public/`.
+4. Add an entry point that mounts `routes/admin.routes.js`.
 5. Point `MONGODB_URI` at the same database as the API.
 6. Set `ADMIN_JWT_SECRET` — no longer able to fall back to `JWT_ACCESS_SECRET`.
 7. Move `scripts/seed-admin.js` across.
+8. Repoint `apiBaseUrl` in the frontend repo's `src/config.js` at the new
+   service, and set `ADMIN_URL` there for CORS.
 
 ## Adding a setting
 

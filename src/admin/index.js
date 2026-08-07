@@ -1,5 +1,3 @@
-const path = require('path');
-
 /**
  * The admin module's ONLY integration point with the core API.
  *
@@ -9,14 +7,14 @@ const path = require('path');
  * src/admin/** directly, and admin code should depend on core only through the
  * shared modules listed in that README.
  *
- * Consumed in two places:
+ * The console UI is NOT here — it lives in its own repo (ivs-admin-frontend)
+ * and is deployed as a static site. This module is the API half only, so the
+ * console's origin must be allowed through CORS via the ADMIN_URL env var.
+ *
+ * Consumed in one place:
  *   src/routes/index.js  ->  router.use('/admin', adminModule.router)
- *   src/app.js           ->  express.static(adminModule.publicDir)
  */
 module.exports = {
   // Mounted under /api/v1/admin.
   router: require('./routes/admin.routes'),
-
-  // The portal's static assets, served at /admin.
-  publicDir: path.join(__dirname, 'public'),
 };

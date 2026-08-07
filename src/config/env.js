@@ -27,6 +27,11 @@ const env = {
 
   clientUrl: process.env.CLIENT_URL || 'http://localhost:3000',
 
+  // Origin of the admin console (the separate ivs-admin-frontend static site).
+  // Added to the CORS allow-list in app.js — the console cannot talk to this
+  // API without it. No trailing slash: it is matched against the Origin header.
+  adminUrl: process.env.ADMIN_URL || null,
+
   jwt: {
     accessSecret: process.env.JWT_ACCESS_SECRET,
     accessExpiry: process.env.JWT_ACCESS_EXPIRY || '1h',

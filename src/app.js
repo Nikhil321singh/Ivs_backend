@@ -7,7 +7,6 @@ const swaggerUi = require('swagger-ui-express');
 const env = require('./config/env');
 const swaggerSpec = require('./docs/swagger');
 const routes = require('./routes');
-const adminModule = require('./admin');
 const walletController = require('./controllers/wallet.controller');
 const { generalLimiter } = require('./middleware/rateLimiter.middleware');
 const notFoundHandler = require('./middleware/notFound.middleware');
@@ -29,14 +28,20 @@ app.use(helmet());
 // http://localhost (no port); iOS/other configs use capacitor://localhost or
 // https://localhost. Requests with no Origin (curl, server-to-server, adb) are
 // allowed through.
+// The admin console is a separate static site (ivs-admin-frontend repo), so it
+// is cross-origin to this API and must be allow-listed explicitly via
+// ADMIN_URL. Without it every console request is blocked by the browser even
+// though the API answers correctly — a login that silently does nothing.
 const allowedOrigins = [
   env.clientUrl,
+  env.adminUrl,
   'http://localhost:5713', // Vite dev frontend
   'http://localhost:3000',
+  'http://localhost:8080', // admin console dev server default
   'http://localhost',
   'https://localhost',
   'capacitor://localhost',
-];
+].filter(Boolean);
 
 // Per-request CORS: besides the static allow-list, always accept requests whose
 // Origin matches the host actually serving this request. That covers Swagger
@@ -79,12 +84,6 @@ app.get('/', (req, res) =>
 );
 
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
-
-// Admin portal: a static page that talks to /api/v1/admin/*. Served from the
-// API's own origin so the browser's same-origin rules cover it and helmet's
-// default CSP (script-src 'self') allows its JS without any inline scripts.
-// Assets live inside the self-contained admin module — see src/admin/README.md.
-app.use('/admin', express.static(adminModule.publicDir));
 
 app.use('/api/v1', generalLimiter, routes);
 
