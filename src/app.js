@@ -34,7 +34,7 @@ app.use(helmet());
 // though the API answers correctly — a login that silently does nothing.
 const allowedOrigins = [
   env.clientUrl,
-  env.adminUrl,
+  ...env.adminUrls,
   'http://localhost:5173', // Vite dev server default
   'http://localhost:5713', // kept: pre-existing entry, likely a typo for 5173
   'http://localhost:3000',

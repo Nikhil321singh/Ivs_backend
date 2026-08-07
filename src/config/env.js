@@ -27,10 +27,17 @@ const env = {
 
   clientUrl: process.env.CLIENT_URL || 'http://localhost:3000',
 
-  // Origin of the admin console (the separate ivs-admin-frontend static site).
-  // Added to the CORS allow-list in app.js — the console cannot talk to this
-  // API without it. No trailing slash: it is matched against the Origin header.
-  adminUrl: process.env.ADMIN_URL || null,
+  // Origin(s) of the admin console (the separate ivs-admin-frontend site).
+  // Added to the CORS allow-list in app.js. Comma-separated, because Vercel
+  // gives every preview deployment its own hostname, so production and a
+  // preview need to be allowed at once:
+  //   ADMIN_URL=https://ivs-admin-frontend.vercel.app,https://ivs-admin-frontend-git-dev-you.vercel.app
+  // Origins only — scheme + host, no path and no trailing slash, since these
+  // are compared against the browser's Origin header verbatim.
+  adminUrls: (process.env.ADMIN_URL || '')
+    .split(',')
+    .map((value) => value.trim().replace(/\/+$/, ''))
+    .filter(Boolean),
 
   jwt: {
     accessSecret: process.env.JWT_ACCESS_SECRET,
