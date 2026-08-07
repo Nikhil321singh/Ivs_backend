@@ -15,6 +15,30 @@ const MESSAGES = require('../../constants/messages');
 
 const hasPaysprintConfig = () => !!env.paysprint.partnerId && !!env.paysprint.authorisedKey;
 
+// --- Test mode -------------------------------------------------------------
+// When AADHAAR_TEST_MODE=true, the sandbox Aadhaar numbers in
+// AADHAAR_TEST_NUMBERS resolve entirely in-process: sendOtp mints a refId
+// carrying the TEST_REF_PREFIX and verifyOtp accepts AADHAAR_TEST_OTP for it.
+// Paysprint is never contacted, so this also works before its credentials are
+// provisioned. Intercepting here (rather than in aadhaar.service.js) means every
+// caller — account KYC send/verify AND the stateless customer/IVS pair — is
+// covered by one branch, and the downstream aadhaarVerified + aadhaarNumberHash
+// writes in completeKyc still run exactly as they do in production.
+// Any Aadhaar not on the list falls through to the real provider untouched.
+const TEST_REF_PREFIX = 'TESTREF-';
+
+const isTestAadhaar = (aadhaarNumber) =>
+  env.aadhaarTest.enabled && env.aadhaarTest.numbers.includes(String(aadhaarNumber));
+
+// Guarded by `enabled` too, so flipping the flag off immediately invalidates any
+// test refId still held by a client.
+const isTestRef = (refId) =>
+  env.aadhaarTest.enabled && typeof refId === 'string' && refId.startsWith(TEST_REF_PREFIX);
+
+// Deliberately does NOT embed the Aadhaar number — in the customer/IVS flow the
+// refId round-trips through the client.
+const makeTestRef = () => `${TEST_REF_PREFIX}${Date.now()}${Math.floor(Math.random() * 1000)}`;
+
 const assertConfigured = () => {
   if (!hasPaysprintConfig()) {
     throw new ApiError(httpStatus.INTERNAL_SERVER_ERROR, MESSAGES.USER.AADHAAR_PROVIDER_CONFIG_MISSING);
@@ -75,6 +99,13 @@ const logProviderError = (action, details) => {
 /* eslint-enable no-console */
 
 const sendOtp = async (aadhaarNumber) => {
+  // Before assertConfigured, so test mode works without Paysprint credentials.
+  if (isTestAadhaar(aadhaarNumber)) {
+    // eslint-disable-next-line no-console
+    console.warn(`[Aadhaar Provider] TEST MODE: skipping provider sendOtp for ${aadhaarNumber}`);
+    return { refId: makeTestRef() };
+  }
+
   assertConfigured();
 
   let response;
@@ -118,6 +149,13 @@ const sendOtp = async (aadhaarNumber) => {
 };
 
 const verifyOtp = async (refId, otp) => {
+  if (isTestRef(refId)) {
+    const success = String(otp) === env.aadhaarTest.otp;
+    // eslint-disable-next-line no-console
+    console.warn(`[Aadhaar Provider] TEST MODE: local verifyOtp, success=${success}`);
+    return { success };
+  }
+
   assertConfigured();
 
   let response;

@@ -55,6 +55,20 @@ const env = {
     authorisedKey: process.env.PAYSPRINT_AUTHORISED_KEY,
   },
 
+  // Aadhaar test mode: lets a fixed list of sandbox Aadhaar numbers verify with
+  // a fixed OTP without calling Paysprint/UIDAI at all. Exists so the mobile and
+  // web clients can exercise the full KYC flow before provider credentials are
+  // live. OFF unless AADHAAR_TEST_MODE is exactly "true" — see the startup
+  // warning in server.js, and never enable it on a real production deployment.
+  aadhaarTest: {
+    enabled: process.env.AADHAAR_TEST_MODE === 'true',
+    otp: process.env.AADHAAR_TEST_OTP || '123456',
+    numbers: (process.env.AADHAAR_TEST_NUMBERS || '999999990019')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean),
+  },
+
   // IMEI blocklist verification via C-DOT's CEIR (Sanchar Saathi) API.
   // Same lazy-validation approach as Paysprint above.
   cdotIvs: {

@@ -5,6 +5,14 @@ const app = require('./app');
 let server;
 
 const start = async () => {
+  if (env.aadhaarTest.enabled) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `WARNING: AADHAAR_TEST_MODE is ON. Aadhaar numbers [${env.aadhaarTest.numbers.join(', ')}] ` +
+        'verify locally with a fixed OTP and never reach UIDAI. Unset AADHAAR_TEST_MODE before going live.'
+    );
+  }
+
   await connectDB();
 
   server = app.listen(env.port, () => {
