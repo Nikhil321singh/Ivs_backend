@@ -5,6 +5,7 @@ const requireBalance = require('../middleware/requireBalance.middleware');
 const validateRequest = require('../middleware/validateRequest.middleware');
 const { imeiVerificationLimiter } = require('../middleware/rateLimiter.middleware');
 const {
+  normalizeImeiBody,
   verifyImeiValidator,
   customerAadhaarSendOtpValidator,
   customerAadhaarVerifyOtpValidator,
@@ -28,8 +29,9 @@ const router = express.Router();
  *             type: object
  *             required: [imei1]
  *             properties:
- *               imei1: { type: string, example: "123456789012345" }
+ *               imei1: { type: string, example: "355301083783251" }
  *               imei2: { type: string, example: "123456789012346" }
+ *               imei: { type: string, description: "Alias for imei1, for single-IMEI clients. Ignored if imei1 is also sent." }
  *               deviceModel: { type: string, example: "Galaxy S23" }
  *     responses:
  *       200: { description: IMEI verification completed }
@@ -40,6 +42,7 @@ router.post(
   authenticate,
   requireBalance('IVS_CHECK'),
   imeiVerificationLimiter,
+  normalizeImeiBody,
   verifyImeiValidator,
   validateRequest,
   ivsController.verifyImei
