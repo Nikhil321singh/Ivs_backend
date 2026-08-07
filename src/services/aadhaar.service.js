@@ -31,19 +31,24 @@ const sendAadhaarOtp = async (userId, aadhaarNumber) => {
     throw new ApiError(httpStatus.CONFLICT, MESSAGES.USER.AADHAAR_ALREADY_VERIFIED);
   }
 
-  // Kill switch off: succeed without contacting the provider. The session is
-  // still recorded so verifyAadhaarOtp can write the real (masked) number, and
-  // existing clients keep working unchanged — they just never see a failure.
+  // Kill switch off: succeed without contacting the provider. Record a session
+  // only when the client actually sent a number — `aadhaarNumber` is required
+  // on the schema, so upserting undefined would throw a Mongoose validation
+  // error and surface as a 500. A client that has stopped collecting Aadhaar
+  // (the expected case while the switch is off) simply gets a 200 and no
+  // session; verifyAadhaarOtp handles that by returning the user untouched.
   if (!(await settingsService.isAadhaarVerificationEnabled())) {
-    await AadhaarOtp.findOneAndUpdate(
-      { userId },
-      {
-        aadhaarNumber,
-        refId: DISABLED_REF,
-        expiresAt: new Date(Date.now() + AADHAAR_OTP_EXPIRY_MINUTES * 60 * 1000),
-      },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
-    );
+    if (aadhaarNumber) {
+      await AadhaarOtp.findOneAndUpdate(
+        { userId },
+        {
+          aadhaarNumber,
+          refId: DISABLED_REF,
+          expiresAt: new Date(Date.now() + AADHAAR_OTP_EXPIRY_MINUTES * 60 * 1000),
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
+    }
     return;
   }
 

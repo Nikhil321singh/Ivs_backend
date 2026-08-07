@@ -38,6 +38,7 @@ const router = express.Router();
 router.post(
   '/aadhaar/send-otp',
   authenticate,
+  loadPolicy,
   sendAadhaarOtpValidator,
   validateRequest,
   userController.sendAadhaarOtp
@@ -68,6 +69,7 @@ router.post(
 router.post(
   '/aadhaar/verify-otp',
   authenticate,
+  loadPolicy,
   verifyAadhaarOtpValidator,
   validateRequest,
   userController.verifyAadhaarOtp

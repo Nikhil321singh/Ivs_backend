@@ -190,17 +190,29 @@ const updateProfileValidator = [
     .normalizeEmail(),
 ];
 
+// Same reasoning as the customer/IVS pair in ivs.validator.js: while the
+// Aadhaar kill switch is off these endpoints succeed without contacting UIDAI,
+// so requiring a well-formed Aadhaar or OTP would 422 a client that has
+// correctly stopped collecting them. Format is still enforced when supplied.
 const sendAadhaarOtpValidator = [
   body('aadhaarNumber')
+    .if((value, { req }) => req.aadhaarRequired !== false)
     .trim()
     .notEmpty()
     .withMessage('Aadhaar number is required.')
+    .matches(AADHAAR_REGEX)
+    .withMessage('Please provide a valid 12-digit Aadhaar number.'),
+  body('aadhaarNumber')
+    .if((value, { req }) => req.aadhaarRequired === false)
+    .optional({ checkFalsy: true })
+    .trim()
     .matches(AADHAAR_REGEX)
     .withMessage('Please provide a valid 12-digit Aadhaar number.'),
 ];
 
 const verifyAadhaarOtpValidator = [
   body('otp')
+    .if((value, { req }) => req.aadhaarRequired !== false)
     .trim()
     .notEmpty()
     .withMessage('OTP is required.')

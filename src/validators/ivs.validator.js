@@ -41,21 +41,36 @@ const verifyImeiValidator = [
 ];
 
 // Customer Aadhaar OTP (IMEI flow).
+//
+// `req.aadhaarRequired` comes from loadPolicy, mounted ahead of these chains.
+// While the kill switch is off the service short-circuits without contacting
+// UIDAI, so demanding a well-formed Aadhaar or OTP here would reject clients
+// that have (correctly) stopped collecting them — a 422 on a step that is
+// supposed to be disabled. Values are still format-checked when supplied.
 const customerAadhaarSendOtpValidator = [
   body('aadhaarNumber')
+    .if((value, { req }) => req.aadhaarRequired !== false)
     .trim()
     .notEmpty()
     .withMessage('Aadhaar number is required.')
+    .matches(AADHAAR_REGEX)
+    .withMessage('Please provide a valid 12-digit Aadhaar number.'),
+  body('aadhaarNumber')
+    .if((value, { req }) => req.aadhaarRequired === false)
+    .optional({ checkFalsy: true })
+    .trim()
     .matches(AADHAAR_REGEX)
     .withMessage('Please provide a valid 12-digit Aadhaar number.'),
 ];
 
 const customerAadhaarVerifyOtpValidator = [
   body('refId')
+    .if((value, { req }) => req.aadhaarRequired !== false)
     .trim()
     .notEmpty()
     .withMessage('refId is required.'),
   body('otp')
+    .if((value, { req }) => req.aadhaarRequired !== false)
     .trim()
     .notEmpty()
     .withMessage('OTP is required.')

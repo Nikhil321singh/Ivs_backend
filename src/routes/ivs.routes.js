@@ -4,6 +4,7 @@ const authenticate = require('../middleware/auth.middleware');
 const requireBalance = require('../middleware/requireBalance.middleware');
 const validateRequest = require('../middleware/validateRequest.middleware');
 const { imeiVerificationLimiter } = require('../middleware/rateLimiter.middleware');
+const loadPolicy = require('../middleware/policy.middleware');
 const {
   normalizeImeiBody,
   verifyImeiValidator,
@@ -72,6 +73,7 @@ router.post(
 router.post(
   '/aadhaar/send-otp',
   authenticate,
+  loadPolicy,
   customerAadhaarSendOtpValidator,
   validateRequest,
   ivsController.sendCustomerAadhaarOtp
@@ -102,6 +104,7 @@ router.post(
 router.post(
   '/aadhaar/verify-otp',
   authenticate,
+  loadPolicy,
   customerAadhaarVerifyOtpValidator,
   validateRequest,
   ivsController.verifyCustomerAadhaarOtp
