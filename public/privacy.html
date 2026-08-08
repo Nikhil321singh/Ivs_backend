@@ -1,0 +1,644 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="Privacy policy for the IVS mobile application.">
+<meta name="robots" content="index, follow">
+<title>IVS — Privacy Policy</title>
+</head>
+<body>
+<style>
+  :root {
+    --ground: #eef1f6;
+    --surface: #ffffff;
+    --surface-2: #f7f9fc;
+    --ink: #101720;
+    --ink-2: #3d4855;
+    --ink-3: #6b7686;
+    --rule: #dde3ec;
+    --rule-soft: #e8edf4;
+    --accent: #1d4e89;
+    --accent-soft: rgba(29, 78, 137, 0.08);
+    --flag: #8a4b0f;
+    --flag-soft: rgba(138, 75, 15, 0.09);
+    --good: #16643f;
+    --good-soft: rgba(22, 100, 63, 0.09);
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0c1117;
+      --surface: #141b24;
+      --surface-2: #19212b;
+      --ink: #e7edf5;
+      --ink-2: #b3bfcd;
+      --ink-3: #7d8a99;
+      --rule: #2a3441;
+      --rule-soft: #212a35;
+      --accent: #7aaae3;
+      --accent-soft: rgba(122, 170, 227, 0.13);
+      --flag: #dfa065;
+      --flag-soft: rgba(223, 160, 101, 0.13);
+      --good: #5cb98a;
+      --good-soft: rgba(92, 185, 138, 0.13);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #0c1117;
+    --surface: #141b24;
+    --surface-2: #19212b;
+    --ink: #e7edf5;
+    --ink-2: #b3bfcd;
+    --ink-3: #7d8a99;
+    --rule: #2a3441;
+    --rule-soft: #212a35;
+    --accent: #7aaae3;
+    --accent-soft: rgba(122, 170, 227, 0.13);
+    --flag: #dfa065;
+    --flag-soft: rgba(223, 160, 101, 0.13);
+    --good: #5cb98a;
+    --good-soft: rgba(92, 185, 138, 0.13);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 17px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .sheet {
+    max-width: 1080px;
+    margin: 0 auto;
+    background: var(--surface);
+    border-left: 1px solid var(--rule);
+    border-right: 1px solid var(--rule);
+    min-height: 100vh;
+  }
+
+  /* ---------- masthead ---------- */
+  .masthead {
+    padding: 56px clamp(22px, 5vw, 72px) 34px;
+    border-bottom: 2px solid var(--ink);
+  }
+  .eyebrow {
+    font-family: var(--sans);
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 14px;
+  }
+  h1 {
+    font-family: var(--sans);
+    font-size: clamp(30px, 5vw, 44px);
+    font-weight: 680;
+    letter-spacing: -0.025em;
+    line-height: 1.1;
+    margin: 0 0 16px;
+    text-wrap: balance;
+  }
+  .standfirst {
+    font-size: 18.5px;
+    color: var(--ink-2);
+    margin: 0;
+    max-width: 62ch;
+  }
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 34px;
+    margin-top: 28px;
+    font-family: var(--sans);
+    font-size: 13px;
+  }
+  .meta div { display: flex; flex-direction: column; gap: 2px; }
+  .meta dt {
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .meta dd { margin: 0; color: var(--ink); font-variant-numeric: tabular-nums; }
+
+  /* ---------- body layout ---------- */
+  .columns {
+    display: grid;
+    grid-template-columns: 208px minmax(0, 1fr);
+    gap: clamp(28px, 5vw, 60px);
+    padding: 40px clamp(22px, 5vw, 72px) 72px;
+    align-items: start;
+  }
+  nav.toc {
+    position: sticky;
+    top: 28px;
+    font-family: var(--sans);
+    font-size: 13px;
+    border-left: 2px solid var(--rule);
+    padding-left: 16px;
+  }
+  nav.toc p {
+    margin: 0 0 12px;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  nav.toc ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; }
+  nav.toc a {
+    color: var(--ink-2);
+    text-decoration: none;
+    display: block;
+    line-height: 1.35;
+  }
+  nav.toc a:hover, nav.toc a:focus-visible { color: var(--accent); }
+
+  article { max-width: 68ch; }
+  article > section { margin-bottom: 44px; scroll-margin-top: 24px; }
+
+  h2 {
+    font-family: var(--sans);
+    font-size: 20px;
+    font-weight: 660;
+    letter-spacing: -0.015em;
+    line-height: 1.25;
+    margin: 0 0 14px;
+    padding-top: 4px;
+    display: flex;
+    gap: 12px;
+    align-items: baseline;
+    text-wrap: balance;
+  }
+  h2 .num {
+    font-size: 12.5px;
+    font-weight: 700;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+    flex: none;
+    padding-top: 2px;
+  }
+  h3 {
+    font-family: var(--sans);
+    font-size: 15px;
+    font-weight: 660;
+    margin: 26px 0 8px;
+    color: var(--ink);
+  }
+  p { margin: 0 0 14px; }
+  article ul { margin: 0 0 14px; padding-left: 20px; }
+  article li { margin-bottom: 7px; }
+  a { color: var(--accent); }
+  strong { font-weight: 600; }
+  code {
+    font-family: var(--mono);
+    font-size: 0.87em;
+    background: var(--surface-2);
+    border: 1px solid var(--rule-soft);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+
+  /* ---------- summary table ---------- */
+  .scroller { overflow-x: auto; margin-bottom: 16px; }
+  table { border-collapse: collapse; width: 100%; font-family: var(--sans); font-size: 14px; }
+  th, td {
+    text-align: left;
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--rule-soft);
+    vertical-align: top;
+  }
+  th {
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    border-bottom: 1px solid var(--rule);
+    white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: 0; }
+
+  /* ---------- callouts ---------- */
+  .note {
+    border-left: 3px solid var(--accent);
+    background: var(--accent-soft);
+    padding: 15px 18px;
+    margin: 0 0 18px;
+    border-radius: 0 6px 6px 0;
+  }
+  .note p:last-child { margin-bottom: 0; }
+  .note .label {
+    font-family: var(--sans);
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--accent);
+    display: block;
+    margin-bottom: 6px;
+  }
+  .note.good { border-left-color: var(--good); background: var(--good-soft); }
+  .note.good .label { color: var(--good); }
+
+  /* placeholders the operator must replace before publishing */
+  .fill {
+    font-family: var(--sans);
+    font-size: 0.86em;
+    font-weight: 600;
+    background: var(--flag-soft);
+    color: var(--flag);
+    border: 1px dashed var(--flag);
+    border-radius: 4px;
+    padding: 1px 7px;
+    white-space: nowrap;
+  }
+
+  /* ---------- contact block ---------- */
+  .contact {
+    background: var(--surface-2);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 22px 24px;
+    font-family: var(--sans);
+    font-size: 14.5px;
+  }
+  .contact dl { display: grid; gap: 12px; margin: 0; }
+  .contact dt {
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin-bottom: 2px;
+  }
+  .contact dd { margin: 0; }
+
+  footer {
+    border-top: 1px solid var(--rule);
+    padding: 26px clamp(22px, 5vw, 72px) 60px;
+    font-family: var(--sans);
+    font-size: 13px;
+    color: var(--ink-3);
+  }
+
+  @media (max-width: 860px) {
+    .columns { grid-template-columns: 1fr; padding-top: 28px; }
+    nav.toc {
+      position: static;
+      border-left: 0;
+      border-top: 1px solid var(--rule);
+      border-bottom: 1px solid var(--rule);
+      padding: 18px 0;
+    }
+    nav.toc ol { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+    body { font-size: 16.5px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="sheet">
+  <header class="masthead">
+    <p class="eyebrow">Legal · Data Protection</p>
+    <h1>Privacy Policy</h1>
+    <p class="standfirst">
+      How the IVS mobile application collects, uses, stores and shares your personal
+      data — including Aadhaar-based verification, device IMEI checks and wallet
+      payments.
+    </p>
+    <dl class="meta">
+      <div><dt>Effective from</dt><dd><span class="fill">[DD Month YYYY]</span></dd></div>
+      <div><dt>Last updated</dt><dd><span class="fill">[DD Month YYYY]</span></dd></div>
+      <div><dt>Applies to</dt><dd>IVS mobile application &amp; services</dd></div>
+      <div><dt>Governing law</dt><dd>Republic of India</dd></div>
+    </dl>
+  </header>
+
+  <div class="columns">
+    <nav class="toc" aria-label="Contents">
+      <p>Contents</p>
+      <ol>
+        <li><a href="#s1">1. Who we are</a></li>
+        <li><a href="#s2">2. Summary</a></li>
+        <li><a href="#s3">3. Data we collect</a></li>
+        <li><a href="#s4">4. Aadhaar &amp; identity</a></li>
+        <li><a href="#s5">5. IMEI verification</a></li>
+        <li><a href="#s6">6. Payments &amp; wallet</a></li>
+        <li><a href="#s7">7. Why we use your data</a></li>
+        <li><a href="#s8">8. Who we share with</a></li>
+        <li><a href="#s9">9. Storage &amp; retention</a></li>
+        <li><a href="#s10">10. Security</a></li>
+        <li><a href="#s11">11. Your rights</a></li>
+        <li><a href="#s12">12. Deleting your account</a></li>
+        <li><a href="#s13">13. Children</a></li>
+        <li><a href="#s14">14. Changes</a></li>
+        <li><a href="#s15">15. Contact us</a></li>
+      </ol>
+    </nav>
+
+    <article>
+      <section id="s1">
+        <h2><span class="num">01</span> Who we are</h2>
+        <p>
+          IVS (&ldquo;the app&rdquo;, &ldquo;we&rdquo;, &ldquo;us&rdquo;) is operated by
+          <span class="fill">[Registered company name]</span>, a company incorporated in
+          India with its registered office at <span class="fill">[Registered address]</span>.
+        </p>
+        <p>
+          For the purposes of the Digital Personal Data Protection Act, 2023, we are the
+          <strong>Data Fiduciary</strong> for the personal data described in this policy.
+          This policy explains what we collect, why, who we share it with, and the choices
+          you have.
+        </p>
+      </section>
+
+      <section id="s2">
+        <h2><span class="num">02</span> Summary</h2>
+        <p>The short version, before the detail:</p>
+        <div class="scroller">
+          <table>
+            <thead>
+              <tr><th>What</th><th>Why</th><th>Kept for</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Mobile number</td><td>To create your account and sign you in by OTP</td><td>Life of the account</td></tr>
+              <tr><td>Name, email, PAN, GST</td><td>KYC required to offer device verification</td><td>Life of the account, then as law requires</td></tr>
+              <tr><td>Aadhaar (masked)</td><td>To confirm your identity via UIDAI OTP</td><td>Masked value only — see §4</td></tr>
+              <tr><td>Device IMEI numbers</td><td>To check a device against the national CEIR blocklist</td><td>As an audit record of each check</td></tr>
+              <tr><td>Payment records</td><td>To credit tokens you buy and keep an account ledger</td><td>As tax and accounting law requires</td></tr>
+              <tr><td>Profile photo</td><td>Shown on your profile; required for business accounts</td><td>Until you replace or delete it</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          We do not sell your personal data. We do not use it for advertising or share it
+          with advertising networks.
+        </p>
+      </section>
+
+      <section id="s3">
+        <h2><span class="num">03</span> Data we collect</h2>
+
+        <h3>You give us</h3>
+        <ul>
+          <li><strong>Account:</strong> mobile number and country code.</li>
+          <li><strong>KYC — individuals:</strong> full name, contact number, email address, PAN, and Aadhaar number for OTP verification.</li>
+          <li><strong>KYC — businesses:</strong> company name, contact number, email address, PAN, GST number, and a photograph of the owner.</li>
+          <li><strong>Device checks:</strong> the IMEI number(s) of a device, its model, and optionally the name of the customer the device relates to.</li>
+          <li><strong>Profile photo</strong>, where you choose to upload one.</li>
+        </ul>
+
+        <h3>Generated as you use the app</h3>
+        <ul>
+          <li>Verification results returned by the national CEIR database.</li>
+          <li>Token wallet balance and a transaction ledger of every credit and debit.</li>
+          <li>Payment identifiers issued by our payment gateway.</li>
+          <li>Your referral code and, if you were referred, who referred you.</li>
+          <li>A device identifier for each signed-in session, so sessions can be revoked.</li>
+        </ul>
+
+        <h3>Collected automatically</h3>
+        <ul>
+          <li>IP address, request timestamps and endpoints accessed, kept in server logs for security, abuse prevention and debugging.</li>
+        </ul>
+
+        <div class="note good">
+          <span class="label">What we never store</span>
+          <p>
+            We do not store your one-time passwords in readable form, your full Aadhaar
+            number, or your card, UPI or bank credentials. Card and UPI details are
+            entered directly with our payment gateway and never reach our servers.
+          </p>
+        </div>
+      </section>
+
+      <section id="s4">
+        <h2><span class="num">04</span> Aadhaar and identity verification</h2>
+        <p>
+          Where Aadhaar verification is required, we use the OTP-based e-KYC service
+          operated by the Unique Identification Authority of India (UIDAI), accessed
+          through a UIDAI-authorised verification partner. You enter your Aadhaar number,
+          UIDAI sends a one-time password to your registered mobile number, and you enter
+          that OTP to confirm the number belongs to you.
+        </p>
+        <div class="note">
+          <span class="label">How your Aadhaar number is handled</span>
+          <p>
+            Your Aadhaar number is transmitted to the verification partner only for the
+            duration of that check. <strong>We do not retain the full number.</strong>
+            Once verification completes we store only a masked form showing the last four
+            digits (for example <code>XXXXXXXX1234</code>), plus a one-way cryptographic
+            hash used solely to prevent the same Aadhaar being registered to more than
+            one account. The hash cannot be reversed to recover the number.
+          </p>
+        </div>
+        <p>
+          Aadhaar verification is used only to establish identity for the services you
+          request. We do not use it for any other purpose, and we do not share Aadhaar
+          data with any third party other than the authorised verification partner
+          performing the check.
+        </p>
+        <p>
+          Where the app is used to verify the identity of a customer selling a device to
+          you, that customer's Aadhaar is verified in the same way, again without the full
+          number being retained. You are responsible for obtaining that person's consent
+          before initiating such a check.
+        </p>
+      </section>
+
+      <section id="s5">
+        <h2><span class="num">05</span> Device and IMEI verification</h2>
+        <p>
+          The core function of the app is to check whether a mobile device has been
+          reported lost, stolen or blocked. To do this we send the IMEI number you enter
+          to the Central Equipment Identity Register (CEIR) operated by the Department of
+          Telecommunications, Government of India, and return the status it reports.
+        </p>
+        <p>
+          We keep a record of each check — the IMEI numbers, device model, the result
+          returned, the time of the check, and any customer name you chose to enter. This
+          record exists so that you can review your own verification history, and so that
+          we can resolve billing disputes and meet our obligations if a check is later
+          questioned.
+        </p>
+      </section>
+
+      <section id="s6">
+        <h2><span class="num">06</span> Payments and the token wallet</h2>
+        <p>
+          Paid features are charged in tokens, which you buy through our payment gateway.
+          When you make a payment we receive and store the gateway's order and payment
+          identifiers, the amount, and the resulting token credit — never your card, UPI
+          or bank details, which are handled entirely by the gateway under its own privacy
+          policy.
+        </p>
+        <p>
+          We maintain a ledger of every token credit and debit on your account. Where a
+          verification cannot be completed, the tokens charged are refunded automatically
+          and both entries appear in that ledger.
+        </p>
+      </section>
+
+      <section id="s7">
+        <h2><span class="num">07</span> Why we use your data</h2>
+        <p>We process your personal data on the following bases:</p>
+        <ul>
+          <li><strong>To provide the service you asked for</strong> — creating your account, signing you in, running verifications, and maintaining your wallet.</li>
+          <li><strong>With your consent</strong> — Aadhaar-based identity verification, which you initiate and confirm by entering an OTP.</li>
+          <li><strong>To meet legal obligations</strong> — retaining KYC and transaction records where Indian law requires it.</li>
+          <li><strong>For our legitimate interests</strong> — preventing fraud and abuse, securing the service, and diagnosing faults.</li>
+        </ul>
+      </section>
+
+      <section id="s8">
+        <h2><span class="num">08</span> Who we share data with</h2>
+        <p>
+          We share only what each provider needs to perform its function, and only for
+          that purpose. We do not sell personal data.
+        </p>
+        <div class="scroller">
+          <table>
+            <thead>
+              <tr><th>Recipient</th><th>Purpose</th><th>Data shared</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>SMS provider</td><td>Delivering login OTPs</td><td>Mobile number</td></tr>
+              <tr><td>UIDAI, via an authorised e-KYC partner</td><td>Aadhaar identity verification</td><td>Aadhaar number and OTP, for that check only</td></tr>
+              <tr><td>CEIR, Department of Telecommunications</td><td>Device blocklist status</td><td>IMEI number(s)</td></tr>
+              <tr><td>Payment gateway</td><td>Processing token purchases</td><td>Order amount and payment identifiers</td></tr>
+              <tr><td>Cloud storage &amp; hosting providers</td><td>Storing images and running the service</td><td>Uploaded images; data at rest</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          We may also disclose data where we are required to by law, by a court, or by a
+          government authority acting within its powers.
+        </p>
+      </section>
+
+      <section id="s9">
+        <h2><span class="num">09</span> Where data is stored, and for how long</h2>
+        <p>
+          Your data is stored on cloud infrastructure located in India. Some providers
+          named above may process limited data outside India under their own contractual
+          safeguards.
+        </p>
+        <ul>
+          <li><strong>Account and KYC records</strong> — kept while your account is active, and afterwards only for as long as law requires us to retain them.</li>
+          <li><strong>Verification history and wallet ledger</strong> — retained as financial and audit records.</li>
+          <li><strong>One-time passwords</strong> — stored only as a hash, and deleted automatically minutes after issue.</li>
+          <li><strong>Sessions</strong> — revoked when you sign out and expire automatically.</li>
+          <li><strong>Server logs</strong> — retained for a limited period for security and debugging.</li>
+        </ul>
+      </section>
+
+      <section id="s10">
+        <h2><span class="num">10</span> How we protect your data</h2>
+        <ul>
+          <li>All traffic between the app and our servers is encrypted in transit.</li>
+          <li>One-time passwords and Aadhaar identifiers are stored only as irreversible hashes, never in readable form.</li>
+          <li>Access to production systems is restricted to authorised personnel.</li>
+          <li>Sessions use short-lived access tokens with revocable refresh tokens tied to your device.</li>
+          <li>Rate limiting and audit logging guard against abuse of verification and login endpoints.</li>
+        </ul>
+        <p>
+          No system can be guaranteed completely secure. If a breach occurs that is likely
+          to affect you, we will notify you and the Data Protection Board of India as
+          required by law.
+        </p>
+      </section>
+
+      <section id="s11">
+        <h2><span class="num">11</span> Your rights</h2>
+        <p>Under the Digital Personal Data Protection Act, 2023 you have the right to:</p>
+        <ul>
+          <li>Ask what personal data we hold about you and how it is processed.</li>
+          <li>Have inaccurate or incomplete data corrected or updated.</li>
+          <li>Request erasure of your data, subject to records we must retain by law.</li>
+          <li>Withdraw consent you previously gave, including for Aadhaar verification. Withdrawing consent may mean we can no longer offer parts of the service.</li>
+          <li>Nominate another person to exercise these rights on your behalf if you are unable to.</li>
+          <li>Raise a grievance with us, and escalate to the Data Protection Board of India if you are not satisfied with our response.</li>
+        </ul>
+        <p>To exercise any of these rights, contact us using the details in §15.</p>
+      </section>
+
+      <section id="s12">
+        <h2><span class="num">12</span> Deleting your account and data</h2>
+        <p>
+          You can ask us to delete your account and associated personal data at any time
+          by emailing <span class="fill">[support@yourdomain]</span> from the email
+          address registered on your account, or by writing to the address in §15.
+        </p>
+        <p>
+          We will confirm your identity, then delete your profile, KYC details, masked
+          Aadhaar reference, stored images and verification history within
+          <span class="fill">[30]</span> days. Financial records of completed
+          transactions are retained where tax and accounting law requires, in which case
+          they are dissociated from your profile wherever possible.
+        </p>
+      </section>
+
+      <section id="s13">
+        <h2><span class="num">13</span> Children</h2>
+        <p>
+          The app is intended for users aged 18 and over and is not directed at children.
+          We do not knowingly collect personal data from anyone under 18. If you believe a
+          child has provided us with personal data, contact us and we will delete it.
+        </p>
+      </section>
+
+      <section id="s14">
+        <h2><span class="num">14</span> Changes to this policy</h2>
+        <p>
+          We may update this policy as the service changes or the law requires. The
+          &ldquo;last updated&rdquo; date at the top shows when it last changed. Where a
+          change materially affects how we use your data, we will tell you in the app or
+          by message before it takes effect.
+        </p>
+      </section>
+
+      <section id="s15">
+        <h2><span class="num">15</span> Contact us</h2>
+        <p>
+          For any question about this policy, or to exercise your rights, contact our
+          Grievance Officer, appointed under the Digital Personal Data Protection Act,
+          2023 and the Information Technology Act, 2000:
+        </p>
+        <div class="contact">
+          <dl>
+            <div><dt>Grievance Officer</dt><dd><span class="fill">[Full name]</span></dd></div>
+            <div><dt>Email</dt><dd><span class="fill">[grievance@yourdomain]</span></dd></div>
+            <div><dt>Phone</dt><dd><span class="fill">[+91 XXXXX XXXXX]</span></dd></div>
+            <div><dt>Postal address</dt><dd><span class="fill">[Registered office address]</span></dd></div>
+            <div><dt>Response time</dt><dd>We aim to respond within 30 days of receiving your request.</dd></div>
+          </dl>
+        </div>
+      </section>
+    </article>
+  </div>
+
+  <footer>
+    <p>
+      &copy; <span class="fill">[Year]</span>
+      <span class="fill">[Registered company name]</span>. All rights reserved.
+      This policy is published in English and governed by the laws of India.
+    </p>
+  </footer>
+</div>
+
+</body>
+</html>
