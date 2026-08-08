@@ -24,6 +24,11 @@ const imeiVerificationLogSchema = new Schema(
       trim: true,
       default: null,
     },
+    customerName: {
+      type: String,
+      trim: true,
+      default: null,
+    },
     imei1Status: {
       type: String,
       required: true,

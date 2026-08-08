@@ -53,4 +53,13 @@ const verifyCustomerAadhaarOtp = asyncHandler(async (req, res) => {
   successResponse(res, httpStatus.OK, MESSAGES.USER.AADHAAR_VERIFIED, data);
 });
 
-module.exports = { verifyImei, sendCustomerAadhaarOtp, verifyCustomerAadhaarOtp };
+// GET /ivs/history — the caller's stored IMEI verifications (view-only, no charge).
+const getHistory = asyncHandler(async (req, res) => {
+  const data = await ivsService.getHistory(req.user.id, {
+    page: req.query.page,
+    limit: req.query.limit,
+  });
+  successResponse(res, httpStatus.OK, MESSAGES.IVS.HISTORY_FETCHED, data);
+});
+
+module.exports = { verifyImei, sendCustomerAadhaarOtp, verifyCustomerAadhaarOtp, getHistory };

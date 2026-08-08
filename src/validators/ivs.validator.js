@@ -22,6 +22,11 @@ const verifyImeiValidator = [
     .trim()
     .isLength({ max: 200 })
     .withMessage('Device model must be at most 200 characters.'),
+  body('customerName')
+    .optional({ checkFalsy: true })
+    .trim()
+    .isLength({ max: 120 })
+    .withMessage('Customer name must be at most 120 characters.'),
 ];
 
 // Customer Aadhaar OTP (IMEI flow).
