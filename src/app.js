@@ -92,9 +92,14 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 // than pasted into a third-party page that can silently change or disappear.
 // Unauthenticated and outside the API rate limiter — a store reviewer's crawler
 // must never be throttled.
-app.get('/privacy', (req, res) =>
-  res.sendFile(path.join(__dirname, '..', 'public', 'privacy.html'))
-);
+const legalPage = (file) => (req, res) =>
+  res.sendFile(path.join(__dirname, '..', 'public', file));
+
+app.get('/privacy', legalPage('privacy.html'));
+// Google Play requires a publicly reachable page describing how users delete
+// their account and what data survives deletion. Its URL goes in the Play
+// Console Data safety form.
+app.get('/account-deletion', legalPage('account-deletion.html'));
 
 app.use('/api/v1', generalLimiter, routes);
 
