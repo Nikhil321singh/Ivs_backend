@@ -6,7 +6,6 @@ const MESSAGES = require('../constants/messages');
 const ivsService = require('../services/ivs.service');
 const aadhaarService = require('../services/aadhaar.service');
 const walletService = require('../services/wallet.service');
-const PRICING = require('../constants/pricing');
 const { TXN_REASON, TXN_REF_TYPE } = require('../constants/walletEnums');
 const { IVS_STATUS } = require('../services/providers/cdotIvsProvider');
 
@@ -31,7 +30,11 @@ const isDefinitive = (status) => status !== null && DEFINITIVE.includes(status);
  * reference, so a retry can never double-charge or double-refund.
  */
 const verifyImei = asyncHandler(async (req, res) => {
-  const cost = PRICING.FEATURES.IVS_CHECK;
+  // requireBalance already resolved the effective price and checked the wallet
+  // against it. Reuse that exact value rather than re-reading, so an admin
+  // changing the price mid-request can never make us charge more than we
+  // verified the user could afford.
+  const cost = req.featureCost;
   const chargeRef = `IVSCHG-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
 
   // chargeRef goes in metadata, NOT referenceId: that column is an ObjectId
@@ -73,7 +76,7 @@ const verifyImei = asyncHandler(async (req, res) => {
 
   let result;
   try {
-    result = await ivsService.verifyImei(req.user.id, req.body);
+    result = await ivsService.verifyImei(req.user.id, req.body, cost);
   } catch (err) {
     await refund('verification_threw', null);
     throw err;

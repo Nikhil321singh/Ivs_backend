@@ -35,20 +35,26 @@ router.get('/health', (req, res) => {
  *     responses:
  *       200: { description: Pricing fetched successfully }
  */
-router.get('/pricing', (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: 'Pricing fetched successfully.',
-    data: {
-      tokenPerInr: PRICING.TOKEN_PER_INR,
-      features: PRICING.FEATURES,
-      referral: PRICING.REFERRAL,
-      // Lets the client advertise the joining offer without hard-coding the
-      // number, so changing it here changes it in the app too.
-      signupBonus: PRICING.SIGNUP_BONUS,
-    },
-  });
-});
+router.get(
+  '/pricing',
+  asyncHandler(async (req, res) => {
+    res.status(200).json({
+      success: true,
+      message: 'Pricing fetched successfully.',
+      data: {
+        tokenPerInr: PRICING.TOKEN_PER_INR,
+        // Effective prices, including any operator override set in the admin
+        // console — so the app never quotes a price different from the one it
+        // will be charged.
+        features: await settingsService.getFeatureCosts(),
+        referral: PRICING.REFERRAL,
+        // Lets the client advertise the joining offer without hard-coding the
+        // number, so changing it here changes it in the app too.
+        signupBonus: PRICING.SIGNUP_BONUS,
+      },
+    });
+  })
+);
 
 /**
  * @openapi

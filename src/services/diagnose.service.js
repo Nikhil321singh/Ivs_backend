@@ -1,7 +1,7 @@
 const DiagnoseSession = require('../models/DiagnoseSession.model');
 const provider = require('./providers/diagnoseProvider');
 const walletService = require('./wallet.service');
-const PRICING = require('../constants/pricing');
+const settingsService = require('./settings.service');
 const { TXN_REASON, TXN_REF_TYPE } = require('../constants/walletEnums');
 
 const { RESULT_STATUS, SESSION_STATUS } = DiagnoseSession;
@@ -18,12 +18,14 @@ const { RESULT_STATUS, SESSION_STATUS } = DiagnoseSession;
 const runDiagnosis = async (userId, input) => {
   const outcome = await provider.diagnose(input);
   const isBillable = outcome.resultStatus === provider.RESULT_STATUS.SUCCESS;
+  // Operator-editable price, read once so the debit and the response agree.
+  const cost = await settingsService.getFeatureCost('DIAGNOSE');
 
   let chargeTxnId = null;
   let charged = false;
 
   if (isBillable) {
-    const txn = await walletService.debit(userId, PRICING.FEATURES.DIAGNOSE, {
+    const txn = await walletService.debit(userId, cost, {
       reason: TXN_REASON.FEATURE_CHARGE,
       referenceType: TXN_REF_TYPE.DIAGNOSE,
       metadata: { providerRefId: outcome.providerRefId },
@@ -50,7 +52,7 @@ const runDiagnosis = async (userId, input) => {
     resultStatus: outcome.resultStatus,
     result: outcome.result,
     providerRefId: outcome.providerRefId,
-    wallet: { balance, charged, cost: PRICING.FEATURES.DIAGNOSE },
+    wallet: { balance, charged, cost },
   };
 };
 

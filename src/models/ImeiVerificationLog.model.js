@@ -49,6 +49,12 @@ const imeiVerificationLogSchema = new Schema(
       type: Boolean,
       required: true,
     },
+    // Tokens charged for this check, captured at verification time because the
+    // price is operator-editable. Null on rows written before this existed.
+    cost: {
+      type: Number,
+      default: null,
+    },
     referenceId: {
       type: String,
       required: true,

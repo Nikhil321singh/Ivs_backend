@@ -15,12 +15,16 @@ const wasCharged = (log) =>
  * The verification result is always returned to the caller even if writing
  * the audit log fails — losing the log entry shouldn't block a checkout.
  */
-const verifyImei = async (userId, { imei1, imei2, deviceModel, customerName }) => {
+const verifyImei = async (userId, { imei1, imei2, deviceModel, customerName }, cost = null) => {
   const result = await ivsProvider.verifyImei({ imei1, imei2, deviceModel });
 
   try {
     await ImeiVerificationLog.create({
       userId,
+      // Price at the moment of the check. Stored because it is now operator-
+      // editable: without it, history would re-price old checks at today's
+      // rate and tell a user they paid something they did not.
+      cost,
       imei1,
       imei2: imei2 || null,
       deviceModel: deviceModel || null,
@@ -75,7 +79,9 @@ const getHistory = async (userId, { page = 1, limit = 20 } = {}) => {
       imei2Status: log.imei2Status || null,
       allowTransaction: log.allowTransaction,
       charged,
-      cost: charged ? PRICING.FEATURES.IVS_CHECK : 0,
+      // Legacy rows predate the stored cost, so fall back to the default price
+      // they would have been charged at the time.
+      cost: charged ? log.cost ?? PRICING.FEATURES.IVS_CHECK : 0,
       verifiedAt: log.verifiedAt,
       createdAt: log.createdAt,
     };
