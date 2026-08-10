@@ -10,12 +10,46 @@ const USER_STATUS = require('../constants/userStatus');
 const RefreshToken = require('../models/RefreshToken.model');
 const AadhaarOtp = require('../models/AadhaarOtp.model');
 const uploadService = require('./upload.service');
+const walletService = require('./wallet.service');
+const PRICING = require('../constants/pricing');
+const { TXN_REASON } = require('../constants/walletEnums');
+
+/**
+ * Credits the one-off signup bonus to a brand-new account.
+ *
+ * Keyed on the userId, so the credit can happen at most once per account no
+ * matter how often this runs — a retried signup or a replayed OTP verification
+ * cannot mint free tokens.
+ *
+ * Best-effort by design: a wallet write failing must not stop someone creating
+ * an account. It is logged loudly instead, with everything needed to grant it
+ * by hand. Deliberately NOT granted to a restored account — the balance it had
+ * before deletion comes back with it, so a second grant would pay twice.
+ */
+const grantSignupBonus = async (userId) => {
+  if (!PRICING.SIGNUP_BONUS || PRICING.SIGNUP_BONUS <= 0) return;
+
+  try {
+    await walletService.credit(userId, PRICING.SIGNUP_BONUS, {
+      reason: TXN_REASON.SIGNUP_BONUS,
+      idempotencyKey: `signup-bonus-${userId}`,
+      metadata: { grantedAt: new Date().toISOString() },
+    });
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('[User] Signup bonus credit failed', {
+      userId: String(userId),
+      amount: PRICING.SIGNUP_BONUS,
+      error: err.message,
+    });
+  }
+};
 
 /**
  * Finds a user by mobile+countryCode, creating one if this is their first
  * login. OTP verification already happened before this is called, so the new
  * user is marked mobile-verified immediately. Every new user also gets a
- * unique referral code to share.
+ * unique referral code to share, and the one-off signup bonus.
  */
 const findOrCreateUserByMobile = async (countryCode, mobile) => {
   let user = await User.findOne({ countryCode, mobile });
@@ -31,6 +65,7 @@ const findOrCreateUserByMobile = async (countryCode, mobile) => {
       referralCode,
     });
     isNewUser = true;
+    await grantSignupBonus(user._id);
   } else if (user.status === USER_STATUS.DELETED) {
     // Deletion is soft: the row kept its mobile number precisely so signing in
     // again finds it. Reactivate rather than creating a second account, so the

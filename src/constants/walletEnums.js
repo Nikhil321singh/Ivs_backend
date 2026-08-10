@@ -12,6 +12,7 @@ const TXN_REASON = Object.freeze({
   FEATURE_CHARGE: 'FEATURE_CHARGE', // tokens spent on IVS / Diagnose / etc.
   REFERRAL_BONUS: 'REFERRAL_BONUS', // reward to the referrer
   WELCOME_BONUS: 'WELCOME_BONUS', // reward to the referred user
+  SIGNUP_BONUS: 'SIGNUP_BONUS', // free tokens granted to every new account
   REFUND: 'REFUND', // tokens returned to the user
   ADJUSTMENT: 'ADJUSTMENT', // manual/admin correction
 });
