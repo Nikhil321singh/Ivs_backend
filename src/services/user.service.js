@@ -20,6 +20,7 @@ const uploadService = require('./upload.service');
 const findOrCreateUserByMobile = async (countryCode, mobile) => {
   let user = await User.findOne({ countryCode, mobile });
   let isNewUser = false;
+  let isRestored = false;
 
   if (!user) {
     const referralCode = await referralService.generateUniqueReferralCode();
@@ -30,12 +31,22 @@ const findOrCreateUserByMobile = async (countryCode, mobile) => {
       referralCode,
     });
     isNewUser = true;
+  } else if (user.status === USER_STATUS.DELETED) {
+    // Deletion is soft: the row kept its mobile number precisely so signing in
+    // again finds it. Reactivate rather than creating a second account, so the
+    // wallet balance and verification history the user had are restored. The
+    // personal details wiped at deletion stay gone — they re-enter them.
+    user.status = USER_STATUS.ACTIVE;
+    user.deletedAt = null;
+    user.isMobileVerified = true;
+    await user.save();
+    isRestored = true;
   } else if (!user.isMobileVerified) {
     user.isMobileVerified = true;
     await user.save();
   }
 
-  return { user, isNewUser };
+  return { user, isNewUser, isRestored };
 };
 
 const getUserById = async (userId) => {
@@ -188,20 +199,24 @@ const updateProfile = async (userId, { name, companyName, email }, profileImage)
 };
 
 /**
- * Permanently deletes the user's account at their own request.
+ * Deletes the user's account at their own request — a soft delete.
  *
- * Scrubs in place rather than removing the document: wallet transactions,
- * payments and IMEI verification logs all reference this userId and must be
- * retained for tax, accounting and audit. Deleting the row would orphan those
- * records; scrubbing severs the link to a person while leaving the ledger
- * intact — which is exactly what the privacy policy and deletion page promise.
+ * Removes the personal details the user gave us (name, email, photo, and the
+ * PAN/GST/company KYC identifiers) and signs them out everywhere, but keeps the
+ * row and its mobile number so signing in again restores the same account —
+ * see the DELETED branch in findOrCreateUserByMobile.
  *
- * The mobile number is released (rewritten to a per-user placeholder) so the
- * unique countryCode+mobile index no longer holds it and the same person can
- * sign up again as a brand-new account.
+ * Kept deliberately:
+ *   - mobile + countryCode, so the account can be found again on login
+ *   - Aadhaar verification (masked value + hash), so it need not be redone and
+ *     the Aadhaar stays bound to one account
+ *   - Wallet, WalletTransaction, Payment, ImeiVerificationLog — financial and
+ *     audit records that must survive for tax and dispute resolution, and that
+ *     reference this userId. The token balance is NOT forfeited; it is there
+ *     when the user comes back.
  *
- * Deliberately NOT deleted: Wallet, WalletTransaction, Payment,
- * ImeiVerificationLog. Any remaining token balance is forfeited.
+ * kycCompleted is cleared because the KYC identifiers behind it are gone, so
+ * the user must resubmit KYC after restoring.
  */
 const deleteAccount = async (userId) => {
   const user = await getUserById(userId);
@@ -226,30 +241,23 @@ const deleteAccount = async (userId) => {
     }
   }
 
-  // Personal fields. Sparse-unique fields (email, panNumber, gstNumber,
-  // aadhaarNumberHash, referralCode) are set to undefined, not null, so the
-  // index excludes them — see the sparse-index comment in User.model.js.
+  // Personal fields. email/panNumber/gstNumber carry sparse-unique indexes, so
+  // they are set to undefined rather than null — the index then excludes the
+  // row and frees the value for anyone else (see User.model.js).
   user.name = null;
   user.phone = null;
   user.companyName = null;
   user.email = undefined;
   user.panNumber = undefined;
   user.gstNumber = undefined;
-  user.aadhaarNumber = null;
-  user.aadhaarNumberHash = undefined;
-  user.aadhaarVerified = false;
   user.profileImage = null;
   user.profileImagePublicId = null;
-  user.referralCode = undefined;
-  user.referredBy = null;
   user.isGstRegistered = false;
-  user.userType = null;
   user.kycCompleted = false;
+  // Sign them out: they must re-authenticate by OTP, which is what restores
+  // the account.
   user.isMobileVerified = false;
 
-  // Release the number: keeps countryCode+mobile unique without holding the
-  // real one, so re-registration creates a fresh account as the page promises.
-  user.mobile = `deleted-${user._id}`;
   user.status = USER_STATUS.DELETED;
   user.deletedAt = new Date();
 
