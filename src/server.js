@@ -13,6 +13,15 @@ const start = async () => {
     );
   }
 
+  if (env.otpTest.enabled && env.otpTest.numbers.length > 0) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `WARNING: OTP_TEST_MODE is ON. Numbers [${env.otpTest.numbers.join(', ')}] sign in with a ` +
+        'fixed OTP and receive no SMS. Anyone who knows the number and the OTP can log in as ' +
+        'that account. Remove these numbers before going live.'
+    );
+  }
+
   await connectDB();
 
   server = app.listen(env.port, () => {

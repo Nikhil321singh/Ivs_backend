@@ -29,6 +29,15 @@ const generateOtp = () => {
 };
 
 /**
+ * Numbers listed in OTP_TEST_NUMBERS sign in with the fixed OTP and no SMS is
+ * sent. Everything downstream is unchanged — the fixed value is hashed and
+ * stored exactly like a real one, so it still expires and is still consumed on
+ * use, and verifyOtp needs no knowledge of test mode at all.
+ */
+const isTestNumber = (mobile) =>
+  env.otpTest.enabled && env.otpTest.numbers.includes(String(mobile));
+
+/**
  * Generates an OTP ourselves and delivers it via an MSG91 Flow (templated
  * SMS API), rather than MSG91's managed OTP widget. The OTP is stored here
  * as a SHA-256 hash and verified locally in verifyOtp.
@@ -36,23 +45,30 @@ const generateOtp = () => {
  * @param {string} mobile e.g. "9876543210"
  */
 const sendOtp = async (countryCode, mobile) => {
-  const otp = generateOtp();
-  const msg91Mobile = toMsg91Mobile(countryCode, mobile);
+  const testNumber = isTestNumber(mobile);
+  const otp = testNumber ? env.otpTest.otp : generateOtp();
 
-  try {
-    const { data } = await msg91Client.post('/flow', {
-      flow_id: env.msg91.flowId,
-      recipients: [{ mobiles: msg91Mobile, var1: otp }],
-    });
+  if (testNumber) {
+    // eslint-disable-next-line no-console
+    console.warn(`[OTP] TEST MODE: no SMS sent for ${countryCode}${mobile}`);
+  } else {
+    const msg91Mobile = toMsg91Mobile(countryCode, mobile);
 
-    if (data.type !== 'success') {
-      throw new ApiError(httpStatus.BAD_REQUEST, data.message || MESSAGES.OTP.SEND_FAILED);
+    try {
+      const { data } = await msg91Client.post('/flow', {
+        flow_id: env.msg91.flowId,
+        recipients: [{ mobiles: msg91Mobile, var1: otp }],
+      });
+
+      if (data.type !== 'success') {
+        throw new ApiError(httpStatus.BAD_REQUEST, data.message || MESSAGES.OTP.SEND_FAILED);
+      }
+    } catch (error) {
+      if (error instanceof ApiError) throw error;
+
+      const providerMessage = error.response?.data?.message;
+      throw new ApiError(httpStatus.BAD_REQUEST, providerMessage || MESSAGES.OTP.SEND_FAILED);
     }
-  } catch (error) {
-    if (error instanceof ApiError) throw error;
-
-    const providerMessage = error.response?.data?.message;
-    throw new ApiError(httpStatus.BAD_REQUEST, providerMessage || MESSAGES.OTP.SEND_FAILED);
   }
 
   const expiresAt = new Date(Date.now() + env.msg91.otpExpiryMinutes * 60 * 1000);

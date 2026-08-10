@@ -64,6 +64,21 @@ const env = {
     otpExpiryMinutes: parseInt(process.env.MSG91_OTP_EXPIRY_MINUTES, 10) || 5,
   },
 
+  // Login OTP test mode. Numbers listed here sign in with a fixed OTP and no
+  // SMS is sent — needed because app store reviewers cannot receive an Indian
+  // SMS, and useful for QA. Deliberately env-driven rather than an admin-console
+  // toggle: a fixed OTP is a login bypass, so flipping it must require server
+  // access, not just an admin session. OFF unless OTP_TEST_MODE is exactly
+  // "true"; server.js warns loudly at boot while it is on.
+  otpTest: {
+    enabled: process.env.OTP_TEST_MODE === 'true',
+    otp: process.env.OTP_TEST_OTP || '123456',
+    numbers: (process.env.OTP_TEST_NUMBERS || '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean),
+  },
+
   // Aadhaar e-KYC via the GREST wrapper around Paysprint's UIDAI OTP API.
   // Not in REQUIRED_ENV_VARS (unlike MSG91) since these aren't provisioned
   // yet — validated lazily in aadhaarProvider.js instead, so the server can
