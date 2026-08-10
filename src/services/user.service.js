@@ -6,6 +6,10 @@ const ApiError = require('../utils/apiError');
 const httpStatus = require('../constants/httpStatus');
 const MESSAGES = require('../constants/messages');
 const USER_TYPE = require('../constants/userType');
+const USER_STATUS = require('../constants/userStatus');
+const RefreshToken = require('../models/RefreshToken.model');
+const AadhaarOtp = require('../models/AadhaarOtp.model');
+const uploadService = require('./upload.service');
 
 /**
  * Finds a user by mobile+countryCode, creating one if this is their first
@@ -183,10 +187,88 @@ const updateProfile = async (userId, { name, companyName, email }, profileImage)
   return user;
 };
 
+/**
+ * Permanently deletes the user's account at their own request.
+ *
+ * Scrubs in place rather than removing the document: wallet transactions,
+ * payments and IMEI verification logs all reference this userId and must be
+ * retained for tax, accounting and audit. Deleting the row would orphan those
+ * records; scrubbing severs the link to a person while leaving the ledger
+ * intact — which is exactly what the privacy policy and deletion page promise.
+ *
+ * The mobile number is released (rewritten to a per-user placeholder) so the
+ * unique countryCode+mobile index no longer holds it and the same person can
+ * sign up again as a brand-new account.
+ *
+ * Deliberately NOT deleted: Wallet, WalletTransaction, Payment,
+ * ImeiVerificationLog. Any remaining token balance is forfeited.
+ */
+const deleteAccount = async (userId) => {
+  const user = await getUserById(userId);
+
+  if (user.status === USER_STATUS.DELETED) {
+    throw new ApiError(httpStatus.CONFLICT, MESSAGES.USER.ACCOUNT_ALREADY_DELETED);
+  }
+
+  // Best-effort: a storage outage must not block the user's right to erasure.
+  // The record is scrubbed either way; a stranded object is a cleanup job, not
+  // a reason to refuse deletion.
+  if (user.profileImagePublicId) {
+    try {
+      await uploadService.deleteProfileImage(user.profileImagePublicId);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[User] Profile image delete failed during account deletion', {
+        userId: String(userId),
+        publicId: user.profileImagePublicId,
+        error: err.message,
+      });
+    }
+  }
+
+  // Personal fields. Sparse-unique fields (email, panNumber, gstNumber,
+  // aadhaarNumberHash, referralCode) are set to undefined, not null, so the
+  // index excludes them — see the sparse-index comment in User.model.js.
+  user.name = null;
+  user.phone = null;
+  user.companyName = null;
+  user.email = undefined;
+  user.panNumber = undefined;
+  user.gstNumber = undefined;
+  user.aadhaarNumber = null;
+  user.aadhaarNumberHash = undefined;
+  user.aadhaarVerified = false;
+  user.profileImage = null;
+  user.profileImagePublicId = null;
+  user.referralCode = undefined;
+  user.referredBy = null;
+  user.isGstRegistered = false;
+  user.userType = null;
+  user.kycCompleted = false;
+  user.isMobileVerified = false;
+
+  // Release the number: keeps countryCode+mobile unique without holding the
+  // real one, so re-registration creates a fresh account as the page promises.
+  user.mobile = `deleted-${user._id}`;
+  user.status = USER_STATUS.DELETED;
+  user.deletedAt = new Date();
+
+  await user.save();
+
+  // Sign the user out everywhere, and drop any half-finished Aadhaar session.
+  await Promise.all([
+    RefreshToken.updateMany({ userId }, { isRevoked: true }),
+    AadhaarOtp.deleteMany({ userId }),
+  ]);
+
+  return { deletedAt: user.deletedAt };
+};
+
 module.exports = {
   findOrCreateUserByMobile,
   getUserById,
   completeKyc,
   skipKyc,
   updateProfile,
+  deleteAccount,
 };

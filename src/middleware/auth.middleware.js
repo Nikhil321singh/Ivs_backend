@@ -32,6 +32,13 @@ const authenticate = asyncHandler(async (req, res, next) => {
     throw new ApiError(httpStatus.FORBIDDEN, MESSAGES.AUTH.USER_BLOCKED);
   }
 
+  // A deleted account keeps its row (financial records reference it), so it
+  // must be rejected explicitly — otherwise an access token issued before
+  // deletion would keep working until it expired, up to an hour later.
+  if (user.status === USER_STATUS.DELETED) {
+    throw new ApiError(httpStatus.UNAUTHORIZED, MESSAGES.USER.ACCOUNT_ALREADY_DELETED);
+  }
+
   req.user = user;
   next();
 });
