@@ -108,6 +108,13 @@ const userSchema = new Schema(
       enum: Object.values(USER_STATUS),
       default: USER_STATUS.ACTIVE,
     },
+    // Set when the user deletes their own account. The row is kept (financial
+    // and audit records point at it) but every personal field is scrubbed and
+    // the mobile number is released so the person can sign up again.
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
     // Every user gets a unique code at creation to share with others. Sparse
     // so any legacy row without one doesn't collide on the unique index.
     referralCode: {

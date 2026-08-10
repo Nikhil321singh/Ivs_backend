@@ -37,6 +37,12 @@ const skipKyc = asyncHandler(async (req, res) => {
   successResponse(res, httpStatus.OK, MESSAGES.USER.KYC_SKIPPED, { user });
 });
 
+const deleteAccount = asyncHandler(async (req, res) => {
+  const data = await userService.deleteAccount(req.user.id);
+
+  successResponse(res, httpStatus.OK, MESSAGES.USER.ACCOUNT_DELETED, data);
+});
+
 const updateProfile = asyncHandler(async (req, res) => {
   let profileImage;
 
@@ -62,4 +68,5 @@ module.exports = {
   skipKyc,
   updateProfile,
   getProfile,
+  deleteAccount,
 };

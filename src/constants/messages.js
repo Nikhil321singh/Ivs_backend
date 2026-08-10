@@ -27,6 +27,9 @@ module.exports = {
     KYC_ALREADY_COMPLETED: 'KYC has already been completed for this account.',
     KYC_COMPLETED: 'KYC completed successfully.',
     KYC_SKIPPED: 'KYC skipped successfully.',
+    ACCOUNT_DELETED:
+      'Your account has been deleted. Records we must keep by law are retained and no longer linked to your profile.',
+    ACCOUNT_ALREADY_DELETED: 'This account has already been deleted.',
     KYC_SKIP_NOT_ALLOWED: 'KYC is required and cannot be skipped.',
     KYC_AADHAAR_NOT_VERIFIED: 'Please complete Aadhaar authentication before submitting KYC.',
     KYC_AADHAAR_MISMATCH:

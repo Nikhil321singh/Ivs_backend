@@ -178,4 +178,25 @@ router.put(
  */
 router.get('/profile', authenticate, userController.getProfile);
 
+/**
+ * @openapi
+ * /user/account:
+ *   delete:
+ *     tags: [User]
+ *     summary: Permanently delete the signed-in user's account
+ *     description: >-
+ *       Irreversible. Scrubs every personal field, deletes the stored profile image,
+ *       revokes all sessions on every device, and releases the mobile number so the
+ *       person can sign up again as a new account. Wallet, payment and IMEI verification
+ *       records are retained for tax and audit but no longer identify the user, and any
+ *       remaining token balance is forfeited. See /account-deletion for the user-facing
+ *       description of exactly what is kept.
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Account deleted }
+ *       401: { description: Unauthorized }
+ *       409: { description: Account already deleted }
+ */
+router.delete('/account', authenticate, userController.deleteAccount);
+
 module.exports = router;
