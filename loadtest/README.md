@@ -1,5 +1,58 @@
 # Load testing
 
+Two scripts:
+
+| Script | Purpose |
+| --- | --- |
+| `live-read.k6.js` | Gentle 1-50 VU ramp. Safe to point at production. |
+| `capacity.k6.js` | Ramps to a target request rate (default 1000 rps) to find the ceiling. Needs preparation — see below. |
+
+## Capacity test: reaching 1000 rps
+
+```bash
+TARGET_RPS=1000 BASE_URL=https://business.grest.in TOKEN=<jwt> \
+  k6 run loadtest/capacity.k6.js
+```
+
+It ramps 50 → 100 → 300 → 600 → 1000 rps, holds the peak for a minute, then
+winds down. It aborts if failures exceed 5%.
+
+Four things must be true first, or you measure something other than the server:
+
+**1. Lift the rate limit on the target.** A load generator is one IP, and the
+default is 300 requests per 15 minutes — about 0.33 rps. In the server's `.env`:
+
+```
+RATE_LIMIT_DISABLED=true
+```
+
+Restart, run the test, then **remove it**. It also disables brute-force
+protection on admin login; the server warns at boot while it is set.
+
+**2. Generate load from the same region.** From a laptop the round trip to
+Mumbai is ~180 ms, so sustaining 1000 rps needs ~180 requests in flight
+(Little's law: concurrency = rate x latency). You will hit your own bandwidth
+and connection limits before the server's. Run k6 from an EC2 instance in
+`ap-south-1`.
+
+**3. Know your Atlas tier.** On a shared tier (M0) the database saturates long
+before Node does. Watch Atlas -> Metrics during the run: if connections or CPU
+peg while the box stays idle, the tier is your ceiling and no code change helps.
+
+**4. Use both CPUs.** PM2 runs a single fork, so Node uses one core and the
+second sits idle. For a capacity test, switch `ecosystem.config.js` to
+`exec_mode: 'cluster'` with `instances: 'max'`.
+
+### Reading the result
+
+- **`dropped iterations` > 0** — the target rate was not sustained. Either the
+  server is saturated or the generator ran out of VUs/network.
+- **429 rate above 0** — the limiter is still on; step 1 was not applied.
+- **p95 climbing while the achieved rate plateaus** — you have found the ceiling.
+- **`/health` slow too** — CPU exhausted (t3.micro has 2 burstable vCPU, and
+  sustained load exhausts CPU credits, after which it throttles hard).
+- **only `/wallet/transactions` and `/ivs/history` slow** — the database.
+
 ## Run it
 
 ```bash

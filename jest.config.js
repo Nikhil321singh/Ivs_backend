@@ -11,6 +11,9 @@
  */
 module.exports = {
   testEnvironment: 'node',
+  // grest-partners-backend is a separate project nested in this repo; without
+  // this jest sees two package.json files named ivs-backend and warns on every run.
+  modulePathIgnorePatterns: ['<rootDir>/grest-partners-backend/'],
   setupFiles: ['<rootDir>/test/setup/env.js'],
   setupFilesAfterEnv: ['<rootDir>/test/setup/db.js'],
   testMatch: ['<rootDir>/test/**/*.test.js'],

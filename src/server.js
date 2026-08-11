@@ -22,6 +22,15 @@ const start = async () => {
     );
   }
 
+  if (require('./middleware/rateLimiter.middleware').limitsDisabled()) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      'WARNING: RATE_LIMIT_DISABLED is set. Every per-IP limit is off, including ' +
+        'brute-force protection on admin login. Intended for load testing only — ' +
+        'unset it before serving real users.'
+    );
+  }
+
   await connectDB();
 
   server = app.listen(env.port, () => {
