@@ -2,11 +2,16 @@ const { createFundedUser, createUser, asUser, balanceOf } = require('./helpers/f
 const { stubCdot, stubCdotBlocked, stubAadhaar } = require('./helpers/providers');
 const settings = require('../src/services/settings.service');
 const ImeiLog = require('../src/models/ImeiVerificationLog.model');
+const PRICING = require('../src/constants/pricing');
 
 const IMEI = '355301083783251';
+// Derived, not hardcoded: the price is operator-editable and its default has
+// changed before, so asserting a literal here breaks the suite on a price
+// change that is not a regression.
+const COST = PRICING.FEATURES.IVS_CHECK;
 
 describe('POST /ivs/verify', () => {
-  it('returns CLEAN and charges 20 tokens', async () => {
+  it('returns CLEAN and charges the configured price', async () => {
     const { user, token } = await createFundedUser(500);
     stubCdot(IMEI, 'non-blocked');
 
@@ -16,7 +21,7 @@ describe('POST /ivs/verify', () => {
     expect(res.body.data.imei1Status).toBe('CLEAN');
     expect(res.body.data.allowTransaction).toBe(true);
     expect(res.body.data.wallet.charged).toBe(true);
-    expect(await balanceOf(user._id)).toBe(480);
+    expect(await balanceOf(user._id)).toBe(500 - COST);
   });
 
   it('reports BLOCKED and still charges — a real answer was paid for', async () => {
@@ -27,7 +32,7 @@ describe('POST /ivs/verify', () => {
 
     expect(res.body.data.imei1Status).toBe('BLOCKED');
     expect(res.body.data.allowTransaction).toBe(false);
-    expect(await balanceOf(user._id)).toBe(480);
+    expect(await balanceOf(user._id)).toBe(500 - COST);
   });
 
   it('refunds when CEIR gives no usable answer', async () => {
@@ -56,7 +61,7 @@ describe('POST /ivs/verify', () => {
     const res = await asUser(token).post('/api/v1/ivs/verify').send({ imei1: IMEI });
 
     expect(res.status).toBe(402);
-    expect(res.body.errors[0]).toMatchObject({ balance: 5, required: 20, shortfall: 15 });
+    expect(res.body.errors[0]).toMatchObject({ balance: 5, required: COST, shortfall: COST - 5 });
   });
 
   it('rejects a malformed IMEI', async () => {

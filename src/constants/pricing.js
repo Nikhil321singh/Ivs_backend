@@ -17,7 +17,7 @@ module.exports = Object.freeze({
   // Per-feature cost, in tokens. Keys are the featureKey passed to
   // requireBalance() and used as the ledger referenceType.
   FEATURES: Object.freeze({
-    IVS_CHECK: 20,
+    IVS_CHECK: 19,
     DIAGNOSE: 50,
   }),
 

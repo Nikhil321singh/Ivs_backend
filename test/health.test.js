@@ -1,4 +1,5 @@
 const { app, request } = require('./helpers/factory');
+const PRICING = require('../src/constants/pricing');
 
 describe('public endpoints', () => {
   it('serves the liveness probe', async () => {
@@ -16,7 +17,7 @@ describe('public endpoints', () => {
   it('serves pricing with effective feature costs', async () => {
     const res = await request(app).get('/api/v1/pricing');
     expect(res.status).toBe(200);
-    expect(res.body.data.features.IVS_CHECK).toBe(20);
+    expect(res.body.data.features.IVS_CHECK).toBe(PRICING.FEATURES.IVS_CHECK);
     expect(res.body.data.signupBonus).toBe(100);
   });
 
@@ -26,8 +27,8 @@ describe('public endpoints', () => {
     expect(res.body.data).toEqual({
       aadhaarVerificationEnabled: true,
       kycRequired: true,
-      ivsCheckCost: 20,
-      diagnoseCost: 50,
+      ivsCheckCost: PRICING.FEATURES.IVS_CHECK,
+      diagnoseCost: PRICING.FEATURES.DIAGNOSE,
     });
   });
 
