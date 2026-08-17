@@ -43,6 +43,9 @@ router.get('/pricing', (req, res) => {
       tokenPerInr: PRICING.TOKEN_PER_INR,
       features: PRICING.FEATURES,
       referral: PRICING.REFERRAL,
+      // Lets the client advertise the joining offer without hard-coding the
+      // number, so changing it here changes it in the app too.
+      signupBonus: PRICING.SIGNUP_BONUS,
     },
   });
 });

@@ -50,7 +50,13 @@ const getWallet = (userId) => getOrCreateWallet(userId);
 
 const statFieldForCredit = (reason) => {
   if (reason === TXN_REASON.TOPUP) return 'totalPurchased';
-  if (reason === TXN_REASON.REFERRAL_BONUS || reason === TXN_REASON.WELCOME_BONUS) return 'totalBonus';
+  if (
+    reason === TXN_REASON.REFERRAL_BONUS ||
+    reason === TXN_REASON.WELCOME_BONUS ||
+    reason === TXN_REASON.SIGNUP_BONUS
+  ) {
+    return 'totalBonus';
+  }
   return null;
 };
 

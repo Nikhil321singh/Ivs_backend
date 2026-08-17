@@ -16,7 +16,49 @@ const WalletTransaction = require('../models/WalletTransaction.model');
 const ImeiVerificationLog = require('../models/ImeiVerificationLog.model');
 const DiagnoseSession = require('../models/DiagnoseSession.model');
 const uploadService = require('./upload.service');
-const { TXN_TYPE, TXN_REF_TYPE, PAYMENT_STATUS } = require('../constants/walletEnums');
+const walletService = require('./wallet.service');
+const PRICING = require('../constants/pricing');
+const {
+  TXN_TYPE,
+  TXN_REASON,
+  TXN_REF_TYPE,
+  PAYMENT_STATUS,
+} = require('../constants/walletEnums');
+
+/**
+ * Credits the one-off joining bonus once the user finishes KYC.
+ *
+ * Granted on KYC completion rather than at signup, so the tokens reward
+ * finishing onboarding rather than merely verifying a phone number — which
+ * also means a throwaway number can no longer mint free tokens.
+ *
+ * Keyed on the userId, so the credit happens at most once per account however
+ * often this runs. That key is deliberately the same one the old signup-time
+ * grant used: an account that was already paid at signup will not be paid a
+ * second time when it later completes KYC.
+ *
+ * Best-effort by design: a wallet write failing must not fail the user's KYC
+ * submission, which is the thing they actually asked for. It is logged loudly
+ * instead, with everything needed to grant it by hand.
+ */
+const grantSignupBonus = async (userId) => {
+  if (!PRICING.SIGNUP_BONUS || PRICING.SIGNUP_BONUS <= 0) return;
+
+  try {
+    await walletService.credit(userId, PRICING.SIGNUP_BONUS, {
+      reason: TXN_REASON.SIGNUP_BONUS,
+      idempotencyKey: `signup-bonus-${userId}`,
+      metadata: { grantedAt: new Date().toISOString(), trigger: 'kyc_completed' },
+    });
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('[User] Joining bonus credit failed', {
+      userId: String(userId),
+      amount: PRICING.SIGNUP_BONUS,
+      error: err.message,
+    });
+  }
+};
 
 /**
  * Finds a user by mobile+countryCode, creating one if this is their first
@@ -101,8 +143,8 @@ const completeKyc = async (
   // While the "KYC required" switch is off the validator lets every field
   // through empty, so assign only what was actually supplied rather than
   // writing undefined over existing values. In strict mode the validator has
-  // already guaranteed presence, so these guards change nothing there.
-  const kycRequired = await settingsService.isKycRequired();
+  // already guaranteed name/email/PAN are present, so these guards change
+  // nothing there — they still matter for the optional fields.
   const set = (field, value) => {
     if (value !== undefined && value !== null && value !== '') user[field] = value;
   };
@@ -115,6 +157,9 @@ const completeKyc = async (
   const resolvedType = userType || user.userType || USER_TYPE.INDIVIDUAL;
 
   user.userType = resolvedType;
+  // name/email/panNumber are the whole requirement now, so they are written for
+  // both types. companyName stays vendor-only.
+  set('name', name);
   set('phone', phone);
   set('email', email);
   set('panNumber', panNumber);
@@ -130,22 +175,19 @@ const completeKyc = async (
       user.profileImagePublicId = profileImage.publicId;
     }
   } else {
-    // Individual: Aadhaar must already be verified via /user/aadhaar/verify-otp.
-    // The submitted aadhaarNumber is checked against that verified value
-    // (never persisted in the clear) to confirm it's the same Aadhaar.
+    // Aadhaar is no longer a precondition for completing KYC — name, email and
+    // PAN are the whole requirement. The OTP flow at /user/aadhaar/* still
+    // exists and still sets aadhaarVerified; it is simply optional now.
     //
-    // Skipped when either switch is off: no Aadhaar means nothing to match, and
-    // optional KYC cannot demand a verified Aadhaar to complete.
-    if (kycRequired && (await settingsService.isAadhaarVerificationEnabled())) {
-      if (!user.aadhaarVerified) {
-        throw new ApiError(httpStatus.BAD_REQUEST, MESSAGES.USER.KYC_AADHAAR_NOT_VERIFIED);
-      }
+    // When an Aadhaar IS supplied by a user who already verified one, it must
+    // still be the same Aadhaar. Letting a mismatch through would attach one
+    // person's verified Aadhaar to another's submitted number.
+    if (aadhaarNumber && user.aadhaarVerified) {
       if (hashAadhaar(aadhaarNumber, userId) !== user.aadhaarNumberHash) {
         throw new ApiError(httpStatus.BAD_REQUEST, MESSAGES.USER.KYC_AADHAAR_MISMATCH);
       }
     }
 
-    set('name', name);
     user.isGstRegistered = false;
     // Leave gstNumber unset (not null) — see the sparse-index comment in
     // User.model.js for why null would collide across individuals.
@@ -155,6 +197,11 @@ const completeKyc = async (
   user.kycCompleted = true;
 
   await user.save();
+
+  // After the save, so a failed KYC write never pays out. Awaited rather than
+  // fired and forgotten, so the balance is already correct in the response the
+  // client renders straight after onboarding.
+  await grantSignupBonus(user._id);
 
   return user;
 };

@@ -80,10 +80,14 @@ router.post(
  * /user/complete-kyc:
  *   post:
  *     tags: [KYC]
- *     summary: Submit KYC. Two shapes keyed off userType — vendor (GST-based) or individual (Aadhaar-based). Email and PAN are required for both.
+ *     summary: Submit KYC. Name, email and PAN are the whole requirement.
  *     description: >-
- *       For userType=vendor, submit companyName, email, panNumber, gstNumber and an owner image (profileImage) — no Aadhaar.
- *       For userType=individual, submit name, email, panNumber and aadhaarNumber (which must already be verified via /user/aadhaar/verify-otp) — no GST, no image.
+ *       One shape for everyone — name, email and panNumber. userType is optional and no longer
+ *       changes what is required: a vendor is not forced to supply GST or an owner image, and an
+ *       individual is not forced through the Aadhaar OTP step. companyName, gstNumber, phone and
+ *       aadhaarNumber are all accepted when the client still collects them, and are format-checked
+ *       when supplied. Completing KYC credits the one-off joining bonus (see signupBonus on /pricing);
+ *       it is granted once per account and is not paid for skipping KYC.
  *     security: [{ bearerAuth: [] }]
  *     requestBody:
  *       required: true
@@ -91,20 +95,20 @@ router.post(
  *         multipart/form-data:
  *           schema:
  *             type: object
- *             required: [userType, phone, email, panNumber]
+ *             required: [name, email, panNumber]
  *             properties:
- *               userType: { type: string, enum: [vendor, individual] }
- *               phone: { type: string, example: "9876543210", description: "10-digit contact number" }
+ *               name: { type: string, example: "Asha Rao" }
  *               email: { type: string }
  *               panNumber: { type: string, example: "ABCDE1234F" }
- *               companyName: { type: string, description: "Business name — required for userType=vendor" }
- *               gstNumber: { type: string, example: "22AAAAA0000A1Z5", description: "Required for userType=vendor" }
- *               profileImage: { type: string, format: binary, description: "Owner image — required for userType=vendor" }
- *               name: { type: string, description: "Required for userType=individual" }
- *               aadhaarNumber: { type: string, example: "234567890123", description: "Required for userType=individual; must match the Aadhaar already verified via /user/aadhaar/verify-otp" }
+ *               userType: { type: string, enum: [vendor, individual], description: "Optional. Stored on the record; does not change what is required." }
+ *               phone: { type: string, example: "9876543210", description: "Optional 10-digit contact number" }
+ *               companyName: { type: string, description: "Optional business name" }
+ *               gstNumber: { type: string, example: "22AAAAA0000A1Z5", description: "Optional; validated and stored when supplied" }
+ *               profileImage: { type: string, format: binary, description: "Optional owner image" }
+ *               aadhaarNumber: { type: string, example: "234567890123", description: "Optional. If the account already verified an Aadhaar via /user/aadhaar/verify-otp, a supplied number must match it." }
  *     responses:
- *       200: { description: KYC completed successfully }
- *       400: { description: (individual) Aadhaar not yet verified, or aadhaarNumber does not match the verified Aadhaar }
+ *       200: { description: KYC completed successfully; joining bonus credited }
+ *       400: { description: aadhaarNumber does not match the Aadhaar already verified for this account }
  *       409: { description: KYC already completed or PAN/GST/email already in use }
  *       422: { description: Validation failed }
  */

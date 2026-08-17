@@ -21,6 +21,12 @@ module.exports = Object.freeze({
     DIAGNOSE: 50,
   }),
 
+  // Free tokens credited once, when a user completes KYC — not at signup, so
+  // the grant rewards finishing onboarding rather than merely holding a phone
+  // number. Set to 0 to switch it off; the credit is skipped entirely rather
+  // than writing a zero-value ledger row.
+  SIGNUP_BONUS: 100,
+
   // Referral payout, in tokens, granted on the referee's first paid top-up.
   REFERRAL: Object.freeze({
     REFERRER_BONUS: 20, // credited to the person who shared the code

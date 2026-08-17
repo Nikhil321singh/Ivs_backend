@@ -195,6 +195,12 @@ const RECENT_LIMIT = 20;
  *
  * Throws 404 through userService.getUserDetails when no such user exists.
  */
+// .lean() skips each model's toJSON transform, so these rows would otherwise
+// come back with _id/__v while every other payload in the API exposes `id`.
+// Normalising here keeps one identifier convention across the whole surface.
+const withId = (rows) =>
+  rows.map(({ _id, __v, ...rest }) => ({ id: String(_id), ...rest }));
+
 const getUserDetail = async (userId) => {
   const details = await userService.getUserDetails(userId);
 
@@ -211,7 +217,11 @@ const getUserDetail = async (userId) => {
 
   return {
     ...details,
-    recent: { imeiChecks, transactions, payments },
+    recent: {
+      imeiChecks: withId(imeiChecks),
+      transactions: withId(transactions),
+      payments: withId(payments),
+    },
   };
 };
 
