@@ -61,6 +61,12 @@ const getProfile = asyncHandler(async (req, res) => {
   successResponse(res, httpStatus.OK, MESSAGES.USER.PROFILE_FETCHED, { user: req.user });
 });
 
+const getUserDetails = asyncHandler(async (req, res) => {
+  const details = await userService.getUserDetails(req.user.id);
+
+  successResponse(res, httpStatus.OK, MESSAGES.USER.DETAILS_FETCHED, details);
+});
+
 module.exports = {
   sendAadhaarOtp,
   verifyAadhaarOtp,
@@ -68,5 +74,6 @@ module.exports = {
   skipKyc,
   updateProfile,
   getProfile,
+  getUserDetails,
   deleteAccount,
 };

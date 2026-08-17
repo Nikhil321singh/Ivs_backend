@@ -7,31 +7,30 @@ const AADHAAR_REGEX = /^[2-9]{1}[0-9]{11}$/;
 const GST_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
 const MOBILE_REGEX = /^[6-9]\d{9}$/;
 
-const isVendor = (req) => req.body.userType === USER_TYPE.VENDOR;
-const isIndividual = (req) => req.body.userType === USER_TYPE.INDIVIDUAL;
-
 /**
- * KYC has two shapes keyed off userType:
- *   - vendor:     companyName, email, panNumber, gstNumber (always), owner
- *                 image (profileImage). Identified by GST — no Aadhaar.
- *   - individual: name, email, panNumber, aadhaarNumber. Identified by
- *                 Aadhaar (verified via OTP beforehand) — no GST, no image.
- * Shared fields (phone, email, panNumber) are validated unconditionally; the
- * rest apply only to their type via `.if()`.
+ * KYC is one shape for everyone: name, email and PAN.
+ *
+ * userType no longer changes what is required. It is still accepted and stored
+ * (it drives GST vs Aadhaar handling elsewhere and is worth keeping on the
+ * record), but a vendor is no longer forced to supply GST or an owner photo,
+ * and an individual is no longer forced through the Aadhaar OTP step. Anything
+ * optional that IS supplied is still format-checked, so a typo'd GST or Aadhaar
+ * is rejected rather than silently stored.
  */
 const strictKycChain = [
   body('userType')
+    .optional({ checkFalsy: true })
     .trim()
     .isIn(Object.values(USER_TYPE))
     .withMessage(MESSAGES.USER.USER_TYPE_INVALID),
 
-  // Shared
-  body('phone')
+  // Required of everyone.
+  body('name')
     .trim()
     .notEmpty()
-    .withMessage('Phone number is required.')
-    .matches(MOBILE_REGEX)
-    .withMessage('Please provide a valid 10-digit phone number.'),
+    .withMessage('Name is required.')
+    .isLength({ min: 2, max: 100 })
+    .withMessage('Name must be between 2 and 100 characters.'),
   body('email')
     .trim()
     .notEmpty()
@@ -47,51 +46,24 @@ const strictKycChain = [
     .matches(PAN_REGEX)
     .withMessage('Please provide a valid PAN number (e.g., ABCDE1234F).'),
 
-  // Vendor-only
-  body('companyName')
-    .if((value, { req }) => isVendor(req))
+  // Optional — accepted when the client still collects them.
+  body('phone')
+    .optional({ checkFalsy: true })
     .trim()
-    .notEmpty()
-    .withMessage('Business name is required.')
+    .matches(MOBILE_REGEX)
+    .withMessage('Please provide a valid 10-digit phone number.'),
+  body('companyName')
+    .optional({ checkFalsy: true })
+    .trim()
     .isLength({ min: 2, max: 150 })
     .withMessage('Business name must be between 2 and 150 characters.'),
   body('gstNumber')
-    .if((value, { req }) => isVendor(req))
+    .optional({ checkFalsy: true })
     .trim()
-    .notEmpty()
-    .withMessage('GST number is required for a vendor.')
     .toUpperCase()
     .matches(GST_REGEX)
     .withMessage('Please provide a valid 15-character GST number.'),
-  // Owner image arrives as a file (multer), so validate req.file here.
-  body('profileImage').custom((value, { req }) => {
-    if (isVendor(req) && !req.file) {
-      throw new Error(MESSAGES.USER.OWNER_IMAGE_REQUIRED);
-    }
-    return true;
-  }),
-
-  // Individual-only
-  body('name')
-    .if((value, { req }) => isIndividual(req))
-    .trim()
-    .notEmpty()
-    .withMessage('Name is required.')
-    .isLength({ min: 2, max: 100 })
-    .withMessage('Name must be between 2 and 100 characters.'),
-  // `req.aadhaarRequired` is set by loadPolicy, mounted ahead of this chain.
-  // While the admin kill switch is off the field becomes optional, so an
-  // individual can complete KYC without an Aadhaar number at all. It is still
-  // format-checked when supplied.
   body('aadhaarNumber')
-    .if((value, { req }) => isIndividual(req) && req.aadhaarRequired !== false)
-    .trim()
-    .notEmpty()
-    .withMessage('Aadhaar number is required.')
-    .matches(AADHAAR_REGEX)
-    .withMessage('Please provide a valid 12-digit Aadhaar number.'),
-  body('aadhaarNumber')
-    .if((value, { req }) => isIndividual(req) && req.aadhaarRequired === false)
     .optional({ checkFalsy: true })
     .trim()
     .matches(AADHAAR_REGEX)

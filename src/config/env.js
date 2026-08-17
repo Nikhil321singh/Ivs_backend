@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const dotenv = require('dotenv');
 
 dotenv.config();
@@ -52,7 +53,24 @@ const env = {
   // token can't be replayed against admin routes either way. Set a distinct
   // ADMIN_JWT_SECRET in production to keep the two blast radii separate.
   adminJwt: {
-    secret: process.env.ADMIN_JWT_SECRET || process.env.JWT_ACCESS_SECRET,
+    // Never the raw user access secret. If ADMIN_JWT_SECRET is unset we derive
+    // a distinct key from it instead, so admin and user tokens are always
+    // signed with different material even when nothing extra is configured —
+    // an operator who forgets the variable still gets separation rather than a
+    // silent single point of failure.
+    //
+    // Deriving (rather than requiring the variable) is deliberate: making it
+    // mandatory would stop an already-deployed server from booting after an
+    // upgrade. Set an explicit ADMIN_JWT_SECRET in production anyway, so that
+    // rotating one secret does not rotate the other.
+    secret:
+      process.env.ADMIN_JWT_SECRET ||
+      crypto
+        .createHmac('sha256', process.env.JWT_ACCESS_SECRET || '')
+        .update('ivs:admin-token:v1')
+        .digest('hex'),
+    // True only when a dedicated secret was supplied; server.js warns otherwise.
+    isDedicated: !!process.env.ADMIN_JWT_SECRET,
     expiry: process.env.ADMIN_JWT_EXPIRY || '12h',
   },
 
