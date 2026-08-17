@@ -80,14 +80,14 @@ router.post(
  * /user/complete-kyc:
  *   post:
  *     tags: [KYC]
- *     summary: Submit KYC. Name, email and PAN are the whole requirement.
+ *     summary: Submit KYC. Required fields depend on userType.
  *     description: >-
- *       One shape for everyone — name, email and panNumber. userType is optional and no longer
- *       changes what is required: a vendor is not forced to supply GST or an owner image, and an
- *       individual is not forced through the Aadhaar OTP step. companyName, gstNumber, phone and
- *       aadhaarNumber are all accepted when the client still collects them, and are format-checked
- *       when supplied. Completing KYC credits the one-off joining bonus (see signupBonus on /pricing);
- *       it is granted once per account and is not paid for skipping KYC.
+ *       For userType=individual (the default when userType is omitted): name, email and panNumber.
+ *       For userType=vendor: companyName and email. Email is the only field both must supply — a
+ *       vendor is identified by its business, so it is not asked for a personal name or PAN.
+ *       Neither type is forced through the Aadhaar OTP step, and a vendor is not forced to supply
+ *       GST or an owner image. Every other field is accepted when the client collects it and is
+ *       format-checked when supplied.
  *     security: [{ bearerAuth: [] }]
  *     requestBody:
  *       required: true
@@ -95,14 +95,14 @@ router.post(
  *         multipart/form-data:
  *           schema:
  *             type: object
- *             required: [name, email, panNumber]
+ *             required: [email]
  *             properties:
- *               name: { type: string, example: "Asha Rao" }
+ *               name: { type: string, example: "Asha Rao", description: "Required for userType=individual" }
  *               email: { type: string }
- *               panNumber: { type: string, example: "ABCDE1234F" }
- *               userType: { type: string, enum: [vendor, individual], description: "Optional. Stored on the record; does not change what is required." }
+ *               panNumber: { type: string, example: "ABCDE1234F", description: "Required for userType=individual" }
+ *               userType: { type: string, enum: [vendor, individual], description: "Defaults to individual. Selects which fields are required." }
  *               phone: { type: string, example: "9876543210", description: "Optional 10-digit contact number" }
- *               companyName: { type: string, description: "Optional business name" }
+ *               companyName: { type: string, description: "Required for userType=vendor" }
  *               gstNumber: { type: string, example: "22AAAAA0000A1Z5", description: "Optional; validated and stored when supplied" }
  *               profileImage: { type: string, format: binary, description: "Optional owner image" }
  *               aadhaarNumber: { type: string, example: "234567890123", description: "Optional. If the account already verified an Aadhaar via /user/aadhaar/verify-otp, a supplied number must match it." }
@@ -278,6 +278,97 @@ router.delete('/account', authenticate, userController.deleteAccount);
  *       401: { description: Unauthorized }
  */
 router.get('/me', authenticate, userController.getUserDetails);
+
+/**
+ * @openapi
+ * /user/aadhaar/digilocker/start:
+ *   post:
+ *     tags: [KYC]
+ *     summary: Start Aadhaar verification through DigiLocker
+ *     description: >-
+ *       Creates a DigiLocker session and returns the URL the client must open in a browser.
+ *       The user authenticates with their own mobile number, OTP and consent inside DigiLocker —
+ *       this API never sees or asks for that OTP. Poll
+ *       /user/aadhaar/digilocker/{verificationId} for the outcome once the browser returns.
+ *       Any earlier unfinished session for the same user is expired first.
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200:
+ *         description: Session created
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 message: { type: string }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     verificationId: { type: string }
+ *                     authorizationUrl: { type: string }
+ *       409: { description: Aadhaar already verified for this account }
+ *       502: { description: DigiLocker could not start the session }
+ */
+router.post('/aadhaar/digilocker/start', authenticate, userController.startDigilockerAadhaar);
+
+/**
+ * @openapi
+ * /user/aadhaar/digilocker/callback:
+ *   get:
+ *     tags: [KYC]
+ *     summary: DigiLocker redirects the user's browser here after consent
+ *     description: >-
+ *       Not called by the app. Unauthenticated by necessity — the request comes from
+ *       DigiLocker and carries no bearer token, so the unguessable single-use refid is the
+ *       only credential. Runs the rest of the flow (access token, issued files, Aadhaar
+ *       lookup, XML download and parse), records the outcome, then redirects to the app
+ *       carrying only the verification id. Never returns Aadhaar details in the URL.
+ *     parameters:
+ *       - { in: query, name: refid, required: true, schema: { type: string } }
+ *     responses:
+ *       302: { description: Redirect back to the app }
+ *       400: { description: refid missing }
+ *       404: { description: No such session }
+ */
+router.get('/aadhaar/digilocker/callback', userController.digilockerAadhaarCallback);
+
+/**
+ * @openapi
+ * /user/aadhaar/digilocker/{verificationId}:
+ *   get:
+ *     tags: [KYC]
+ *     summary: Status of one DigiLocker Aadhaar verification
+ *     description: >-
+ *       Scoped to the caller. A verification belonging to another account is indistinguishable
+ *       from one that does not exist. Statuses are application-level, never provider-specific —
+ *       terminal ones are VERIFIED, FAILED, AADHAAR_NOT_FOUND and EXPIRED.
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: path, name: verificationId, required: true, schema: { type: string } }
+ *     responses:
+ *       200:
+ *         description: Verification status
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     status: { type: string, example: VERIFIED }
+ *                     verified: { type: boolean }
+ *                     name: { type: string, nullable: true }
+ *                     maskedAadhaar: { type: string, nullable: true, example: "XXXX-XXXX-1234" }
+ *                     failureCode: { type: string, nullable: true }
+ *       404: { description: Not found for this user }
+ */
+router.get(
+  '/aadhaar/digilocker/:verificationId',
+  authenticate,
+  userController.getDigilockerAadhaarVerification
+);
 
 
 module.exports = router;

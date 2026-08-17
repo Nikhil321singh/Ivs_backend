@@ -1,6 +1,6 @@
 const axios = require('axios');
-const jwt = require('jsonwebtoken');
 const env = require('../../config/env');
+const { generatePaysprintToken } = require('../../utils/paysprintToken');
 const ApiError = require('../../utils/apiError');
 const httpStatus = require('../../constants/httpStatus');
 const MESSAGES = require('../../constants/messages');
@@ -43,32 +43,6 @@ const assertConfigured = () => {
   if (!hasPaysprintConfig()) {
     throw new ApiError(httpStatus.INTERNAL_SERVER_ERROR, MESSAGES.USER.AADHAAR_PROVIDER_CONFIG_MISSING);
   }
-};
-
-// Paysprint's UIDAI upstream validates the token's timestamp/iat with NO clock
-// skew leeway and its server clock frequently lags real time, so a token stamped
-// at "now" is rejected as being in the future:
-//   "Cannot handle token prior to <timestamp>"
-// (Seen intermittently — send-otp passes while verify-otp fails moments later.)
-// Backdate both the custom `timestamp` claim and the JWT `iat` by a safety margin
-// so the token always sits comfortably in the provider's past. The token is used
-// immediately, so a small backdate is safe against any max-age check.
-const TOKEN_SKEW_SECONDS = 120;
-
-const generatePaysprintToken = () => {
-  const issuedAt = Math.floor(Date.now() / 1000) - TOKEN_SKEW_SECONDS;
-  const payload = {
-    iat: issuedAt,
-    timestamp: issuedAt,
-    partnerId: env.paysprint.partnerId,
-    reqid: `${Date.now()}${Math.floor(Math.random() * 10)}`,
-  };
-
-  // noTimestamp so jsonwebtoken doesn't overwrite our backdated `iat` with now.
-  return jwt.sign(payload, env.paysprint.authorisedKey, {
-    algorithm: 'HS256',
-    noTimestamp: true,
-  });
 };
 
 const wrapperClient = axios.create({

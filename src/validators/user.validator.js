@@ -7,30 +7,41 @@ const AADHAAR_REGEX = /^[2-9]{1}[0-9]{11}$/;
 const GST_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
 const MOBILE_REGEX = /^[6-9]\d{9}$/;
 
+// A body with no userType is treated as an individual, matching the same
+// fallback completeKyc applies when it resolves the type. Compared
+// case-insensitively so a client sending "Vendor" or "VENDOR" is still a
+// vendor — otherwise it lands in the individual branch and is asked for a
+// name and PAN it was never meant to collect.
+const normalizeType = (value) => String(value ?? '').trim().toLowerCase();
+const isVendor = (req) => normalizeType(req.body.userType) === USER_TYPE.VENDOR;
+const isIndividual = (req) => !isVendor(req);
+
+// Applied to userType before isIn() so the stored value is canonical too —
+// completeKyc writes req.body.userType straight onto the user.
+const userTypeSanitizer = (value) => (value === undefined ? value : normalizeType(value));
+
 /**
- * KYC is one shape for everyone: name, email and PAN.
+ * KYC required fields, keyed off userType:
+ *   - individual: name, email, PAN
+ *   - vendor:     companyName, email
  *
- * userType no longer changes what is required. It is still accepted and stored
- * (it drives GST vs Aadhaar handling elsewhere and is worth keeping on the
- * record), but a vendor is no longer forced to supply GST or an owner photo,
- * and an individual is no longer forced through the Aadhaar OTP step. Anything
- * optional that IS supplied is still format-checked, so a typo'd GST or Aadhaar
- * is rejected rather than silently stored.
+ * Email is the only field both must supply. A vendor is identified by its
+ * business, so it is not forced to give a personal name or a PAN; an individual
+ * has no business name to give. Neither is forced through the Aadhaar OTP step,
+ * and a vendor is not forced to supply GST or an owner photo.
+ *
+ * Everything not required is still format-checked when supplied, so a typo'd
+ * PAN or GST is rejected rather than silently stored.
  */
 const strictKycChain = [
   body('userType')
     .optional({ checkFalsy: true })
     .trim()
+    .customSanitizer(userTypeSanitizer)
     .isIn(Object.values(USER_TYPE))
     .withMessage(MESSAGES.USER.USER_TYPE_INVALID),
 
-  // Required of everyone.
-  body('name')
-    .trim()
-    .notEmpty()
-    .withMessage('Name is required.')
-    .isLength({ min: 2, max: 100 })
-    .withMessage('Name must be between 2 and 100 characters.'),
+  // Required of both types.
   body('email')
     .trim()
     .notEmpty()
@@ -38,7 +49,17 @@ const strictKycChain = [
     .isEmail()
     .withMessage('Please provide a valid email address.')
     .normalizeEmail(),
+
+  // Individual only.
+  body('name')
+    .if((value, { req }) => isIndividual(req))
+    .trim()
+    .notEmpty()
+    .withMessage('Name is required.')
+    .isLength({ min: 2, max: 100 })
+    .withMessage('Name must be between 2 and 100 characters.'),
   body('panNumber')
+    .if((value, { req }) => isIndividual(req))
     .trim()
     .notEmpty()
     .withMessage('PAN number is required.')
@@ -46,13 +67,36 @@ const strictKycChain = [
     .matches(PAN_REGEX)
     .withMessage('Please provide a valid PAN number (e.g., ABCDE1234F).'),
 
-  // Optional — accepted when the client still collects them.
+  // Vendor only.
+  body('companyName')
+    .if((value, { req }) => isVendor(req))
+    .trim()
+    .notEmpty()
+    .withMessage('Business name is required.')
+    .isLength({ min: 2, max: 150 })
+    .withMessage('Business name must be between 2 and 150 characters.'),
+
+  // Optional — accepted when the client collects them, validated if present.
   body('phone')
     .optional({ checkFalsy: true })
     .trim()
     .matches(MOBILE_REGEX)
     .withMessage('Please provide a valid 10-digit phone number.'),
+  body('name')
+    .if((value, { req }) => isVendor(req))
+    .optional({ checkFalsy: true })
+    .trim()
+    .isLength({ min: 2, max: 100 })
+    .withMessage('Name must be between 2 and 100 characters.'),
+  body('panNumber')
+    .if((value, { req }) => isVendor(req))
+    .optional({ checkFalsy: true })
+    .trim()
+    .toUpperCase()
+    .matches(PAN_REGEX)
+    .withMessage('Please provide a valid PAN number (e.g., ABCDE1234F).'),
   body('companyName')
+    .if((value, { req }) => isIndividual(req))
     .optional({ checkFalsy: true })
     .trim()
     .isLength({ min: 2, max: 150 })
@@ -79,6 +123,7 @@ const relaxedKycChain = [
   body('userType')
     .optional({ checkFalsy: true })
     .trim()
+    .customSanitizer(userTypeSanitizer)
     .isIn(Object.values(USER_TYPE))
     .withMessage(MESSAGES.USER.USER_TYPE_INVALID),
   body('name')

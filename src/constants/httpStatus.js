@@ -10,4 +10,8 @@ module.exports = {
   UNPROCESSABLE_ENTITY: 422,
   TOO_MANY_REQUESTS: 429,
   INTERNAL_SERVER_ERROR: 500,
+  // An upstream provider failed, not us — distinguishes "their outage" from
+  // "our bug", which matters when a client decides whether retrying can help.
+  BAD_GATEWAY: 502,
+  SERVICE_UNAVAILABLE: 503,
 };

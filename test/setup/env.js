@@ -34,6 +34,9 @@ process.env.MSG91_OTP_EXPIRY_MINUTES = '5';
 process.env.GREST_WRAPPER_BASE_URL = 'https://grest.test/api';
 process.env.GREST_WRAPPER_AUTH_TOKEN = 'test-wrapper-token';
 process.env.PAYSPRINT_PARTNER_ID = 'TESTPARTNER';
+process.env.PAYSPRINT_BASE_URL = 'https://sprintverify.test/api/v1/verification';
+process.env.DIGILOCKER_REDIRECT_URL = 'http://localhost:5000/api/v1/user/aadhaar/digilocker/callback';
+process.env.DIGILOCKER_APP_RETURN_URL = 'http://localhost:3000/kyc/aadhaar';
 process.env.PAYSPRINT_AUTHORISED_KEY = 'test-authorised-key';
 
 process.env.CDOT_IVS_BASE_URL = 'https://ivs.test.gov/api';

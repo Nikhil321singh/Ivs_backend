@@ -108,6 +108,29 @@ const env = {
   paysprint: {
     partnerId: process.env.PAYSPRINT_PARTNER_ID,
     authorisedKey: process.env.PAYSPRINT_AUTHORISED_KEY,
+    // SprintVerify's own base URL, used by the DigiLocker flow, which calls the
+    // provider directly rather than through the GREST wrapper above.
+    //   UAT  https://uat.paysprint.in/sprintverify-uat/api/v1/verification
+    //   PROD https://api.verifya2z.com/api/v1/verification
+    // No default: an unset value must fail loudly at call time rather than
+    // silently pointing a production deployment at UAT (or the reverse).
+    baseUrl: process.env.PAYSPRINT_BASE_URL,
+  },
+
+  // DigiLocker Aadhaar verification. Shares the Paysprint/SprintVerify
+  // credentials above — the same partnerId signs the JWT for every SprintVerify
+  // product. `redirectUrl` is where DigiLocker sends the user's browser once
+  // they finish authenticating; providers normally require it to be registered
+  // with them, so it must match what was whitelisted for this environment.
+  digilocker: {
+    redirectUrl:
+      process.env.DIGILOCKER_REDIRECT_URL ||
+      `${process.env.API_BASE_URL || ''}/api/v1/user/aadhaar/digilocker/callback`,
+    // Where the browser is sent after the callback finishes, carrying only the
+    // verification id. Falls back to the app's client URL.
+    appReturnUrl: process.env.DIGILOCKER_APP_RETURN_URL || process.env.CLIENT_URL,
+    // A session is useless once the user has wandered off; TTL-purged after this.
+    sessionTtlMinutes: parseInt(process.env.DIGILOCKER_SESSION_TTL_MINUTES || '15', 10),
   },
 
   // Aadhaar test mode: lets a fixed list of sandbox Aadhaar numbers verify with

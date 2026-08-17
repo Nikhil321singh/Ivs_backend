@@ -49,6 +49,13 @@ module.exports = {
     AADHAAR_OTP_INVALID: 'Invalid Aadhaar OTP.',
     AADHAAR_PROVIDER_TIMEOUT: 'Aadhaar verification is taking longer than expected. Please try again in a few minutes.',
     AADHAAR_PROVIDER_CONFIG_MISSING: 'Aadhaar verification is not configured. Please contact support.',
+    DIGILOCKER_STARTED: 'Open the DigiLocker link to verify your Aadhaar.',
+    DIGILOCKER_SESSION_FAILED:
+      'Could not start DigiLocker verification right now. Please try again in a few minutes.',
+    DIGILOCKER_SESSION_NOT_FOUND: 'This Aadhaar verification could not be found.',
+    DIGILOCKER_VERIFICATION_FETCHED: 'Aadhaar verification status fetched.',
+    DIGILOCKER_AADHAAR_NOT_FOUND:
+      'No Aadhaar document was found in your DigiLocker account. Add it in DigiLocker and try again.',
     EMAIL_ALREADY_EXISTS: 'This email is already linked to another account.',
     PROFILE_IMAGE_REQUIRED: 'Profile image is required.',
     OWNER_IMAGE_REQUIRED: 'Owner image is required for a vendor.',

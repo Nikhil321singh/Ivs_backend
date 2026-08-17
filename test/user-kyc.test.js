@@ -3,6 +3,9 @@ const User = require('../src/models/User.model');
 const { hashAadhaar } = require('../src/utils/hash.util');
 const settings = require('../src/services/settings.service');
 
+// Individual: name, email, PAN. Vendor: companyName, email.
+const baseKyc = { name: 'Asha Rao', email: 'asha@example.com', panNumber: 'ABCDE1234F' };
+const vendorKyc = { userType: 'vendor', companyName: 'Rao Devices', email: 'vendor@example.com' };
 const individualKyc = {
   userType: 'individual', name: 'Asha Rao', phone: '9876543210',
   email: 'asha@example.com', panNumber: 'ABCDE1234F', aadhaarNumber: '234567890123',
@@ -12,7 +15,7 @@ const vendorKyc = {
   email: 'vendor@example.com', panNumber: 'ZYXWV9876K', gstNumber: '22AAAAA0000A1Z5',
 };
 
-describe('complete-kyc — name, email and PAN are the whole requirement', () => {
+describe('complete-kyc — required fields differ by user type', () => {
   it('completes for an individual with nothing but name, email and PAN', async () => {
     const { token } = await createUser();
 
@@ -35,24 +38,73 @@ describe('complete-kyc — name, email and PAN are the whole requirement', () =>
     expect(res.status).toBe(200);
   });
 
-  it('completes for a vendor without GST or an owner photo', async () => {
+  it('completes for a vendor with only companyName and email', async () => {
     const { token } = await createUser();
 
-    const res = await asUser(token)
-      .post('/api/v1/user/complete-kyc')
-      .send({ ...baseKyc, userType: 'vendor', companyName: 'Rao Devices' });
+    const res = await asUser(token).post('/api/v1/user/complete-kyc').send(vendorKyc);
 
     expect(res.status).toBe(200);
     expect(res.body.data.user.userType).toBe('vendor');
     expect(res.body.data.user.companyName).toBe('Rao Devices');
   });
 
+  it('requires companyName for a vendor', async () => {
+    const { token } = await createUser();
+
+    const res = await asUser(token)
+      .post('/api/v1/user/complete-kyc')
+      .send({ userType: 'vendor', email: 'v@example.com' });
+
+    expect(res.status).toBe(422);
+    expect(res.body.errors.map((e) => e.field)).toContain('companyName');
+  });
+
+  it('does not require name or PAN from a vendor', async () => {
+    const { token } = await createUser();
+
+    const res = await asUser(token).post('/api/v1/user/complete-kyc').send(vendorKyc);
+
+    expect(res.status).toBe(200);
+  });
+
+  it('treats a mixed-case userType as a vendor rather than asking for a name', async () => {
+    const { token } = await createUser();
+
+    const res = await asUser(token)
+      .post('/api/v1/user/complete-kyc')
+      .send({ ...vendorKyc, userType: 'Vendor' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.user.userType).toBe('vendor');
+    expect(res.body.data.user.companyName).toBe('Rao Devices');
+  });
+
+  it('requires email from a vendor too', async () => {
+    const { token } = await createUser();
+
+    const res = await asUser(token)
+      .post('/api/v1/user/complete-kyc')
+      .send({ userType: 'vendor', companyName: 'Rao Devices' });
+
+    expect(res.status).toBe(422);
+    expect(res.body.errors.map((e) => e.field)).toContain('email');
+  });
+
+  it('does not require companyName from an individual', async () => {
+    const { token } = await createUser();
+
+    const res = await asUser(token)
+      .post('/api/v1/user/complete-kyc')
+      .send({ ...baseKyc, userType: 'individual' });
+
+    expect(res.status).toBe(200);
+  });
+
   it('still stores GST when a vendor supplies it', async () => {
     const { token } = await createUser();
 
     const res = await asUser(token).post('/api/v1/user/complete-kyc').send({
-      ...baseKyc, userType: 'vendor', companyName: 'Rao Devices',
-      gstNumber: '22AAAAA0000A1Z5',
+      ...vendorKyc, gstNumber: '22AAAAA0000A1Z5',
     });
 
     expect(res.status).toBe(200);
