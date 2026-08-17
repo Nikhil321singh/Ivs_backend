@@ -24,6 +24,11 @@ const imeiVerificationLogSchema = new Schema(
       trim: true,
       default: null,
     },
+    customerName: {
+      type: String,
+      trim: true,
+      default: null,
+    },
     imei1Status: {
       type: String,
       required: true,
@@ -43,6 +48,12 @@ const imeiVerificationLogSchema = new Schema(
     allowTransaction: {
       type: Boolean,
       required: true,
+    },
+    // Tokens charged for this check, captured at verification time because the
+    // price is operator-editable. Null on rows written before this existed.
+    cost: {
+      type: Number,
+      default: null,
     },
     referenceId: {
       type: String,

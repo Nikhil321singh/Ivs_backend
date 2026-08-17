@@ -6,7 +6,6 @@ const MESSAGES = require('../constants/messages');
 const ivsService = require('../services/ivs.service');
 const aadhaarService = require('../services/aadhaar.service');
 const walletService = require('../services/wallet.service');
-const PRICING = require('../constants/pricing');
 const { TXN_REASON, TXN_REF_TYPE } = require('../constants/walletEnums');
 const { IVS_STATUS } = require('../services/providers/cdotIvsProvider');
 
@@ -18,7 +17,10 @@ const isDefinitive = (status) => status !== null && DEFINITIVE.includes(status);
 
 
 const verifyImei = asyncHandler(async (req, res) => {
-  
+  // requireBalance already resolved the effective price and checked the wallet
+  // against it. Reuse that exact value rather than re-reading, so an admin
+  // changing the price mid-request can never make us charge more than we
+  // verified the user could afford.
   const cost = req.featureCost;
   const chargeRef = `IVSCHG-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
 
@@ -61,7 +63,7 @@ const verifyImei = asyncHandler(async (req, res) => {
 
   let result;
   try {
-    result = await ivsService.verifyImei(req.user.id, req.body);
+    result = await ivsService.verifyImei(req.user.id, req.body, cost);
   } catch (err) {
     await refund('verification_threw', null);
     throw err;
@@ -98,4 +100,13 @@ const verifyCustomerAadhaarOtp = asyncHandler(async (req, res) => {
   successResponse(res, httpStatus.OK, MESSAGES.USER.AADHAAR_VERIFIED, data);
 });
 
-module.exports = { verifyImei, sendCustomerAadhaarOtp, verifyCustomerAadhaarOtp };
+// GET /ivs/history — the caller's stored IMEI verifications (view-only, no charge).
+const getHistory = asyncHandler(async (req, res) => {
+  const data = await ivsService.getHistory(req.user.id, {
+    page: req.query.page,
+    limit: req.query.limit,
+  });
+  successResponse(res, httpStatus.OK, MESSAGES.IVS.HISTORY_FETCHED, data);
+});
+
+module.exports = { verifyImei, sendCustomerAadhaarOtp, verifyCustomerAadhaarOtp, getHistory };

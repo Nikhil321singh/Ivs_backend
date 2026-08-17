@@ -64,7 +64,7 @@ const grantSignupBonus = async (userId) => {
  * Finds a user by mobile+countryCode, creating one if this is their first
  * login. OTP verification already happened before this is called, so the new
  * user is marked mobile-verified immediately. Every new user also gets a
- * unique referral code to share.
+ * unique referral code to share, and the one-off signup bonus.
  */
 const findOrCreateUserByMobile = async (countryCode, mobile) => {
   let user = await User.findOne({ countryCode, mobile });
@@ -123,11 +123,14 @@ const assertFieldNotTaken = async (field, value, excludeUserId, conflictMessage)
 };
 
 /**
- * Completes KYC for either a vendor or an individual. The two paths diverge
- * on their identity document: a vendor is identified by GST (and submits an
- * owner image); an individual by Aadhaar (verified beforehand via OTP). Email
- * and PAN are shared. The validator guarantees the type-specific fields are
- * present before we get here.
+ * Completes KYC. Name, email and PAN are the whole requirement, for vendors and
+ * individuals alike — the validator guarantees those three are present before
+ * we get here.
+ *
+ * userType still selects how the optional identity fields are handled (GST and
+ * an owner image for a vendor, Aadhaar for an individual) but no longer decides
+ * what is mandatory. Completing KYC is also what pays the one-off joining
+ * bonus; see grantSignupBonus above.
  */
 const completeKyc = async (
   userId,

@@ -3,7 +3,7 @@ const walletService = require('../services/wallet.service');
 const ApiError = require('../utils/apiError');
 const httpStatus = require('../constants/httpStatus');
 const MESSAGES = require('../constants/messages');
-const PRICING = require('../constants/pricing');
+const settingsService = require('../services/settings.service');
 
 /**
  * Preflight guard for a paid feature. Rejects with 402 (Payment Required)
@@ -14,7 +14,11 @@ const PRICING = require('../constants/pricing');
  */
 const requireBalance = (featureKey) =>
   asyncHandler(async (req, res, next) => {
-    const cost = PRICING.FEATURES[featureKey];
+    // Price is operator-editable at runtime, so read the effective value rather
+    // than the compiled-in default. Stashed on the request below so the handler
+    // charges exactly what was checked here, even if an admin changes the price
+    // mid-request.
+    const cost = await settingsService.getFeatureCost(featureKey);
     const balance = await walletService.getBalance(req.user.id);
 
     if (balance < cost) {

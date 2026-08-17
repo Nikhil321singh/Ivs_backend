@@ -37,6 +37,23 @@ const updateSettingsValidator = [
       if (definition.type === 'boolean' && typeof value[key] !== 'boolean') {
         throw new Error(`Setting ${key} must be true or false.`);
       }
+
+      if (definition.type === 'integer') {
+        const parsed = Number(value[key]);
+
+        if (!Number.isInteger(parsed)) {
+          throw new Error(`Setting ${key} must be a whole number.`);
+        }
+        // Reject out-of-range here rather than letting the service clamp it, so
+        // the operator is told their price was refused instead of silently
+        // saving a different one.
+        if (definition.min !== undefined && parsed < definition.min) {
+          throw new Error(`Setting ${key} must be at least ${definition.min}.`);
+        }
+        if (definition.max !== undefined && parsed > definition.max) {
+          throw new Error(`Setting ${key} must be at most ${definition.max}.`);
+        }
+      }
     });
 
     return true;

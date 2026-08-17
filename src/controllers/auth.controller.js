@@ -10,7 +10,7 @@ const referralService = require('../services/referral.service');
 
 const sendOtp = asyncHandler(async (req, res) => {
   const { mobile, countryCode = env.defaultCountryCode } = req.body;
-console.log(req.body)
+
   await otpService.sendOtp(countryCode, mobile);
 
   successResponse(res, httpStatus.OK, MESSAGES.AUTH.OTP_SENT, { mobile, countryCode });

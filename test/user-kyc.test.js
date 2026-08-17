@@ -1,0 +1,247 @@
+const { app, request, createUser, asUser } = require('./helpers/factory');
+const User = require('../src/models/User.model');
+const { hashAadhaar } = require('../src/utils/hash.util');
+const settings = require('../src/services/settings.service');
+
+const individualKyc = {
+  userType: 'individual', name: 'Asha Rao', phone: '9876543210',
+  email: 'asha@example.com', panNumber: 'ABCDE1234F', aadhaarNumber: '234567890123',
+};
+const vendorKyc = {
+  userType: 'vendor', companyName: 'Rao Devices', phone: '9876543211',
+  email: 'vendor@example.com', panNumber: 'ZYXWV9876K', gstNumber: '22AAAAA0000A1Z5',
+};
+
+describe('complete-kyc — name, email and PAN are the whole requirement', () => {
+  it('completes for an individual with nothing but name, email and PAN', async () => {
+    const { token } = await createUser();
+
+    const res = await asUser(token).post('/api/v1/user/complete-kyc').send(baseKyc);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.user.kycCompleted).toBe(true);
+    expect(res.body.data.user.name).toBe('Asha Rao');
+    expect(res.body.data.user.panNumber).toBe('ABCDE1234F');
+  });
+
+  it('no longer requires a verified Aadhaar', async () => {
+    const { user, token } = await createUser();
+    expect(user.aadhaarVerified).toBe(false);
+
+    const res = await asUser(token)
+      .post('/api/v1/user/complete-kyc')
+      .send({ ...baseKyc, userType: 'individual' });
+
+    expect(res.status).toBe(200);
+  });
+
+  it('completes for a vendor without GST or an owner photo', async () => {
+    const { token } = await createUser();
+
+    const res = await asUser(token)
+      .post('/api/v1/user/complete-kyc')
+      .send({ ...baseKyc, userType: 'vendor', companyName: 'Rao Devices' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.user.userType).toBe('vendor');
+    expect(res.body.data.user.companyName).toBe('Rao Devices');
+  });
+
+  it('still stores GST when a vendor supplies it', async () => {
+    const { token } = await createUser();
+
+    const res = await asUser(token).post('/api/v1/user/complete-kyc').send({
+      ...baseKyc, userType: 'vendor', companyName: 'Rao Devices',
+      gstNumber: '22AAAAA0000A1Z5',
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.user.gstNumber).toBe('22AAAAA0000A1Z5');
+    expect(res.body.data.user.isGstRegistered).toBe(true);
+  });
+
+  it('rejects a submission missing name, email or PAN', async () => {
+    const { token } = await createUser();
+
+    const noName = await asUser(token)
+      .post('/api/v1/user/complete-kyc')
+      .send({ email: 'a@b.com', panNumber: 'ABCDE1234F' });
+    expect(noName.status).toBe(422);
+    expect(noName.body.errors.map((e) => e.field)).toContain('name');
+
+    const noEmail = await asUser(token)
+      .post('/api/v1/user/complete-kyc')
+      .send({ name: 'Asha Rao', panNumber: 'ABCDE1234F' });
+    expect(noEmail.status).toBe(422);
+
+    const noPan = await asUser(token)
+      .post('/api/v1/user/complete-kyc')
+      .send({ name: 'Asha Rao', email: 'a@b.com' });
+    expect(noPan.status).toBe(422);
+  });
+
+  it('still format-checks the optional fields when supplied', async () => {
+    const { token } = await createUser();
+
+    const badGst = await asUser(token)
+      .post('/api/v1/user/complete-kyc')
+      .send({ ...baseKyc, gstNumber: 'NOPE' });
+    expect(badGst.status).toBe(422);
+
+    const badAadhaar = await asUser(token)
+      .post('/api/v1/user/complete-kyc')
+      .send({ ...baseKyc, aadhaarNumber: '123' });
+    expect(badAadhaar.status).toBe(422);
+  });
+
+  it('rejects a malformed PAN', async () => {
+    const { token } = await createUser();
+    const res = await asUser(token)
+      .post('/api/v1/user/complete-kyc')
+      .send({ ...baseKyc, panNumber: 'NOPE' });
+    expect(res.status).toBe(422);
+  });
+
+  it('rejects an Aadhaar that contradicts the one already verified', async () => {
+    const { user, token } = await createUser();
+    await User.findByIdAndUpdate(user._id, {
+      aadhaarVerified: true,
+      aadhaarNumberHash: hashAadhaar('999999999999', user._id),
+    });
+
+    const res = await asUser(token)
+      .post('/api/v1/user/complete-kyc')
+      .send({ ...baseKyc, aadhaarNumber: '234567890123' });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('accepts the matching Aadhaar from a user who verified one', async () => {
+    const { user, token } = await createUser();
+    await User.findByIdAndUpdate(user._id, {
+      aadhaarVerified: true,
+      aadhaarNumberHash: hashAadhaar('234567890123', user._id),
+    });
+
+    const res = await asUser(token)
+      .post('/api/v1/user/complete-kyc')
+      .send({ ...baseKyc, aadhaarNumber: '234567890123' });
+
+    expect(res.status).toBe(200);
+  });
+
+  it('409s if KYC is already complete', async () => {
+    const { token } = await createUser({ kycCompleted: true });
+    const res = await asUser(token).post('/api/v1/user/complete-kyc').send(baseKyc);
+    expect(res.status).toBe(409);
+  });
+
+  it('rejects an email already used by another account', async () => {
+    await createUser({ email: 'taken@example.com' });
+    const { token } = await createUser();
+
+    const res = await asUser(token)
+      .post('/api/v1/user/complete-kyc')
+      .send({ ...baseKyc, email: 'taken@example.com' });
+
+    expect(res.status).toBe(409);
+  });
+
+  it('rejects a PAN already used by another account', async () => {
+    await createUser({ panNumber: 'ABCDE1234F' });
+    const { token } = await createUser();
+
+    const res = await asUser(token).post('/api/v1/user/complete-kyc').send(baseKyc);
+
+    expect(res.status).toBe(409);
+  });
+});
+
+describe('kycRequired switch off', () => {
+  beforeEach(async () => { await settings.update({ kycRequired: false }); });
+
+  it('accepts an empty body', async () => {
+    const { token } = await createUser();
+    const res = await asUser(token).post('/api/v1/user/complete-kyc').send({});
+    expect(res.status).toBe(200);
+    expect(res.body.data.user.userType).toBe('individual');
+  });
+
+  it('still rejects malformed values', async () => {
+    const { token } = await createUser();
+    const res = await asUser(token).post('/api/v1/user/complete-kyc').send({ panNumber: 'NOPE' });
+    expect(res.status).toBe(422);
+  });
+
+  it('allows skip-kyc', async () => {
+    const { token } = await createUser();
+    const res = await asUser(token).post('/api/v1/user/skip-kyc');
+    expect(res.status).toBe(200);
+    expect(res.body.data.user.kycCompleted).toBe(true);
+  });
+});
+
+describe('skip-kyc while KYC is required', () => {
+  it('is forbidden', async () => {
+    const { token } = await createUser();
+    const res = await asUser(token).post('/api/v1/user/skip-kyc');
+    expect(res.status).toBe(403);
+  });
+});
+
+describe('profile', () => {
+  it('updates name and email', async () => {
+    const { token } = await createUser();
+    const res = await asUser(token).put('/api/v1/user/update-profile')
+      .field('name', 'New Name').field('email', 'new@example.com');
+    expect(res.status).toBe(200);
+    expect(res.body.data.user.name).toBe('New Name');
+  });
+
+  it('never exposes the storage public id', async () => {
+    const { token } = await createUser();
+    const res = await asUser(token).get('/api/v1/user/profile');
+    expect(res.body.data.user.profileImagePublicId).toBeUndefined();
+  });
+});
+
+describe('account deletion', () => {
+  it('soft deletes, wipes personal fields and keeps the mobile', async () => {
+    const { user, token } = await createUser({
+      name: 'Gone', email: 'gone@example.com', panNumber: 'PANXX1234Z', kycCompleted: true,
+    });
+    const mobile = user.mobile;
+
+    const res = await asUser(token).delete('/api/v1/user/account');
+    expect(res.status).toBe(200);
+
+    const after = await User.findById(user._id).lean();
+    expect(after.status).toBe('DELETED');
+    expect(after.name).toBeNull();
+    expect(after.email).toBeUndefined();
+    expect(after.panNumber).toBeUndefined();
+    expect(after.kycCompleted).toBe(false);
+    expect(after.mobile).toBe(mobile);        // kept, so sign-in restores
+  });
+
+  it('rejects the old token afterwards', async () => {
+    const { token } = await createUser();
+    await asUser(token).delete('/api/v1/user/account');
+    const res = await asUser(token).get('/api/v1/user/profile');
+    expect(res.status).toBe(401);
+  });
+
+  it('restores the same account on next sign-in, balance intact', async () => {
+    const userService = require('../src/services/user.service');
+    const walletService = require('../src/services/wallet.service');
+    const { user, token } = await createUser();
+    await walletService.credit(user._id, 120, { reason: 'ADJUSTMENT' });
+
+    await asUser(token).delete('/api/v1/user/account');
+    const restored = await userService.findOrCreateUserByMobile('+91', user.mobile);
+
+    expect(restored.user._id.toString()).toBe(user._id.toString());
+    expect(restored.isRestored).toBe(true);
+    expect(await walletService.getBalance(user._id)).toBe(120);
+  });
+});

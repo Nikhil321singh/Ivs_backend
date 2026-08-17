@@ -56,6 +56,7 @@ module.exports = {
   },
   IVS: {
     VERIFIED: 'IMEI verification completed.',
+    HISTORY_FETCHED: 'Verification history fetched.',
     IMEI_DUPLICATE: 'IMEI 1 and IMEI 2 must be different.',
     NOT_CONFIGURED: 'IMEI verification is not configured. Contact system administrator.',
     AUTH_FAILED: 'IMEI verification service authentication failed. Use supervisor override to proceed.',

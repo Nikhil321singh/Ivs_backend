@@ -51,6 +51,25 @@ router.post(
 
 /**
  * @openapi
+ * /ivs/history:
+ *   get:
+ *     tags: [IVS]
+ *     summary: List the caller's stored IMEI verifications (view-only, no charge)
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 20, maximum: 50 }
+ *     responses:
+ *       200: { description: Verification history returned }
+ */
+router.get('/history', authenticate, ivsController.getHistory);
+
+/**
+ * @openapi
  * /ivs/aadhaar/send-otp:
  *   post:
  *     tags: [IVS]

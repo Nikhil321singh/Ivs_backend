@@ -4,7 +4,9 @@ const {
   DEFAULTS,
   SETTING_KEYS,
   PUBLIC_KEYS,
+  FEATURE_COST_KEYS,
 } = require('../constants/settings');
+const PRICING = require('../constants/pricing');
 
 /**
  * Reads runtime settings through a short-lived in-process cache.
@@ -29,7 +31,19 @@ const invalidateCache = () => {
 const coerce = (key, value) => {
   const definition = SETTING_DEFINITIONS[key];
   if (!definition) return value;
+
   if (definition.type === 'boolean') return value === true || value === 'true';
+
+  if (definition.type === 'integer') {
+    const parsed = parseInt(value, 10);
+    // A malformed stored value must never become NaN and propagate into a
+    // wallet debit — fall back to the compiled-in default instead.
+    if (!Number.isInteger(parsed)) return definition.default;
+    if (definition.min !== undefined && parsed < definition.min) return definition.min;
+    if (definition.max !== undefined && parsed > definition.max) return definition.max;
+    return parsed;
+  }
+
   return value;
 };
 
@@ -95,6 +109,35 @@ const isAadhaarVerificationEnabled = () => get(SETTING_KEYS.AADHAAR_VERIFICATION
 const isKycRequired = () => get(SETTING_KEYS.KYC_REQUIRED);
 
 /**
+ * Effective price of a paid feature, in tokens.
+ *
+ * Reads the operator-set override, falling back to the compiled-in default in
+ * constants/pricing.js. Every charge path must go through this rather than
+ * PRICING.FEATURES directly, or a price change would apply in one place and not
+ * another — the balance check and the debit disagreeing is the worst version of
+ * that bug.
+ */
+const getFeatureCost = async (featureKey) => {
+  const settingKey = FEATURE_COST_KEYS[featureKey];
+
+  if (!settingKey) return PRICING.FEATURES[featureKey];
+
+  return get(settingKey);
+};
+
+/** All feature prices at once, for the pricing endpoint. */
+const getFeatureCosts = async () => {
+  const all = await getAll();
+
+  return Object.fromEntries(
+    Object.keys(PRICING.FEATURES).map((feature) => [
+      feature,
+      FEATURE_COST_KEYS[feature] ? all[FEATURE_COST_KEYS[feature]] : PRICING.FEATURES[feature],
+    ])
+  );
+};
+
+/**
  * The subset safe to hand to any caller (see `public` in constants/settings.js).
  * Backs the unauthenticated GET /api/v1/settings that clients read to decide
  * whether to show the KYC and Aadhaar screens at all.
@@ -112,4 +155,6 @@ module.exports = {
   invalidateCache,
   isAadhaarVerificationEnabled,
   isKycRequired,
+  getFeatureCost,
+  getFeatureCosts,
 };
