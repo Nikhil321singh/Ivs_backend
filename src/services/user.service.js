@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const User = require('../models/User.model');
 const referralService = require('./referral.service');
 const { hashAadhaar } = require('../utils/hash.util');
@@ -9,7 +10,13 @@ const USER_TYPE = require('../constants/userType');
 const USER_STATUS = require('../constants/userStatus');
 const RefreshToken = require('../models/RefreshToken.model');
 const AadhaarOtp = require('../models/AadhaarOtp.model');
+const Payment = require('../models/Payment.model');
+const Wallet = require('../models/Wallet.model');
+const WalletTransaction = require('../models/WalletTransaction.model');
+const ImeiVerificationLog = require('../models/ImeiVerificationLog.model');
+const DiagnoseSession = require('../models/DiagnoseSession.model');
 const uploadService = require('./upload.service');
+const { TXN_TYPE, TXN_REF_TYPE, PAYMENT_STATUS } = require('../constants/walletEnums');
 
 /**
  * Finds a user by mobile+countryCode, creating one if this is their first
@@ -272,9 +279,174 @@ const deleteAccount = async (userId) => {
   return { deletedAt: user.deletedAt };
 };
 
+/**
+ * Net tokens spent per paid feature, keyed by TXN_REF_TYPE (IVS_CHECK,
+ * DIAGNOSE, …).
+ *
+ * Derived from the ledger rather than from the feature's own log, because the
+ * ledger is the only place that knows what was actually *kept*: an
+ * unverifiable IMEI is charged and then refunded, and both rows carry the same
+ * referenceType. Netting the credits against the debits is therefore the only
+ * figure that reconciles with the wallet balance — counting log rows and
+ * multiplying by the price would over-report every refunded check, and the
+ * price is not fixed over time either.
+ */
+const netSpendByFeature = async (oid) => {
+  const rows = await WalletTransaction.aggregate([
+    { $match: { userId: oid, referenceType: { $ne: null } } },
+    {
+      $group: {
+        _id: { feature: '$referenceType', type: '$type' },
+        total: { $sum: '$amount' },
+      },
+    },
+  ]);
+
+  return rows.reduce((acc, { _id, total }) => {
+    const signed = _id.type === TXN_TYPE.DEBIT ? total : -total;
+    acc[_id.feature] = (acc[_id.feature] || 0) + signed;
+    return acc;
+  }, {});
+};
+
+/**
+ * Everything the app knows about one user, in a single response.
+ *
+ * The client's home screen otherwise needs /user/profile + /wallet/balance +
+ * /referral/summary + a history call just to paint itself; this collapses them
+ * into one round trip. Every section is derived from an independent collection,
+ * so they are gathered concurrently and each aggregate is bounded to a single
+ * grouped row rather than pulling documents into memory.
+ *
+ * Read-only: it never creates or mutates anything, including the wallet —
+ * a user who has never transacted reports a zeroed wallet rather than having
+ * one provisioned as a side effect of viewing their profile.
+ */
+const getUserDetails = async (userId) => {
+  const user = await getUserById(userId);
+  // Aggregations don't get mongoose's automatic string→ObjectId casting that
+  // find()/countDocuments() do, so the match key has to be cast by hand.
+  const oid = new mongoose.Types.ObjectId(String(userId));
+
+  const [
+    wallet,
+    referral,
+    referredBy,
+    [imei = null],
+    [payments = null],
+    spend,
+    diagnoseCount,
+    lastDiagnose,
+    activeSessions,
+    kycRequired,
+    aadhaarVerificationEnabled,
+  ] = await Promise.all([
+    Wallet.findOne({ userId }).lean(),
+    referralService.getReferralSummary(user),
+    user.referredBy
+      ? User.findById(user.referredBy).select('name companyName referralCode').lean()
+      : null,
+    ImeiVerificationLog.aggregate([
+      { $match: { userId: oid } },
+      {
+        $group: {
+          _id: null,
+          total: { $sum: 1 },
+          allowed: { $sum: { $cond: ['$allowTransaction', 1, 0] } },
+          lastAt: { $max: '$verifiedAt' },
+        },
+      },
+    ]),
+    Payment.aggregate([
+      { $match: { userId: oid, status: PAYMENT_STATUS.PAID } },
+      {
+        $group: {
+          _id: null,
+          total: { $sum: 1 },
+          amountPaise: { $sum: '$amountPaise' },
+          tokens: { $sum: '$tokens' },
+          lastAt: { $max: '$updatedAt' },
+        },
+      },
+    ]),
+    netSpendByFeature(oid),
+    DiagnoseSession.countDocuments({ userId }),
+    DiagnoseSession.findOne({ userId }).sort({ createdAt: -1 }).select('createdAt').lean(),
+    RefreshToken.countDocuments({ userId, isRevoked: false, expiresAt: { $gt: new Date() } }),
+    settingsService.isKycRequired(),
+    settingsService.isAadhaarVerificationEnabled(),
+  ]);
+
+  return {
+    user: user.toJSON(),
+    kyc: {
+      completed: user.kycCompleted,
+      userType: user.userType,
+      aadhaarVerified: user.aadhaarVerified,
+      aadhaarNumber: user.aadhaarNumber, // masked value only
+      panNumber: user.panNumber ?? null,
+      gstNumber: user.gstNumber ?? null,
+      isGstRegistered: user.isGstRegistered,
+      // Mirrors the rules in completeKyc/skipKyc so the client can decide which
+      // onboarding screens to show without a second call to /settings.
+      kycRequired,
+      aadhaarVerificationEnabled,
+      canSkipKyc: !user.kycCompleted && !kycRequired,
+    },
+    wallet: {
+      balance: wallet?.balance ?? 0,
+      totalPurchased: wallet?.totalPurchased ?? 0,
+      totalBonus: wallet?.totalBonus ?? 0,
+      totalSpent: wallet?.totalSpent ?? 0,
+    },
+    referral: {
+      ...referral,
+      referredBy: referredBy
+        ? {
+            id: String(referredBy._id),
+            name: referredBy.name || referredBy.companyName || null,
+            referralCode: referredBy.referralCode || null,
+          }
+        : null,
+    },
+    activity: {
+      imeiChecks: {
+        total: imei?.total ?? 0,
+        allowed: imei?.allowed ?? 0,
+        blocked: (imei?.total ?? 0) - (imei?.allowed ?? 0),
+        tokensSpent: spend[TXN_REF_TYPE.IVS_CHECK] ?? 0,
+        lastAt: imei?.lastAt ?? null,
+      },
+      diagnose: {
+        total: diagnoseCount,
+        tokensSpent: spend[TXN_REF_TYPE.DIAGNOSE] ?? 0,
+        lastAt: lastDiagnose?.createdAt ?? null,
+      },
+      payments: {
+        totalPaid: payments?.total ?? 0,
+        // Payments are stored in paise; expose rupees too so the client never
+        // has to know the unit.
+        amountPaise: payments?.amountPaise ?? 0,
+        amountInr: (payments?.amountPaise ?? 0) / 100,
+        tokensPurchased: payments?.tokens ?? 0,
+        lastAt: payments?.lastAt ?? null,
+      },
+    },
+    account: {
+      status: user.status,
+      isMobileVerified: user.isMobileVerified,
+      activeSessions,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+      deletedAt: user.deletedAt,
+    },
+  };
+};
+
 module.exports = {
   findOrCreateUserByMobile,
   getUserById,
+  getUserDetails,
   completeKyc,
   skipKyc,
   updateProfile,

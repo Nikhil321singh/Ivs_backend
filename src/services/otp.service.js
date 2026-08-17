@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const axios = require('axios');
 const env = require('../config/env');
 const Otp = require('../models/Otp.model');
+const OtpAttempt = require('../models/OtpAttempt.model');
 const { hashToken } = require('../utils/hash.util');
 const ApiError = require('../utils/apiError');
 const httpStatus = require('../constants/httpStatus');
@@ -65,20 +66,60 @@ const sendOtp = async (countryCode, mobile) => {
 };
 
 /**
+ * Per-account brute-force guard: at most MAX_ATTEMPTS wrong codes for a given
+ * number within ATTEMPT_WINDOW_MINUTES, counted independently of how many OTPs
+ * were requested. The IP limiter alone left a distributed attacker unbounded
+ * against a single number — 6 digits is only a million values.
+ */
+const MAX_ATTEMPTS = 3;
+const ATTEMPT_WINDOW_MINUTES = 15;
+
+const assertNotLockedOut = async (countryCode, mobile) => {
+  const attempt = await OtpAttempt.findOne({ countryCode, mobile });
+
+  // A row past its window is spent; the TTL monitor may not have removed it yet.
+  if (attempt && attempt.expiresAt.getTime() > Date.now() && attempt.count >= MAX_ATTEMPTS) {
+    throw new ApiError(httpStatus.TOO_MANY_REQUESTS, MESSAGES.OTP.TOO_MANY_ATTEMPTS);
+  }
+
+  if (attempt && attempt.expiresAt.getTime() <= Date.now()) {
+    await OtpAttempt.deleteOne({ _id: attempt._id });
+  }
+};
+
+const recordFailedAttempt = async (countryCode, mobile) => {
+  const expiresAt = new Date(Date.now() + ATTEMPT_WINDOW_MINUTES * 60 * 1000);
+
+  // The window starts at the FIRST failure and is not extended by later ones —
+  // $setOnInsert, so a persistent attacker cannot keep pushing the expiry out.
+  await OtpAttempt.findOneAndUpdate(
+    { countryCode, mobile },
+    { $inc: { count: 1 }, $setOnInsert: { countryCode, mobile, expiresAt } },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
+};
+
+/**
  * Verifies an OTP against the hash stored for this mobile number when it
- * was sent. Consumes the OTP on success so it cannot be replayed.
- * @param {string} countryCode e.g. "+91"
- * @param {string} mobile e.g. "9876543210"
- * @param {string} otp
+ * was sent. Consumes the OTP on success so it cannot be replayed, and clears
+ * the failure counter.
  */
 const verifyOtp = async (countryCode, mobile, otp) => {
+  await assertNotLockedOut(countryCode, mobile);
+
   const record = await Otp.findOne({ countryCode, mobile });
 
   if (!record || record.expiresAt.getTime() < Date.now() || record.otpHash !== hashToken(otp)) {
+    await recordFailedAttempt(countryCode, mobile);
     throw new ApiError(httpStatus.BAD_REQUEST, MESSAGES.OTP.VERIFY_FAILED);
   }
 
-  await Otp.deleteOne({ _id: record._id });
+  await Promise.all([
+    Otp.deleteOne({ _id: record._id }),
+    // Success clears the slate, so a user who fumbles twice then succeeds is
+    // not left one mistake away from a lockout.
+    OtpAttempt.deleteOne({ countryCode, mobile }),
+  ]);
 
   return true;
 };

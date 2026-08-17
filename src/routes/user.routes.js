@@ -199,4 +199,81 @@ router.get('/profile', authenticate, userController.getProfile);
  */
 router.delete('/account', authenticate, userController.deleteAccount);
 
+/**
+ * @openapi
+ * /user/me:
+ *   get:
+ *     tags: [User]
+ *     summary: Everything about the signed-in user in one call — profile, KYC state, wallet, referrals, activity totals and account info
+ *     description: >-
+ *       One round trip for the home screen. Replaces having to call /user/profile,
+ *       /wallet/balance, /referral/summary and the history endpoints separately.
+ *       Read-only — nothing is created or modified, including the wallet, so a user
+ *       who has never transacted reports a zeroed wallet rather than having one
+ *       provisioned. Aggregate totals only; use the paginated endpoints
+ *       (/wallet/statement, /ivs/history) for individual rows.
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200:
+ *         description: User details fetched successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 message: { type: string }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     user: { type: object, description: The full user profile, same shape as /user/profile }
+ *                     kyc:
+ *                       type: object
+ *                       properties:
+ *                         completed: { type: boolean }
+ *                         userType: { type: string, nullable: true, enum: [vendor, individual] }
+ *                         aadhaarVerified: { type: boolean }
+ *                         aadhaarNumber: { type: string, nullable: true, description: Masked value only }
+ *                         panNumber: { type: string, nullable: true }
+ *                         gstNumber: { type: string, nullable: true }
+ *                         isGstRegistered: { type: boolean }
+ *                         kycRequired: { type: boolean }
+ *                         aadhaarVerificationEnabled: { type: boolean }
+ *                         canSkipKyc: { type: boolean }
+ *                     wallet:
+ *                       type: object
+ *                       properties:
+ *                         balance: { type: integer }
+ *                         totalPurchased: { type: integer }
+ *                         totalBonus: { type: integer }
+ *                         totalSpent: { type: integer }
+ *                     referral:
+ *                       type: object
+ *                       properties:
+ *                         referralCode: { type: string, nullable: true }
+ *                         totalReferred: { type: integer }
+ *                         totalRewarded: { type: integer }
+ *                         rewardPerReferral: { type: integer }
+ *                         welcomeBonus: { type: integer }
+ *                         referredBy: { type: object, nullable: true }
+ *                     activity:
+ *                       type: object
+ *                       properties:
+ *                         imeiChecks: { type: object, description: total/allowed/blocked/tokensSpent/lastAt }
+ *                         diagnose: { type: object, description: total/lastAt }
+ *                         payments: { type: object, description: totalPaid/amountPaise/amountInr/tokensPurchased/lastAt }
+ *                     account:
+ *                       type: object
+ *                       properties:
+ *                         status: { type: string }
+ *                         isMobileVerified: { type: boolean }
+ *                         activeSessions: { type: integer, description: Devices with a live refresh token }
+ *                         createdAt: { type: string, format: date-time }
+ *                         updatedAt: { type: string, format: date-time }
+ *                         deletedAt: { type: string, format: date-time, nullable: true }
+ *       401: { description: Unauthorized }
+ */
+router.get('/me', authenticate, userController.getUserDetails);
+
+
 module.exports = router;
