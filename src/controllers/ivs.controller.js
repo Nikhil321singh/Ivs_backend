@@ -15,7 +15,20 @@ const { IVS_STATUS } = require('../services/providers/cdotIvsProvider');
 const DEFINITIVE = [IVS_STATUS.CLEAN, IVS_STATUS.BLOCKED, IVS_STATUS.STOLEN];
 const isDefinitive = (status) => status !== null && DEFINITIVE.includes(status);
 
-
+/**
+ * Charge up front, refund if CEIR gave us no usable answer.
+ *
+ * The debit runs BEFORE the C-DOT call on purpose. requireBalance only *reads*
+ * the balance, and the C-DOT round trip takes ~1s, so charging afterwards left
+ * a window where two concurrent checks both passed the balance test and both
+ * debited — overdrawing the wallet. debit() is an atomic conditional decrement,
+ * so taking the tokens first closes that window.
+ *
+ * The user still only pays for a definitive answer: any UNKNOWN/ERROR (C-DOT
+ * unreachable, auth failure, not configured), or a thrown error, refunds the
+ * full cost. Both legs carry an idempotency key derived from one charge
+ * reference, so a retry can never double-charge or double-refund.
+ */
 const verifyImei = asyncHandler(async (req, res) => {
   // requireBalance already resolved the effective price and checked the wallet
   // against it. Reuse that exact value rather than re-reading, so an admin

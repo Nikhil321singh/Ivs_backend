@@ -56,18 +56,6 @@ const listImeiChecks = asyncHandler(async (req, res) => {
   successResponse(res, httpStatus.OK, MESSAGES.ADMIN.IMEI_CHECKS_FETCHED, data);
 });
 
-const listUsers = asyncHandler(async (req, res) => {
-  const data = await adminService.listUsers(req.query);
-
-  successResponse(res, httpStatus.OK, MESSAGES.ADMIN.USERS_FETCHED, data);
-});
-
-const getUser = asyncHandler(async (req, res) => {
-  const data = await adminService.getUserDetail(req.params.userId);
-
-  successResponse(res, httpStatus.OK, MESSAGES.ADMIN.USER_FETCHED, data);
-});
-
 const getStats = asyncHandler(async (req, res) => {
   const stats = await adminService.getStats();
 
@@ -81,7 +69,5 @@ module.exports = {
   updateSettings,
   listTransactions,
   listImeiChecks,
-  listUsers,
-  getUser,
   getStats,
 };

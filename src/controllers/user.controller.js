@@ -5,9 +5,6 @@ const MESSAGES = require('../constants/messages');
 const userService = require('../services/user.service');
 const uploadService = require('../services/upload.service');
 const aadhaarService = require('../services/aadhaar.service');
-const digilockerAadhaarService = require('../services/digilockerAadhaar.service');
-const ApiError = require('../utils/apiError');
-const env = require('../config/env');
 
 const sendAadhaarOtp = asyncHandler(async (req, res) => {
   await aadhaarService.sendAadhaarOtp(req.user.id, req.body.aadhaarNumber);
@@ -64,53 +61,6 @@ const getProfile = asyncHandler(async (req, res) => {
   successResponse(res, httpStatus.OK, MESSAGES.USER.PROFILE_FETCHED, { user: req.user });
 });
 
-const startDigilockerAadhaar = asyncHandler(async (req, res) => {
-  const data = await digilockerAadhaarService.startVerification(req.user.id);
-
-  successResponse(res, httpStatus.OK, MESSAGES.USER.DIGILOCKER_STARTED, data);
-});
-
-/**
- * DigiLocker sends the user's browser here, so this is a redirect endpoint, not
- * a JSON one — and it is unauthenticated, because the request comes from
- * DigiLocker rather than from our app. The refid is the only credential.
- *
- * Only the verification id travels back in the URL: putting a result (let alone
- * Aadhaar details) in a query string would leak it into browser history, the
- * referrer header and any intermediary's logs. The app reads the outcome from
- * the authenticated status endpoint.
- */
-const digilockerAadhaarCallback = asyncHandler(async (req, res) => {
-  const refid = req.query.refid || req.query.ref_id || req.body?.refid;
-
-  if (!refid) {
-    throw new ApiError(httpStatus.BAD_REQUEST, MESSAGES.USER.DIGILOCKER_SESSION_NOT_FOUND);
-  }
-
-  const session = await digilockerAadhaarService.completeVerification(refid);
-
-  const target = new URL(env.digilocker.appReturnUrl);
-  target.searchParams.set('verificationId', session._id.toString());
-  target.searchParams.set('status', session.status);
-
-  return res.redirect(302, target.toString());
-});
-
-const getDigilockerAadhaarVerification = asyncHandler(async (req, res) => {
-  const data = await digilockerAadhaarService.getVerification(
-    req.user.id,
-    req.params.verificationId
-  );
-
-  successResponse(res, httpStatus.OK, MESSAGES.USER.DIGILOCKER_VERIFICATION_FETCHED, data);
-});
-
-const getUserDetails = asyncHandler(async (req, res) => {
-  const details = await userService.getUserDetails(req.user.id);
-
-  successResponse(res, httpStatus.OK, MESSAGES.USER.DETAILS_FETCHED, details);
-});
-
 module.exports = {
   sendAadhaarOtp,
   verifyAadhaarOtp,
@@ -118,9 +68,5 @@ module.exports = {
   skipKyc,
   updateProfile,
   getProfile,
-  getUserDetails,
-  startDigilockerAadhaar,
-  digilockerAadhaarCallback,
-  getDigilockerAadhaarVerification,
   deleteAccount,
 };

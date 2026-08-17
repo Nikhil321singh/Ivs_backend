@@ -1,4 +1,3 @@
-const mongoose = require('mongoose');
 const User = require('../models/User.model');
 const referralService = require('./referral.service');
 const { hashAadhaar } = require('../utils/hash.util');
@@ -10,36 +9,22 @@ const USER_TYPE = require('../constants/userType');
 const USER_STATUS = require('../constants/userStatus');
 const RefreshToken = require('../models/RefreshToken.model');
 const AadhaarOtp = require('../models/AadhaarOtp.model');
-const Payment = require('../models/Payment.model');
-const Wallet = require('../models/Wallet.model');
-const WalletTransaction = require('../models/WalletTransaction.model');
-const ImeiVerificationLog = require('../models/ImeiVerificationLog.model');
-const DiagnoseSession = require('../models/DiagnoseSession.model');
 const uploadService = require('./upload.service');
 const walletService = require('./wallet.service');
 const PRICING = require('../constants/pricing');
-const {
-  TXN_TYPE,
-  TXN_REASON,
-  TXN_REF_TYPE,
-  PAYMENT_STATUS,
-} = require('../constants/walletEnums');
+const { TXN_REASON } = require('../constants/walletEnums');
 
 /**
- * Credits the one-off joining bonus once the user finishes KYC.
+ * Credits the one-off signup bonus to a brand-new account.
  *
- * Granted on KYC completion rather than at signup, so the tokens reward
- * finishing onboarding rather than merely verifying a phone number — which
- * also means a throwaway number can no longer mint free tokens.
+ * Keyed on the userId, so the credit can happen at most once per account no
+ * matter how often this runs — a retried signup or a replayed OTP verification
+ * cannot mint free tokens.
  *
- * Keyed on the userId, so the credit happens at most once per account however
- * often this runs. That key is deliberately the same one the old signup-time
- * grant used: an account that was already paid at signup will not be paid a
- * second time when it later completes KYC.
- *
- * Best-effort by design: a wallet write failing must not fail the user's KYC
- * submission, which is the thing they actually asked for. It is logged loudly
- * instead, with everything needed to grant it by hand.
+ * Best-effort by design: a wallet write failing must not stop someone creating
+ * an account. It is logged loudly instead, with everything needed to grant it
+ * by hand. Deliberately NOT granted to a restored account — the balance it had
+ * before deletion comes back with it, so a second grant would pay twice.
  */
 const grantSignupBonus = async (userId) => {
   if (!PRICING.SIGNUP_BONUS || PRICING.SIGNUP_BONUS <= 0) return;
@@ -48,11 +33,11 @@ const grantSignupBonus = async (userId) => {
     await walletService.credit(userId, PRICING.SIGNUP_BONUS, {
       reason: TXN_REASON.SIGNUP_BONUS,
       idempotencyKey: `signup-bonus-${userId}`,
-      metadata: { grantedAt: new Date().toISOString(), trigger: 'kyc_completed' },
+      metadata: { grantedAt: new Date().toISOString() },
     });
   } catch (err) {
     // eslint-disable-next-line no-console
-    console.error('[User] Joining bonus credit failed', {
+    console.error('[User] Signup bonus credit failed', {
       userId: String(userId),
       amount: PRICING.SIGNUP_BONUS,
       error: err.message,
@@ -80,6 +65,7 @@ const findOrCreateUserByMobile = async (countryCode, mobile) => {
       referralCode,
     });
     isNewUser = true;
+    await grantSignupBonus(user._id);
   } else if (user.status === USER_STATUS.DELETED) {
     // Deletion is soft: the row kept its mobile number precisely so signing in
     // again finds it. Reactivate rather than creating a second account, so the
@@ -123,14 +109,11 @@ const assertFieldNotTaken = async (field, value, excludeUserId, conflictMessage)
 };
 
 /**
- * Completes KYC. Name, email and PAN are the whole requirement, for vendors and
- * individuals alike — the validator guarantees those three are present before
- * we get here.
- *
- * userType still selects how the optional identity fields are handled (GST and
- * an owner image for a vendor, Aadhaar for an individual) but no longer decides
- * what is mandatory. Completing KYC is also what pays the one-off joining
- * bonus; see grantSignupBonus above.
+ * Completes KYC for either a vendor or an individual. The two paths diverge
+ * on their identity document: a vendor is identified by GST (and submits an
+ * owner image); an individual by Aadhaar (verified beforehand via OTP). Email
+ * and PAN are shared. The validator guarantees the type-specific fields are
+ * present before we get here.
  */
 const completeKyc = async (
   userId,
@@ -146,8 +129,8 @@ const completeKyc = async (
   // While the "KYC required" switch is off the validator lets every field
   // through empty, so assign only what was actually supplied rather than
   // writing undefined over existing values. In strict mode the validator has
-  // already guaranteed name/email/PAN are present, so these guards change
-  // nothing there — they still matter for the optional fields.
+  // already guaranteed presence, so these guards change nothing there.
+  const kycRequired = await settingsService.isKycRequired();
   const set = (field, value) => {
     if (value !== undefined && value !== null && value !== '') user[field] = value;
   };
@@ -160,9 +143,6 @@ const completeKyc = async (
   const resolvedType = userType || user.userType || USER_TYPE.INDIVIDUAL;
 
   user.userType = resolvedType;
-  // name/email/panNumber are the whole requirement now, so they are written for
-  // both types. companyName stays vendor-only.
-  set('name', name);
   set('phone', phone);
   set('email', email);
   set('panNumber', panNumber);
@@ -178,19 +158,22 @@ const completeKyc = async (
       user.profileImagePublicId = profileImage.publicId;
     }
   } else {
-    // Aadhaar is no longer a precondition for completing KYC — name, email and
-    // PAN are the whole requirement. The OTP flow at /user/aadhaar/* still
-    // exists and still sets aadhaarVerified; it is simply optional now.
+    // Individual: Aadhaar must already be verified via /user/aadhaar/verify-otp.
+    // The submitted aadhaarNumber is checked against that verified value
+    // (never persisted in the clear) to confirm it's the same Aadhaar.
     //
-    // When an Aadhaar IS supplied by a user who already verified one, it must
-    // still be the same Aadhaar. Letting a mismatch through would attach one
-    // person's verified Aadhaar to another's submitted number.
-    if (aadhaarNumber && user.aadhaarVerified) {
+    // Skipped when either switch is off: no Aadhaar means nothing to match, and
+    // optional KYC cannot demand a verified Aadhaar to complete.
+    if (kycRequired && (await settingsService.isAadhaarVerificationEnabled())) {
+      if (!user.aadhaarVerified) {
+        throw new ApiError(httpStatus.BAD_REQUEST, MESSAGES.USER.KYC_AADHAAR_NOT_VERIFIED);
+      }
       if (hashAadhaar(aadhaarNumber, userId) !== user.aadhaarNumberHash) {
         throw new ApiError(httpStatus.BAD_REQUEST, MESSAGES.USER.KYC_AADHAAR_MISMATCH);
       }
     }
 
+    set('name', name);
     user.isGstRegistered = false;
     // Leave gstNumber unset (not null) — see the sparse-index comment in
     // User.model.js for why null would collide across individuals.
@@ -200,11 +183,6 @@ const completeKyc = async (
   user.kycCompleted = true;
 
   await user.save();
-
-  // After the save, so a failed KYC write never pays out. Awaited rather than
-  // fired and forgotten, so the balance is already correct in the response the
-  // client renders straight after onboarding.
-  await grantSignupBonus(user._id);
 
   return user;
 };
@@ -329,174 +307,9 @@ const deleteAccount = async (userId) => {
   return { deletedAt: user.deletedAt };
 };
 
-/**
- * Net tokens spent per paid feature, keyed by TXN_REF_TYPE (IVS_CHECK,
- * DIAGNOSE, …).
- *
- * Derived from the ledger rather than from the feature's own log, because the
- * ledger is the only place that knows what was actually *kept*: an
- * unverifiable IMEI is charged and then refunded, and both rows carry the same
- * referenceType. Netting the credits against the debits is therefore the only
- * figure that reconciles with the wallet balance — counting log rows and
- * multiplying by the price would over-report every refunded check, and the
- * price is not fixed over time either.
- */
-const netSpendByFeature = async (oid) => {
-  const rows = await WalletTransaction.aggregate([
-    { $match: { userId: oid, referenceType: { $ne: null } } },
-    {
-      $group: {
-        _id: { feature: '$referenceType', type: '$type' },
-        total: { $sum: '$amount' },
-      },
-    },
-  ]);
-
-  return rows.reduce((acc, { _id, total }) => {
-    const signed = _id.type === TXN_TYPE.DEBIT ? total : -total;
-    acc[_id.feature] = (acc[_id.feature] || 0) + signed;
-    return acc;
-  }, {});
-};
-
-/**
- * Everything the app knows about one user, in a single response.
- *
- * The client's home screen otherwise needs /user/profile + /wallet/balance +
- * /referral/summary + a history call just to paint itself; this collapses them
- * into one round trip. Every section is derived from an independent collection,
- * so they are gathered concurrently and each aggregate is bounded to a single
- * grouped row rather than pulling documents into memory.
- *
- * Read-only: it never creates or mutates anything, including the wallet —
- * a user who has never transacted reports a zeroed wallet rather than having
- * one provisioned as a side effect of viewing their profile.
- */
-const getUserDetails = async (userId) => {
-  const user = await getUserById(userId);
-  // Aggregations don't get mongoose's automatic string→ObjectId casting that
-  // find()/countDocuments() do, so the match key has to be cast by hand.
-  const oid = new mongoose.Types.ObjectId(String(userId));
-
-  const [
-    wallet,
-    referral,
-    referredBy,
-    [imei = null],
-    [payments = null],
-    spend,
-    diagnoseCount,
-    lastDiagnose,
-    activeSessions,
-    kycRequired,
-    aadhaarVerificationEnabled,
-  ] = await Promise.all([
-    Wallet.findOne({ userId }).lean(),
-    referralService.getReferralSummary(user),
-    user.referredBy
-      ? User.findById(user.referredBy).select('name companyName referralCode').lean()
-      : null,
-    ImeiVerificationLog.aggregate([
-      { $match: { userId: oid } },
-      {
-        $group: {
-          _id: null,
-          total: { $sum: 1 },
-          allowed: { $sum: { $cond: ['$allowTransaction', 1, 0] } },
-          lastAt: { $max: '$verifiedAt' },
-        },
-      },
-    ]),
-    Payment.aggregate([
-      { $match: { userId: oid, status: PAYMENT_STATUS.PAID } },
-      {
-        $group: {
-          _id: null,
-          total: { $sum: 1 },
-          amountPaise: { $sum: '$amountPaise' },
-          tokens: { $sum: '$tokens' },
-          lastAt: { $max: '$updatedAt' },
-        },
-      },
-    ]),
-    netSpendByFeature(oid),
-    DiagnoseSession.countDocuments({ userId }),
-    DiagnoseSession.findOne({ userId }).sort({ createdAt: -1 }).select('createdAt').lean(),
-    RefreshToken.countDocuments({ userId, isRevoked: false, expiresAt: { $gt: new Date() } }),
-    settingsService.isKycRequired(),
-    settingsService.isAadhaarVerificationEnabled(),
-  ]);
-
-  return {
-    user: user.toJSON(),
-    kyc: {
-      completed: user.kycCompleted,
-      userType: user.userType,
-      aadhaarVerified: user.aadhaarVerified,
-      aadhaarNumber: user.aadhaarNumber, // masked value only
-      panNumber: user.panNumber ?? null,
-      gstNumber: user.gstNumber ?? null,
-      isGstRegistered: user.isGstRegistered,
-      // Mirrors the rules in completeKyc/skipKyc so the client can decide which
-      // onboarding screens to show without a second call to /settings.
-      kycRequired,
-      aadhaarVerificationEnabled,
-      canSkipKyc: !user.kycCompleted && !kycRequired,
-    },
-    wallet: {
-      balance: wallet?.balance ?? 0,
-      totalPurchased: wallet?.totalPurchased ?? 0,
-      totalBonus: wallet?.totalBonus ?? 0,
-      totalSpent: wallet?.totalSpent ?? 0,
-    },
-    referral: {
-      ...referral,
-      referredBy: referredBy
-        ? {
-            id: String(referredBy._id),
-            name: referredBy.name || referredBy.companyName || null,
-            referralCode: referredBy.referralCode || null,
-          }
-        : null,
-    },
-    activity: {
-      imeiChecks: {
-        total: imei?.total ?? 0,
-        allowed: imei?.allowed ?? 0,
-        blocked: (imei?.total ?? 0) - (imei?.allowed ?? 0),
-        tokensSpent: spend[TXN_REF_TYPE.IVS_CHECK] ?? 0,
-        lastAt: imei?.lastAt ?? null,
-      },
-      diagnose: {
-        total: diagnoseCount,
-        tokensSpent: spend[TXN_REF_TYPE.DIAGNOSE] ?? 0,
-        lastAt: lastDiagnose?.createdAt ?? null,
-      },
-      payments: {
-        totalPaid: payments?.total ?? 0,
-        // Payments are stored in paise; expose rupees too so the client never
-        // has to know the unit.
-        amountPaise: payments?.amountPaise ?? 0,
-        amountInr: (payments?.amountPaise ?? 0) / 100,
-        tokensPurchased: payments?.tokens ?? 0,
-        lastAt: payments?.lastAt ?? null,
-      },
-    },
-    account: {
-      status: user.status,
-      isMobileVerified: user.isMobileVerified,
-      activeSessions,
-      createdAt: user.createdAt,
-      updatedAt: user.updatedAt,
-      deletedAt: user.deletedAt,
-    },
-  };
-};
-
 module.exports = {
   findOrCreateUserByMobile,
   getUserById,
-  getUserDetails,
   completeKyc,
   skipKyc,
   updateProfile,

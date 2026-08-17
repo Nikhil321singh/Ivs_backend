@@ -1,4 +1,4 @@
-const { body, param } = require('express-validator');
+const { body } = require('express-validator');
 const { SETTING_DEFINITIONS } = require('../../constants/settings');
 
 const loginValidator = [
@@ -60,10 +60,4 @@ const updateSettingsValidator = [
   }),
 ];
 
-// Rejects a malformed id up front with a 422 carrying a field name, rather
-// than letting Mongoose raise a CastError that surfaces as a bare 400.
-const userIdParamValidator = [
-  param('userId').isMongoId().withMessage('A valid user id is required.'),
-];
-
-module.exports = { loginValidator, updateSettingsValidator, userIdParamValidator };
+module.exports = { loginValidator, updateSettingsValidator };

@@ -1,11 +1,7 @@
 const { app, request, createUser, asUser } = require('./helpers/factory');
 const User = require('../src/models/User.model');
-const { hashAadhaar } = require('../src/utils/hash.util');
 const settings = require('../src/services/settings.service');
 
-// Individual: name, email, PAN. Vendor: companyName, email.
-const baseKyc = { name: 'Asha Rao', email: 'asha@example.com', panNumber: 'ABCDE1234F' };
-const vendorKyc = { userType: 'vendor', companyName: 'Rao Devices', email: 'vendor@example.com' };
 const individualKyc = {
   userType: 'individual', name: 'Asha Rao', phone: '9876543210',
   email: 'asha@example.com', panNumber: 'ABCDE1234F', aadhaarNumber: '234567890123',
@@ -15,196 +11,54 @@ const vendorKyc = {
   email: 'vendor@example.com', panNumber: 'ZYXWV9876K', gstNumber: '22AAAAA0000A1Z5',
 };
 
-describe('complete-kyc — required fields differ by user type', () => {
-  it('completes for an individual with nothing but name, email and PAN', async () => {
+describe('complete-kyc', () => {
+  it('rejects an individual without a verified Aadhaar', async () => {
     const { token } = await createUser();
-
-    const res = await asUser(token).post('/api/v1/user/complete-kyc').send(baseKyc);
-
-    expect(res.status).toBe(200);
-    expect(res.body.data.user.kycCompleted).toBe(true);
-    expect(res.body.data.user.name).toBe('Asha Rao');
-    expect(res.body.data.user.panNumber).toBe('ABCDE1234F');
-  });
-
-  it('no longer requires a verified Aadhaar', async () => {
-    const { user, token } = await createUser();
-    expect(user.aadhaarVerified).toBe(false);
-
-    const res = await asUser(token)
-      .post('/api/v1/user/complete-kyc')
-      .send({ ...baseKyc, userType: 'individual' });
-
-    expect(res.status).toBe(200);
-  });
-
-  it('completes for a vendor with only companyName and email', async () => {
-    const { token } = await createUser();
-
-    const res = await asUser(token).post('/api/v1/user/complete-kyc').send(vendorKyc);
-
-    expect(res.status).toBe(200);
-    expect(res.body.data.user.userType).toBe('vendor');
-    expect(res.body.data.user.companyName).toBe('Rao Devices');
-  });
-
-  it('requires companyName for a vendor', async () => {
-    const { token } = await createUser();
-
-    const res = await asUser(token)
-      .post('/api/v1/user/complete-kyc')
-      .send({ userType: 'vendor', email: 'v@example.com' });
-
-    expect(res.status).toBe(422);
-    expect(res.body.errors.map((e) => e.field)).toContain('companyName');
-  });
-
-  it('does not require name or PAN from a vendor', async () => {
-    const { token } = await createUser();
-
-    const res = await asUser(token).post('/api/v1/user/complete-kyc').send(vendorKyc);
-
-    expect(res.status).toBe(200);
-  });
-
-  it('treats a mixed-case userType as a vendor rather than asking for a name', async () => {
-    const { token } = await createUser();
-
-    const res = await asUser(token)
-      .post('/api/v1/user/complete-kyc')
-      .send({ ...vendorKyc, userType: 'Vendor' });
-
-    expect(res.status).toBe(200);
-    expect(res.body.data.user.userType).toBe('vendor');
-    expect(res.body.data.user.companyName).toBe('Rao Devices');
-  });
-
-  it('requires email from a vendor too', async () => {
-    const { token } = await createUser();
-
-    const res = await asUser(token)
-      .post('/api/v1/user/complete-kyc')
-      .send({ userType: 'vendor', companyName: 'Rao Devices' });
-
-    expect(res.status).toBe(422);
-    expect(res.body.errors.map((e) => e.field)).toContain('email');
-  });
-
-  it('does not require companyName from an individual', async () => {
-    const { token } = await createUser();
-
-    const res = await asUser(token)
-      .post('/api/v1/user/complete-kyc')
-      .send({ ...baseKyc, userType: 'individual' });
-
-    expect(res.status).toBe(200);
-  });
-
-  it('still stores GST when a vendor supplies it', async () => {
-    const { token } = await createUser();
-
-    const res = await asUser(token).post('/api/v1/user/complete-kyc').send({
-      ...vendorKyc, gstNumber: '22AAAAA0000A1Z5',
-    });
-
-    expect(res.status).toBe(200);
-    expect(res.body.data.user.gstNumber).toBe('22AAAAA0000A1Z5');
-    expect(res.body.data.user.isGstRegistered).toBe(true);
-  });
-
-  it('rejects a submission missing name, email or PAN', async () => {
-    const { token } = await createUser();
-
-    const noName = await asUser(token)
-      .post('/api/v1/user/complete-kyc')
-      .send({ email: 'a@b.com', panNumber: 'ABCDE1234F' });
-    expect(noName.status).toBe(422);
-    expect(noName.body.errors.map((e) => e.field)).toContain('name');
-
-    const noEmail = await asUser(token)
-      .post('/api/v1/user/complete-kyc')
-      .send({ name: 'Asha Rao', panNumber: 'ABCDE1234F' });
-    expect(noEmail.status).toBe(422);
-
-    const noPan = await asUser(token)
-      .post('/api/v1/user/complete-kyc')
-      .send({ name: 'Asha Rao', email: 'a@b.com' });
-    expect(noPan.status).toBe(422);
-  });
-
-  it('still format-checks the optional fields when supplied', async () => {
-    const { token } = await createUser();
-
-    const badGst = await asUser(token)
-      .post('/api/v1/user/complete-kyc')
-      .send({ ...baseKyc, gstNumber: 'NOPE' });
-    expect(badGst.status).toBe(422);
-
-    const badAadhaar = await asUser(token)
-      .post('/api/v1/user/complete-kyc')
-      .send({ ...baseKyc, aadhaarNumber: '123' });
-    expect(badAadhaar.status).toBe(422);
-  });
-
-  it('rejects a malformed PAN', async () => {
-    const { token } = await createUser();
-    const res = await asUser(token)
-      .post('/api/v1/user/complete-kyc')
-      .send({ ...baseKyc, panNumber: 'NOPE' });
-    expect(res.status).toBe(422);
-  });
-
-  it('rejects an Aadhaar that contradicts the one already verified', async () => {
-    const { user, token } = await createUser();
-    await User.findByIdAndUpdate(user._id, {
-      aadhaarVerified: true,
-      aadhaarNumberHash: hashAadhaar('999999999999', user._id),
-    });
-
-    const res = await asUser(token)
-      .post('/api/v1/user/complete-kyc')
-      .send({ ...baseKyc, aadhaarNumber: '234567890123' });
-
+    const res = await asUser(token).post('/api/v1/user/complete-kyc').send(individualKyc);
     expect(res.status).toBe(400);
   });
 
-  it('accepts the matching Aadhaar from a user who verified one', async () => {
+  it('completes for an individual whose Aadhaar is verified', async () => {
+    const { hashAadhaar } = require('../src/utils/hash.util');
     const { user, token } = await createUser();
     await User.findByIdAndUpdate(user._id, {
       aadhaarVerified: true,
       aadhaarNumberHash: hashAadhaar('234567890123', user._id),
     });
 
-    const res = await asUser(token)
-      .post('/api/v1/user/complete-kyc')
-      .send({ ...baseKyc, aadhaarNumber: '234567890123' });
-
+    const res = await asUser(token).post('/api/v1/user/complete-kyc').send(individualKyc);
     expect(res.status).toBe(200);
+    expect(res.body.data.user.kycCompleted).toBe(true);
+  });
+
+  it('rejects a mismatched Aadhaar', async () => {
+    const { hashAadhaar } = require('../src/utils/hash.util');
+    const { user, token } = await createUser();
+    await User.findByIdAndUpdate(user._id, {
+      aadhaarVerified: true, aadhaarNumberHash: hashAadhaar('999999999999', user._id),
+    });
+    const res = await asUser(token).post('/api/v1/user/complete-kyc').send(individualKyc);
+    expect(res.status).toBe(400);
+  });
+
+  it('requires companyName, gstNumber and an owner image for a vendor', async () => {
+    const { token } = await createUser();
+    const res = await asUser(token).post('/api/v1/user/complete-kyc').send(vendorKyc);
+    expect(res.status).toBe(422);
+    expect(res.body.errors.map((e) => e.field)).toContain('profileImage');
+  });
+
+  it('rejects a malformed PAN', async () => {
+    const { token } = await createUser();
+    const res = await asUser(token).post('/api/v1/user/complete-kyc')
+      .send({ ...individualKyc, panNumber: 'NOPE' });
+    expect(res.status).toBe(422);
   });
 
   it('409s if KYC is already complete', async () => {
-    const { token } = await createUser({ kycCompleted: true });
-    const res = await asUser(token).post('/api/v1/user/complete-kyc').send(baseKyc);
-    expect(res.status).toBe(409);
-  });
-
-  it('rejects an email already used by another account', async () => {
-    await createUser({ email: 'taken@example.com' });
-    const { token } = await createUser();
-
-    const res = await asUser(token)
-      .post('/api/v1/user/complete-kyc')
-      .send({ ...baseKyc, email: 'taken@example.com' });
-
-    expect(res.status).toBe(409);
-  });
-
-  it('rejects a PAN already used by another account', async () => {
-    await createUser({ panNumber: 'ABCDE1234F' });
-    const { token } = await createUser();
-
-    const res = await asUser(token).post('/api/v1/user/complete-kyc').send(baseKyc);
-
+    const { user, token } = await createUser({ kycCompleted: true });
+    expect(user.kycCompleted).toBe(true);
+    const res = await asUser(token).post('/api/v1/user/complete-kyc').send(individualKyc);
     expect(res.status).toBe(409);
   });
 });
