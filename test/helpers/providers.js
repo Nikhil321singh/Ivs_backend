@@ -44,7 +44,16 @@ const stubCdot = (imei, status = 'non-blocked', { times = 1 } = {}) => {
 };
 
 /** C-DOT rejects the login — the 403 that Sydney used to get. */
-const stubCdotBlocked = () => nock(CDOT).post('/api/login').reply(403, '<html>403</html>');
+const stubCdotBlocked = () => {
+  nock(CDOT).post('/api/login').reply(403, '<html>403</html>');
+  // imei-status is stubbed too, not just login, because cdotIvsProvider caches
+  // its access token at module scope: if an earlier test in the same file
+  // already cached a valid token, the provider skips login entirely and goes
+  // straight here. Stubbing only login made this helper depend on test order,
+  // which surfaced as an intermittent "No match for request" failure. Either
+  // path now yields the same thing — no usable answer.
+  nock(CDOT).post('/api/imei-status').reply(403, '<html>403</html>');
+};
 
 /** Aadhaar e-KYC via the GREST wrapper: send-otp then verify-otp. */
 const stubAadhaar = ({ clientId = 'client-123', verifySuccess = true } = {}) => {

@@ -43,7 +43,7 @@ describe('auth', () => {
     expect(res.status).toBe(400);
   });
 
-  it('signs in with the correct OTP, creating the user and its signup bonus', async () => {
+  it('signs in with the correct OTP, creating the user with no tokens', async () => {
     const mobile = uniqueMobile();
     stubMsg91Success();
     await send(mobile);
@@ -63,8 +63,11 @@ describe('auth', () => {
 
     const user = await User.findOne({ mobile });
     expect(user).toBeTruthy();
+    // SIGNUP_BONUS is 0, so grantSignupBonus returns early and never creates a
+    // wallet. The referral reward, paid on the referred user's first top-up, is
+    // the only bonus in the system.
     const wallet = await Wallet.findOne({ userId: user._id });
-    expect(wallet.balance).toBe(100);           // signup bonus
+    expect(wallet).toBeNull();
   });
 
   it('consumes the OTP so it cannot be replayed', async () => {
