@@ -107,7 +107,15 @@ const env = {
   },
   paysprint: {
     partnerId: process.env.PAYSPRINT_PARTNER_ID,
-    authorisedKey: process.env.PAYSPRINT_AUTHORISED_KEY,
+    // Signs the JWT. Structurally this is b64(CORP_ID + b64(secret)) — the
+    // value the DigiLocker documentation calls "JWT KEY".
+    jwtKey: process.env.PAYSPRINT_AUTHORISED_KEY,
+    // The `Authorisedkey` request header, which the provider issues as a
+    // SEPARATE value — structurally b64(secret + CORP_ID). Falls back to the
+    // JWT key so nothing breaks before the real one is provisioned, but the two
+    // are not interchangeable and the provider will reject the wrong one once
+    // it starts validating them.
+    authorisedKey: process.env.PAYSPRINT_AUTHORISEDKEY || process.env.PAYSPRINT_AUTHORISED_KEY,
     // SprintVerify's own base URL, used by the DigiLocker flow, which calls the
     // provider directly rather than through the GREST wrapper above.
     //   UAT  https://uat.paysprint.in/sprintverify-uat/api/v1/verification

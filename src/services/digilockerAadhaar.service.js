@@ -108,7 +108,14 @@ const startVerification = async (userId) => {
     expiresAt: new Date(Date.now() + env.digilocker.sessionTtlMinutes * 60 * 1000),
   });
 
-  const result = await provider.initiateSession(refid, env.digilocker.redirectUrl);
+  // The refid is carried in the redirect URL we hand the provider, rather than
+  // relying on DigiLocker to echo one back. The documentation does not specify
+  // what the callback receives, and this makes that irrelevant: whatever else
+  // arrives, our own refid is always present and the session is always found.
+  const callbackUrl = new URL(env.digilocker.redirectUrl);
+  callbackUrl.searchParams.set('refid', refid);
+
+  const result = await provider.initiateSession(refid, callbackUrl.toString());
   await logProviderCall(PROVIDER_OPERATION.INITIATE_SESSION, refid, userId, result);
 
   if (!result.ok) {

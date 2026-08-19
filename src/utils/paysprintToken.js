@@ -33,7 +33,7 @@ const generatePaysprintToken = () => {
   };
 
   // noTimestamp so jsonwebtoken doesn't overwrite our backdated `iat` with now.
-  return jwt.sign(payload, env.paysprint.authorisedKey, {
+  return jwt.sign(payload, env.paysprint.jwtKey, {
     algorithm: 'HS256',
     noTimestamp: true,
   });
