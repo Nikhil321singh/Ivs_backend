@@ -7,27 +7,35 @@ const ivsService = require('../services/ivs.service');
 const aadhaarService = require('../services/aadhaar.service');
 const walletService = require('../services/wallet.service');
 const { TXN_REASON, TXN_REF_TYPE } = require('../constants/walletEnums');
-const { IVS_STATUS } = require('../services/providers/cdotIvsProvider');
-
-// A definitive answer from CEIR — the customer paid to learn this, whether the
-// device is clean or flagged. UNKNOWN/ERROR means we couldn't verify, so it's
-// not billable and the customer can retry for free.
-const DEFINITIVE = [IVS_STATUS.CLEAN, IVS_STATUS.BLOCKED, IVS_STATUS.STOLEN];
-const isDefinitive = (status) => status !== null && DEFINITIVE.includes(status);
 
 /**
- * Charge up front, refund if CEIR gave us no usable answer.
+ * Whether this check cost us a CEIR lookup, which is what decides whether the
+ * user is billed.
  *
- * The debit runs BEFORE the C-DOT call on purpose. requireBalance only *reads*
- * the balance, and the C-DOT round trip takes ~1s, so charging afterwards left
- * a window where two concurrent checks both passed the balance test and both
- * debited — overdrawing the wallet. debit() is an atomic conditional decrement,
- * so taking the tokens first closes that window.
+ * C-DOT charges per lookup it processes, not per useful answer. A wrong or
+ * unregistered IMEI still consumes one — CEIR answers "not found" and we are
+ * invoiced for it — so the user pays for that exactly as they do for CLEAN,
+ * BLOCKED or STOLEN. What they never pay for is a check that never reached
+ * CEIR: missing credentials, a failed login, or the service being down after
+ * retries. The provider marks those with upstreamAnswered:false.
+ */
+const isBillable = (result) => result.upstreamAnswered === true;
+
+/**
+ * Charge on the answer, not on the attempt.
  *
- * The user still only pays for a definitive answer: any UNKNOWN/ERROR (C-DOT
- * unreachable, auth failure, not configured), or a thrown error, refunds the
- * full cost. Both legs carry an idempotency key derived from one charge
- * reference, so a retry can never double-charge or double-refund.
+ * requireBalance checks the wallet up front, so a user without funds never
+ * reaches C-DOT. The debit itself runs only AFTER the provider responds, and
+ * only when CEIR actually processed the lookup — see isBillable. A wrong IMEI
+ * is billed, because C-DOT bills us for it; an unreachable C-DOT is not. There
+ * is no refund leg at all, and no window in which someone is charged for a
+ * lookup that never happened.
+ *
+ * The trade-off is deliberate and worth stating: because the balance is only
+ * read before the ~1s C-DOT round trip, two checks fired concurrently by a user
+ * who can afford one will both reach the provider. We pay for both calls and
+ * can bill only one — the second is rejected with 402 below rather than handed
+ * over free. imeiVerificationLimiter bounds how far that can be pushed.
  */
 const verifyImei = asyncHandler(async (req, res) => {
   // requireBalance already resolved the effective price and checked the wallet
@@ -37,59 +45,42 @@ const verifyImei = asyncHandler(async (req, res) => {
   const cost = req.featureCost;
   const chargeRef = `IVSCHG-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
 
-  // chargeRef goes in metadata, NOT referenceId: that column is an ObjectId
-  // (it points at a Payment/Referral document), so a string there throws a
-  // Mongoose cast error and surfaces as a 422 on every check.
-  await walletService.debit(req.user.id, cost, {
-    reason: TXN_REASON.FEATURE_CHARGE,
-    referenceType: TXN_REF_TYPE.IVS_CHECK,
-    idempotencyKey: `${chargeRef}:charge`,
-    metadata: { feature: 'IVS_CHECK', chargeRef },
-  });
+  // Nothing has been taken from the wallet yet, so a failure here simply
+  // propagates — there is no charge to undo.
+  const result = await ivsService.verifyImei(req.user.id, req.body, cost);
 
-  // Never let a refund failure mask the verification outcome — the tokens are
-  // already gone, so log loudly with everything needed to correct it by hand
-  // and report charged:true, which is what actually happened to the balance.
-  const refund = async (cause, referenceId) => {
+  const billable = isBillable(result);
+
+  let charged = false;
+
+  if (billable) {
     try {
-      await walletService.credit(req.user.id, cost, {
-        reason: TXN_REASON.REFUND,
+      // Atomic conditional decrement, so this still cannot drive the balance
+      // negative. chargeRef goes in metadata, NOT referenceId: that column is an
+      // ObjectId (it points at a Payment/Referral document), so a string there
+      // throws a Mongoose cast error and surfaces as a 422 on every check.
+      await walletService.debit(req.user.id, cost, {
+        reason: TXN_REASON.FEATURE_CHARGE,
         referenceType: TXN_REF_TYPE.IVS_CHECK,
-        idempotencyKey: `${chargeRef}:refund`,
-        // Same reason as the debit above — both ids are strings, so they
-        // belong in metadata, where they stay queryable for support.
-        metadata: { chargeRef, cause, verificationRef: referenceId || null },
+        idempotencyKey: `${chargeRef}:charge`,
+        metadata: { feature: 'IVS_CHECK', chargeRef, verificationRef: result.referenceId },
       });
-      return true;
+      charged = true;
     } catch (err) {
+      // The balance passed the check a second ago, so getting here means a
+      // concurrent request spent the tokens in between. We have already paid
+      // C-DOT for this answer; withholding it is the only thing that stops the
+      // race being a way to get unlimited free checks.
       // eslint-disable-next-line no-console
-      console.error('[IVS] REFUND FAILED — user charged without a result', {
+      console.error('[IVS] Charge failed after a billed lookup — result withheld', {
         userId: req.user.id,
         chargeRef,
         cost,
-        cause,
+        verificationRef: result.referenceId,
         error: err.message,
       });
-      return false;
+      throw err;
     }
-  };
-
-  let result;
-  try {
-    result = await ivsService.verifyImei(req.user.id, req.body, cost);
-  } catch (err) {
-    await refund('verification_threw', null);
-    throw err;
-  }
-
-  const billable =
-    isDefinitive(result.imei1Status) &&
-    (result.imei2Status === null || isDefinitive(result.imei2Status));
-
-  let charged = true;
-  if (!billable) {
-    const refunded = await refund('no_definitive_result', result.referenceId);
-    charged = !refunded;
   }
 
   const balance = await walletService.getBalance(req.user.id);

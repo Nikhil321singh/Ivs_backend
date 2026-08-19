@@ -1,8 +1,4 @@
-const {
-  clientIpUnresolved,
-  identityKey,
-  otpKeyGenerator,
-} = require('../src/middleware/rateLimiter.middleware');
+const { identityKey, otpKeyGenerator } = require('../src/middleware/rateLimiter.middleware');
 
 /**
  * The limiters themselves are skipped under NODE_ENV=test (a shared 127.0.0.1
@@ -12,24 +8,22 @@ const {
 
 const req = ({ ip = '203.0.113.9', headers = {}, body = {} } = {}) => ({ ip, headers, body });
 
-describe('clientIpUnresolved — detects a proxy that is not forwarding the client IP', () => {
-  it('is true for loopback with no X-Forwarded-For', () => {
-    // Exactly what production logs: "::ffff:127.0.0.1" on every request.
-    expect(clientIpUnresolved(req({ ip: '::ffff:127.0.0.1' }))).toBe(true);
-    expect(clientIpUnresolved(req({ ip: '127.0.0.1' }))).toBe(true);
-    expect(clientIpUnresolved(req({ ip: '::1' }))).toBe(true);
+describe('no key is ever derived from an IP address', () => {
+  it('ignores the address entirely when an identity is present', () => {
+    const body = { countryCode: '+91', mobile: '9876543210' };
+    const officeA = otpKeyGenerator(req({ ip: '::ffff:127.0.0.1', body }));
+    const officeB = otpKeyGenerator(req({ ip: '203.0.113.9', body }));
+
+    expect(officeA).toBe(officeB);
+    expect(officeA).not.toContain('127.0.0.1');
+    expect(officeA).not.toContain('203.0.113.9');
   });
 
-  it('is false once the proxy forwards the header', () => {
-    expect(
-      clientIpUnresolved(
-        req({ ip: '::ffff:127.0.0.1', headers: { 'x-forwarded-for': '203.0.113.9' } })
-      )
-    ).toBe(false);
-  });
-
-  it('is false for a real client IP', () => {
-    expect(clientIpUnresolved(req({ ip: '203.0.113.9' }))).toBe(false);
+  it('returns null rather than an IP key when there is no identity', () => {
+    // The limiter skips on null, so an anonymous caller is simply not counted —
+    // there is no shared bucket for them to fill.
+    expect(otpKeyGenerator(req({ ip: '203.0.113.9', body: {}, headers: {} }))).toBeNull();
+    expect(identityKey(req({ ip: '203.0.113.9', body: {}, headers: {} }))).toBeNull();
   });
 });
 
@@ -66,17 +60,12 @@ describe('otpKeyGenerator — counts per mobile number, not per IP', () => {
     expect(india).not.toBe(other);
   });
 
-  it('falls back to the IP when no number was supplied', () => {
-    const key = otpKeyGenerator(req({ ip: '203.0.113.9', body: {} }));
-
-    expect(key).toBe('ip:203.0.113.9');
-  });
-
   it('never returns the same key for a number and a missing number', () => {
     const withNumber = otpKeyGenerator(req({ body: { mobile: '9876543210' } }));
     const without = otpKeyGenerator(req({ body: {} }));
 
     expect(withNumber).not.toBe(without);
+    expect(without).toBeNull();
   });
 });
 

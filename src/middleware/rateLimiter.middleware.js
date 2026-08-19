@@ -23,56 +23,7 @@ const intFromEnv = (name, fallback) => {
 
 const limitsDisabled = () => process.env.RATE_LIMIT_DISABLED === 'true';
 
-/**
- * True when we cannot tell one client from another.
- *
- * Node only ever sees the peer of the TCP connection. Behind a reverse proxy on
- * the same host that peer is always loopback, and the real client IP survives
- * only if the proxy copies it into X-Forwarded-For. When that header is missing,
- * `req.ip` silently falls back to the socket address and EVERY request in the
- * world resolves to 127.0.0.1 — so an IP-keyed limiter stops being "N per
- * client" and becomes "N in total", locking out all users at once.
- *
- * This is a silent failure: an absent X-Forwarded-For is indistinguishable from
- * a genuine direct connection, so neither Express nor express-rate-limit can
- * detect it. Hence the explicit check.
- */
-const clientIpUnresolved = (req) => {
-  if (req.headers && req.headers['x-forwarded-for']) return false;
-
-  const ip = req.ip || '';
-  return ip === '::1' || ip === '127.0.0.1' || ip.endsWith(':127.0.0.1');
-};
-
 const MINUTE = 60 * 1000;
-
-/**
- * Logged once per process, not repeatedly.
- *
- * This deployment runs behind a proxy that does not forward the client IP, and
- * that is accepted rather than a bug to chase: every limit that matters is keyed
- * on identity (user, mobile number, email, token), so it holds regardless. The
- * only requests that reach the IP fallback are fully anonymous ones, and those
- * are the cheap public reads.
- *
- * Repeating this every few minutes would be permanent noise in the production
- * log describing a deliberate configuration, so it states the situation once at
- * first occurrence and then stays quiet.
- */
-let warnedUnresolvedIp = false;
-
-const warnUnresolvedIp = (req) => {
-  if (warnedUnresolvedIp) return;
-  warnedUnresolvedIp = true;
-
-  console.warn(
-    '[RateLimit] Client IP is unresolved (req.ip=%s, no X-Forwarded-For), so ' +
-      'anonymous requests are not rate limited. Named limits (per user, per ' +
-      'mobile number, per email) are unaffected. Set X-Forwarded-For at the ' +
-      'proxy if anonymous endpoints ever need limiting. Logged once.',
-    req.ip
-  );
-};
 
 const buildLimiter = ({ windowMs, max, message, keyGenerator, skip }) =>
   rateLimit({
@@ -81,9 +32,8 @@ const buildLimiter = ({ windowMs, max, message, keyGenerator, skip }) =>
     standardHeaders: true,
     legacyHeaders: false,
     ...(keyGenerator ? { keyGenerator } : {}),
-    // Every request in the test suite comes from 127.0.0.1, so a shared counter
-    // would make results depend on how many tests ran before — the OTP limiter
-    // (5 per 10 min) trips on the sixth spec.
+    // Limits are off under NODE_ENV=test so a spec's result never depends on how
+    // many ran before it.
     skip: skip || (() => process.env.NODE_ENV === 'test' || limitsDisabled()),
     handler: (req, res) => {
       res.status(429).json({
@@ -110,8 +60,8 @@ const buildLimiter = ({ windowMs, max, message, keyGenerator, skip }) =>
  *      the caller still carries one — it is stable per session, so it stands in
  *      for the user without this module having to verify a JWT
  *
- * Returns null when the request carries no identity at all, leaving the caller
- * to decide whether to fall back to the IP or skip.
+ * Returns null when the request carries no identity at all; skipUnidentified
+ * below turns that into "not limited".
  */
 const identityKey = (req) => {
   if (req.user && req.user.id) return `user:${req.user.id}`;
@@ -141,38 +91,42 @@ const identityKey = (req) => {
 };
 
 /** The OTP endpoints always carry a mobile number; kept as a named export. */
-const otpKeyGenerator = (req) => identityKey(req) || `ip:${req.ip}`;
+const otpKeyGenerator = (req) => identityKey(req);
 
 /**
- * Falls back to the IP only for callers with no identity at all — an anonymous
- * request to a public endpoint. Everything else is counted per account.
+ * The key every limiter uses. Identity only — there is deliberately no IP
+ * fallback, so nothing here can ever be affected by where a request came from.
+ *
+ * Safe to return identityKey directly because skipUnidentified below runs first
+ * and bypasses the limiter when there is no identity, so this is never reached
+ * with null. That ordering matters: falling back to a constant would put every
+ * anonymous caller in one shared bucket, which is the exact failure this whole
+ * module was rewritten to remove.
  */
-const identityOrIpKey = (req) => identityKey(req) || `ip:${req.ip}`;
+const identityKeyOnly = (req) => identityKey(req);
 
 /**
- * Skips only when BOTH signals are useless: no identity to count against, and
- * an IP that resolves to loopback for every caller. Previously this skipped any
- * IP-keyed limiter under a broken proxy, which switched the protection off for
- * authenticated traffic too; now that traffic is keyed per user and keeps its
- * limit regardless of what the proxy does.
+ * Requests with no identity are not limited.
+ *
+ * An IP is a network, not a person: limiting by it punishes everyone behind one
+ * office router, carrier NAT or reverse proxy while doing nothing to stop an
+ * attacker who can change address. This deployment therefore counts only what
+ * identifies an account — user, mobile number, email, token — and lets the
+ * remaining anonymous traffic (the cheap public reads: /health, /pricing,
+ * /settings) through unmetered.
  */
-const skipWhenUnidentifiable = (req) => {
+const skipUnidentified = (req) => {
   if (process.env.NODE_ENV === 'test' || limitsDisabled()) return true;
 
-  if (identityKey(req) === null && clientIpUnresolved(req)) {
-    warnUnresolvedIp(req);
-    return true;
-  }
-
-  return false;
+  return identityKey(req) === null;
 };
 
 const generalLimiter = buildLimiter({
   windowMs: intFromEnv('RATE_LIMIT_GENERAL_WINDOW_MIN', 15) * MINUTE,
   max: intFromEnv('RATE_LIMIT_GENERAL_MAX', 300),
   message: 'Too many requests. Please try again later.',
-  keyGenerator: identityOrIpKey,
-  skip: skipWhenUnidentifiable,
+  keyGenerator: identityKeyOnly,
+  skip: skipUnidentified,
 });
 
 // Caps how many OTPs one number can trigger. Keyed per number, so a hundred
@@ -189,17 +143,18 @@ const otpSendLimiter = buildLimiter({
   max: intFromEnv('RATE_LIMIT_OTP_MAX', 3),
   message: `Too many OTP requests for this number. Please try again after ${OTP_WINDOW_MIN} minutes.`,
   keyGenerator: otpKeyGenerator,
+  skip: skipUnidentified,
 });
 
-// The brute-force guard on a 6-digit code. send-otp is deliberately
-// unthrottled (see auth.routes.js), so this is the only ceiling on the OTP
-// flow — it is what stops a code being guessed, keyed per number so rotating
-// IPs does not buy an attacker more attempts.
+// The brute-force guard on a 6-digit code, keyed per number so changing network
+// buys an attacker no extra guesses. Separate ceiling from sending, so a user
+// who legitimately re-sent an OTP still has attempts left to type it.
 const otpVerifyLimiter = buildLimiter({
   windowMs: intFromEnv('RATE_LIMIT_OTP_VERIFY_WINDOW_MIN', 10) * MINUTE,
   max: intFromEnv('RATE_LIMIT_OTP_VERIFY_MAX', 10),
   message: 'Too many incorrect attempts for this number. Please try again after some time.',
   keyGenerator: otpKeyGenerator,
+  skip: skipUnidentified,
 });
 
 const imeiVerificationLimiter = buildLimiter({
@@ -207,8 +162,8 @@ const imeiVerificationLimiter = buildLimiter({
   max: intFromEnv('RATE_LIMIT_IMEI_MAX', 30),
   // Mounted after authenticate, so this is always keyed on the paying user.
   message: 'Too many IMEI verification requests. Please try again after some time.',
-  keyGenerator: identityOrIpKey,
-  skip: skipWhenUnidentifiable,
+  keyGenerator: identityKeyOnly,
+  skip: skipUnidentified,
 });
 
 // Admin login is a password endpoint, so it's the one place brute force is
@@ -218,8 +173,8 @@ const adminLoginLimiter = buildLimiter({
   windowMs: intFromEnv('RATE_LIMIT_ADMIN_LOGIN_WINDOW_MIN', 15) * MINUTE,
   max: intFromEnv('RATE_LIMIT_ADMIN_LOGIN_MAX', 10),
   message: 'Too many sign-in attempts. Please try again after some time.',
-  keyGenerator: identityOrIpKey,
-  skip: skipWhenUnidentifiable,
+  keyGenerator: identityKeyOnly,
+  skip: skipUnidentified,
 });
 
 module.exports = {
@@ -230,8 +185,7 @@ module.exports = {
   adminLoginLimiter,
   limitsDisabled,
   // Exported for tests — these carry the logic worth asserting on.
-  clientIpUnresolved,
   identityKey,
   otpKeyGenerator,
-  identityOrIpKey,
+  identityKeyOnly,
 };
