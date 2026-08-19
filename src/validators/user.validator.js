@@ -107,6 +107,12 @@ const strictKycChain = [
     .toUpperCase()
     .matches(GST_REGEX)
     .withMessage('Please provide a valid 15-character GST number.'),
+  body('businessProofType')
+    .optional({ checkFalsy: true })
+    .trim()
+    .toLowerCase()
+    .isIn(['gstin', 'udyam'])
+    .withMessage('Business proof must be a GSTIN or Udyam Aadhaar.'),
   body('aadhaarNumber')
     .optional({ checkFalsy: true })
     .trim()
@@ -159,6 +165,12 @@ const relaxedKycChain = [
     .toUpperCase()
     .matches(GST_REGEX)
     .withMessage('Please provide a valid GST number.'),
+  body('businessProofType')
+    .optional({ checkFalsy: true })
+    .trim()
+    .toLowerCase()
+    .isIn(['gstin', 'udyam'])
+    .withMessage('Business proof must be a GSTIN or Udyam Aadhaar.'),
   body('aadhaarNumber')
     .optional({ checkFalsy: true })
     .trim()

@@ -22,14 +22,34 @@ const verifyAadhaarOtp = asyncHandler(async (req, res) => {
 });
 
 const completeKyc = asyncHandler(async (req, res) => {
-  // Only vendors submit an owner image; individuals have no image. The
-  // validator has already enforced its presence for vendors.
+  // Only vendors submit images: an owner photo (profileImage) and an optional
+  // business-proof photo (businessProofImage — GSTIN or Udyam Aadhaar). multer
+  // .fields() puts each under req.files[field][0]; individuals send neither.
+  const profileFile = req.files?.profileImage?.[0];
+  const proofFile = req.files?.businessProofImage?.[0];
+
   let profileImage;
-  if (req.file) {
-    profileImage = await uploadService.uploadProfileImage(req.file.buffer, req.user.id);
+  if (profileFile) {
+    profileImage = await uploadService.uploadProfileImage(
+      profileFile.buffer,
+      req.user.id,
+      profileFile.mimetype
+    );
   }
 
-  const user = await userService.completeKyc(req.user.id, req.body, profileImage);
+  let businessProofImage;
+  if (proofFile) {
+    businessProofImage = await uploadService.uploadBusinessProofImage(
+      proofFile.buffer,
+      req.user.id,
+      proofFile.mimetype
+    );
+  }
+
+  const user = await userService.completeKyc(req.user.id, req.body, {
+    profileImage,
+    businessProofImage,
+  });
 
   successResponse(res, httpStatus.OK, MESSAGES.USER.KYC_COMPLETED, { user });
 });
@@ -52,7 +72,11 @@ const updateProfile = asyncHandler(async (req, res) => {
   // A re-upload uses the same deterministic public_id, so it overwrites the
   // existing asset in place — no separate delete of the old image needed.
   if (req.file) {
-    profileImage = await uploadService.uploadProfileImage(req.file.buffer, req.user.id);
+    profileImage = await uploadService.uploadProfileImage(
+      req.file.buffer,
+      req.user.id,
+      req.file.mimetype
+    );
   }
 
   const user = await userService.updateProfile(req.user.id, req.body, profileImage);

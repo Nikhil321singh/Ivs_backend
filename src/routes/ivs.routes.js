@@ -63,6 +63,10 @@ router.post(
  *       - in: query
  *         name: limit
  *         schema: { type: integer, default: 20, maximum: 50 }
+ *       - in: query
+ *         name: search
+ *         description: Case-insensitive filter across reference id, customer name, device model, IMEI and CEIR status (and the charged amount for a numeric query).
+ *         schema: { type: string, example: "Galaxy" }
  *     responses:
  *       200: { description: Verification history returned }
  */
