@@ -7,41 +7,31 @@ const AADHAAR_REGEX = /^[2-9]{1}[0-9]{11}$/;
 const GST_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
 const MOBILE_REGEX = /^[6-9]\d{9}$/;
 
-// A body with no userType is treated as an individual, matching the same
-// fallback completeKyc applies when it resolves the type. Compared
-// case-insensitively so a client sending "Vendor" or "VENDOR" is still a
-// vendor — otherwise it lands in the individual branch and is asked for a
-// name and PAN it was never meant to collect.
-const normalizeType = (value) => String(value ?? '').trim().toLowerCase();
-const isVendor = (req) => normalizeType(req.body.userType) === USER_TYPE.VENDOR;
-const isIndividual = (req) => !isVendor(req);
-
-// Applied to userType before isIn() so the stored value is canonical too —
-// completeKyc writes req.body.userType straight onto the user.
-const userTypeSanitizer = (value) => (value === undefined ? value : normalizeType(value));
+const isVendor = (req) => req.body.userType === USER_TYPE.VENDOR;
+const isIndividual = (req) => req.body.userType === USER_TYPE.INDIVIDUAL;
 
 /**
- * KYC required fields, keyed off userType:
- *   - individual: name, email, PAN
- *   - vendor:     companyName, email
- *
- * Email is the only field both must supply. A vendor is identified by its
- * business, so it is not forced to give a personal name or a PAN; an individual
- * has no business name to give. Neither is forced through the Aadhaar OTP step,
- * and a vendor is not forced to supply GST or an owner photo.
- *
- * Everything not required is still format-checked when supplied, so a typo'd
- * PAN or GST is rejected rather than silently stored.
+ * KYC has two shapes keyed off userType:
+ *   - vendor:     companyName, email, panNumber, gstNumber (always), owner
+ *                 image (profileImage). Identified by GST — no Aadhaar.
+ *   - individual: name, email, panNumber, aadhaarNumber. Identified by
+ *                 Aadhaar (verified via OTP beforehand) — no GST, no image.
+ * Shared fields (phone, email, panNumber) are validated unconditionally; the
+ * rest apply only to their type via `.if()`.
  */
 const strictKycChain = [
   body('userType')
-    .optional({ checkFalsy: true })
     .trim()
-    .customSanitizer(userTypeSanitizer)
     .isIn(Object.values(USER_TYPE))
     .withMessage(MESSAGES.USER.USER_TYPE_INVALID),
 
-  // Required of both types.
+  // Shared
+  body('phone')
+    .trim()
+    .notEmpty()
+    .withMessage('Phone number is required.')
+    .matches(MOBILE_REGEX)
+    .withMessage('Please provide a valid 10-digit phone number.'),
   body('email')
     .trim()
     .notEmpty()
@@ -49,17 +39,7 @@ const strictKycChain = [
     .isEmail()
     .withMessage('Please provide a valid email address.')
     .normalizeEmail(),
-
-  // Individual only.
-  body('name')
-    .if((value, { req }) => isIndividual(req))
-    .trim()
-    .notEmpty()
-    .withMessage('Name is required.')
-    .isLength({ min: 2, max: 100 })
-    .withMessage('Name must be between 2 and 100 characters.'),
   body('panNumber')
-    .if((value, { req }) => isIndividual(req))
     .trim()
     .notEmpty()
     .withMessage('PAN number is required.')
@@ -67,7 +47,7 @@ const strictKycChain = [
     .matches(PAN_REGEX)
     .withMessage('Please provide a valid PAN number (e.g., ABCDE1234F).'),
 
-  // Vendor only.
+  // Vendor-only
   body('companyName')
     .if((value, { req }) => isVendor(req))
     .trim()
@@ -75,39 +55,42 @@ const strictKycChain = [
     .withMessage('Business name is required.')
     .isLength({ min: 2, max: 150 })
     .withMessage('Business name must be between 2 and 150 characters.'),
-
-  // Optional — accepted when the client collects them, validated if present.
-  body('phone')
-    .optional({ checkFalsy: true })
-    .trim()
-    .matches(MOBILE_REGEX)
-    .withMessage('Please provide a valid 10-digit phone number.'),
-  body('name')
+  body('gstNumber')
     .if((value, { req }) => isVendor(req))
+    .trim()
+    .notEmpty()
+    .withMessage('GST number is required for a vendor.')
+    .toUpperCase()
+    .matches(GST_REGEX)
+    .withMessage('Please provide a valid 15-character GST number.'),
+  // Owner image arrives as a file (multer), so validate req.file here.
+  body('profileImage').custom((value, { req }) => {
+    if (isVendor(req) && !req.file) {
+      throw new Error(MESSAGES.USER.OWNER_IMAGE_REQUIRED);
+    }
+    return true;
+  }),
+
+  // Individual-only. Name is optional — only its format is checked when supplied.
+  body('name')
+    .if((value, { req }) => isIndividual(req))
     .optional({ checkFalsy: true })
     .trim()
     .isLength({ min: 2, max: 100 })
     .withMessage('Name must be between 2 and 100 characters.'),
-  body('panNumber')
-    .if((value, { req }) => isVendor(req))
-    .optional({ checkFalsy: true })
-    .trim()
-    .toUpperCase()
-    .matches(PAN_REGEX)
-    .withMessage('Please provide a valid PAN number (e.g., ABCDE1234F).'),
-  body('companyName')
-    .if((value, { req }) => isIndividual(req))
-    .optional({ checkFalsy: true })
-    .trim()
-    .isLength({ min: 2, max: 150 })
-    .withMessage('Business name must be between 2 and 150 characters.'),
-  body('gstNumber')
-    .optional({ checkFalsy: true })
-    .trim()
-    .toUpperCase()
-    .matches(GST_REGEX)
-    .withMessage('Please provide a valid 15-character GST number.'),
+  // `req.aadhaarRequired` is set by loadPolicy, mounted ahead of this chain.
+  // While the admin kill switch is off the field becomes optional, so an
+  // individual can complete KYC without an Aadhaar number at all. It is still
+  // format-checked when supplied.
   body('aadhaarNumber')
+    .if((value, { req }) => isIndividual(req) && req.aadhaarRequired !== false)
+    .trim()
+    .notEmpty()
+    .withMessage('Aadhaar number is required.')
+    .matches(AADHAAR_REGEX)
+    .withMessage('Please provide a valid 12-digit Aadhaar number.'),
+  body('aadhaarNumber')
+    .if((value, { req }) => isIndividual(req) && req.aadhaarRequired === false)
     .optional({ checkFalsy: true })
     .trim()
     .matches(AADHAAR_REGEX)
@@ -123,7 +106,6 @@ const relaxedKycChain = [
   body('userType')
     .optional({ checkFalsy: true })
     .trim()
-    .customSanitizer(userTypeSanitizer)
     .isIn(Object.values(USER_TYPE))
     .withMessage(MESSAGES.USER.USER_TYPE_INVALID),
   body('name')

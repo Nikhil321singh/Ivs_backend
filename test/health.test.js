@@ -18,7 +18,7 @@ describe('public endpoints', () => {
     const res = await request(app).get('/api/v1/pricing');
     expect(res.status).toBe(200);
     expect(res.body.data.features.IVS_CHECK).toBe(PRICING.FEATURES.IVS_CHECK);
-    expect(res.body.data.signupBonus).toBe(100);
+    expect(res.body.data.signupBonus).toBe(PRICING.SIGNUP_BONUS);
   });
 
   it('serves the public feature flags unauthenticated', async () => {

@@ -1,4 +1,3 @@
-const crypto = require('crypto');
 const dotenv = require('dotenv');
 
 dotenv.config();
@@ -53,24 +52,7 @@ const env = {
   // token can't be replayed against admin routes either way. Set a distinct
   // ADMIN_JWT_SECRET in production to keep the two blast radii separate.
   adminJwt: {
-    // Never the raw user access secret. If ADMIN_JWT_SECRET is unset we derive
-    // a distinct key from it instead, so admin and user tokens are always
-    // signed with different material even when nothing extra is configured —
-    // an operator who forgets the variable still gets separation rather than a
-    // silent single point of failure.
-    //
-    // Deriving (rather than requiring the variable) is deliberate: making it
-    // mandatory would stop an already-deployed server from booting after an
-    // upgrade. Set an explicit ADMIN_JWT_SECRET in production anyway, so that
-    // rotating one secret does not rotate the other.
-    secret:
-      process.env.ADMIN_JWT_SECRET ||
-      crypto
-        .createHmac('sha256', process.env.JWT_ACCESS_SECRET || '')
-        .update('ivs:admin-token:v1')
-        .digest('hex'),
-    // True only when a dedicated secret was supplied; server.js warns otherwise.
-    isDedicated: !!process.env.ADMIN_JWT_SECRET,
+    secret: process.env.ADMIN_JWT_SECRET || process.env.JWT_ACCESS_SECRET,
     expiry: process.env.ADMIN_JWT_EXPIRY || '12h',
   },
 
@@ -108,29 +90,6 @@ const env = {
   paysprint: {
     partnerId: process.env.PAYSPRINT_PARTNER_ID,
     authorisedKey: process.env.PAYSPRINT_AUTHORISED_KEY,
-    // SprintVerify's own base URL, used by the DigiLocker flow, which calls the
-    // provider directly rather than through the GREST wrapper above.
-    //   UAT  https://uat.paysprint.in/sprintverify-uat/api/v1/verification
-    //   PROD https://api.verifya2z.com/api/v1/verification
-    // No default: an unset value must fail loudly at call time rather than
-    // silently pointing a production deployment at UAT (or the reverse).
-    baseUrl: process.env.PAYSPRINT_BASE_URL,
-  },
-
-  // DigiLocker Aadhaar verification. Shares the Paysprint/SprintVerify
-  // credentials above — the same partnerId signs the JWT for every SprintVerify
-  // product. `redirectUrl` is where DigiLocker sends the user's browser once
-  // they finish authenticating; providers normally require it to be registered
-  // with them, so it must match what was whitelisted for this environment.
-  digilocker: {
-    redirectUrl:
-      process.env.DIGILOCKER_REDIRECT_URL ||
-      `${process.env.API_BASE_URL || ''}/api/v1/user/aadhaar/digilocker/callback`,
-    // Where the browser is sent after the callback finishes, carrying only the
-    // verification id. Falls back to the app's client URL.
-    appReturnUrl: process.env.DIGILOCKER_APP_RETURN_URL || process.env.CLIENT_URL,
-    // A session is useless once the user has wandered off; TTL-purged after this.
-    sessionTtlMinutes: parseInt(process.env.DIGILOCKER_SESSION_TTL_MINUTES || '15', 10),
   },
 
   // Aadhaar test mode: lets a fixed list of sandbox Aadhaar numbers verify with

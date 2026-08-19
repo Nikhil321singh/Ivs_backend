@@ -200,7 +200,17 @@ const checkImeiWithRetry = async (imei, accessToken, referenceId) => {
   return null;
 };
 
+/**
+ * A result for the cases where no CEIR lookup was performed — bad credentials,
+ * authentication failure, or the service being unreachable after retries.
+ *
+ * `upstreamAnswered: false` is what tells the caller not to bill the user:
+ * C-DOT charges us per lookup it processes, so the user pays whenever a lookup
+ * actually ran (even one that comes back "not found"), and pays nothing when it
+ * never reached them.
+ */
 const buildErrorResult = (referenceId, status, message) => ({
+  upstreamAnswered: false,
   imei1Status: status,
   imei1CdotStatus: null,
   imei2Status: null,
@@ -250,6 +260,10 @@ const verifyImei = async ({ imei1, imei2 }) => {
   }
 
   return {
+    // A lookup was processed by CEIR. That is true even when the answer is
+    // UNKNOWN — an IMEI absent from the database is a real, billed query, not a
+    // failed one — so the user is charged for it.
+    upstreamAnswered: true,
     imei1Status: imei1Result.status,
     imei1CdotStatus: imei1Result.rawCdotStatus || null,
     imei2Status: imei2Result ? imei2Result.status : null,

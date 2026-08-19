@@ -21,15 +21,21 @@ module.exports = Object.freeze({
     DIAGNOSE: 50,
   }),
 
-  // Free tokens credited once, when a user completes KYC — not at signup, so
-  // the grant rewards finishing onboarding rather than merely holding a phone
-  // number. Set to 0 to switch it off; the credit is skipped entirely rather
-  // than writing a zero-value ledger row.
-  SIGNUP_BONUS: 100,
+  // Free tokens credited once, when an account is first created.
+  //
+  // Currently 0: new accounts get nothing for signing up. grantSignupBonus
+  // returns early on a non-positive value, so no wallet is created and no
+  // zero-value ledger row is written — a brand-new account simply has no wallet
+  // until something credits it. The referral reward, paid on the referred
+  // user's first successful top-up, is the only bonus in the system.
+  //
+  // Raise this to re-enable the grant; nothing else needs to change. Accounts
+  // that already received it keep those tokens.
+  SIGNUP_BONUS: 0,
 
   // Referral payout, in tokens, granted on the referee's first paid top-up.
   REFERRAL: Object.freeze({
-    REFERRER_BONUS: 20, // credited to the person who shared the code
+    REFERRER_BONUS: 50, // credited to the person who shared the code
     REFEREE_WELCOME: 10, // credited to the new user who used the code
   }),
 });

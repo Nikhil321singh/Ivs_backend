@@ -43,18 +43,15 @@ const stubCdot = (imei, status = 'non-blocked', { times = 1 } = {}) => {
     .reply(200, { [imei]: { status } });
 };
 
-/**
- * C-DOT refuses to serve us — the 403 that Sydney used to get.
- *
- * Both endpoints are stubbed, not just login, because cdotIvsProvider caches
- * its access token at module scope: if an earlier test in the same file already
- * cached a valid token, the provider skips login entirely and goes straight to
- * imei-status. Stubbing only login made this helper's behaviour depend on test
- * order, which showed up as an intermittent "No match for request" failure.
- * Either path now yields the same thing — no usable answer.
- */
+/** C-DOT rejects the login — the 403 that Sydney used to get. */
 const stubCdotBlocked = () => {
   nock(CDOT).post('/api/login').reply(403, '<html>403</html>');
+  // imei-status is stubbed too, not just login, because cdotIvsProvider caches
+  // its access token at module scope: if an earlier test in the same file
+  // already cached a valid token, the provider skips login entirely and goes
+  // straight here. Stubbing only login made this helper depend on test order,
+  // which surfaced as an intermittent "No match for request" failure. Either
+  // path now yields the same thing — no usable answer.
   nock(CDOT).post('/api/imei-status').reply(403, '<html>403</html>');
 };
 
