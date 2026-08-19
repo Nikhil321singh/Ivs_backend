@@ -2,7 +2,7 @@ const express = require('express');
 const authController = require('../controllers/auth.controller');
 const authenticate = require('../middleware/auth.middleware');
 const validateRequest = require('../middleware/validateRequest.middleware');
-const { otpLimiter } = require('../middleware/rateLimiter.middleware');
+const { otpSendLimiter, otpVerifyLimiter } = require('../middleware/rateLimiter.middleware');
 const {
   sendOtpValidator,
   verifyOtpValidator,
@@ -33,7 +33,7 @@ const router = express.Router();
  *       200: { description: OTP sent successfully }
  *       422: { description: Validation failed }
  */
-router.post('/send-otp', otpLimiter, sendOtpValidator, validateRequest, authController.sendOtp);
+router.post('/send-otp', otpSendLimiter, sendOtpValidator, validateRequest, authController.sendOtp);
 
 /**
  * @openapi
@@ -58,7 +58,7 @@ router.post('/send-otp', otpLimiter, sendOtpValidator, validateRequest, authCont
  *       201: { description: Account created and logged in }
  *       422: { description: Validation failed }
  */
-router.post('/verify-otp', otpLimiter, verifyOtpValidator, validateRequest, authController.verifyOtp);
+router.post('/verify-otp', otpVerifyLimiter, verifyOtpValidator, validateRequest, authController.verifyOtp);
 
 /**
  * @openapi

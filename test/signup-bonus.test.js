@@ -1,89 +1,55 @@
 const { createUser, asUser, balanceOf } = require('./helpers/factory');
-const User = require('../src/models/User.model');
+const Wallet = require('../src/models/Wallet.model');
+const WalletTransaction = require('../src/models/WalletTransaction.model');
 const userService = require('../src/services/user.service');
-const walletService = require('../src/services/wallet.service');
-const { hashAadhaar } = require('../src/utils/hash.util');
 const PRICING = require('../src/constants/pricing');
 const settings = require('../src/services/settings.service');
 
-const individualKyc = {
-  userType: 'individual', name: 'Asha Rao', phone: '9876543210',
-  email: 'asha@example.com', panNumber: 'ABCDE1234F', aadhaarNumber: '234567890123',
-};
+/**
+ * SIGNUP_BONUS is 0, so no free tokens are granted anywhere — not at signup,
+ * not on KYC completion, not on skip. The referral reward, paid on the referred
+ * user's first successful top-up, is the only bonus in the system.
+ *
+ * These guard against the grant quietly coming back: grantSignupBonus is still
+ * wired into completeKyc and returns early only because the constant is
+ * non-positive, so a stray edit to pricing.js would start paying again.
+ */
+const kyc = { name: 'Asha Rao', email: 'asha@example.com', panNumber: 'ABCDE1234F' };
 
-/** A user whose Aadhaar is already verified, so complete-kyc can succeed. */
-const kycReadyUser = async () => {
-  const created = await createUser();
-  await User.findByIdAndUpdate(created.user._id, {
-    aadhaarVerified: true,
-    aadhaarNumberHash: hashAadhaar('234567890123', created.user._id),
+describe('joining bonus is switched off', () => {
+  it('is configured as zero', () => {
+    expect(PRICING.SIGNUP_BONUS).toBe(0);
   });
-  return created;
-};
 
-describe('joining bonus', () => {
-  it('is NOT granted when a new account is created at first login', async () => {
+  it('grants nothing when a new account is created at first login', async () => {
     const { user, isNewUser } = await userService.findOrCreateUserByMobile('+91', '9998887771');
 
     expect(isNewUser).toBe(true);
     expect(await balanceOf(user._id)).toBe(0);
+    // Not even a wallet: the grant returns before one is created.
+    expect(await Wallet.findOne({ userId: user._id })).toBeNull();
   });
 
-  it('is granted when the user completes KYC', async () => {
-    const { user, token } = await kycReadyUser();
-    expect(await balanceOf(user._id)).toBe(0);
+  it('grants nothing when the user completes KYC', async () => {
+    const { user, token } = await createUser();
 
-    const res = await asUser(token).post('/api/v1/user/complete-kyc').send(individualKyc);
+    const res = await asUser(token).post('/api/v1/user/complete-kyc').send(kyc);
 
     expect(res.status).toBe(200);
-    expect(await balanceOf(user._id)).toBe(PRICING.SIGNUP_BONUS);
+    expect(await balanceOf(user._id)).toBe(0);
   });
 
-  it('counts toward totalBonus, not totalPurchased', async () => {
-    const { user, token } = await kycReadyUser();
-    await asUser(token).post('/api/v1/user/complete-kyc').send(individualKyc);
+  it('writes no ledger row at all', async () => {
+    const { user, token } = await createUser();
 
-    const wallet = await walletService.getWallet(user._id);
-    expect(wallet.totalBonus).toBe(PRICING.SIGNUP_BONUS);
-    expect(wallet.totalPurchased).toBe(0);
+    await asUser(token).post('/api/v1/user/complete-kyc').send(kyc);
+
+    // A zero-value credit would be rejected as an invalid amount, so the grant
+    // must skip entirely rather than attempt one.
+    expect(await WalletTransaction.countDocuments({ userId: user._id })).toBe(0);
   });
 
-  it('writes one SIGNUP_BONUS ledger row the user can see', async () => {
-    const { token } = await kycReadyUser();
-    await asUser(token).post('/api/v1/user/complete-kyc').send(individualKyc);
-
-    const res = await asUser(token).get('/api/v1/user/me');
-    expect(res.body.data.wallet.balance).toBe(PRICING.SIGNUP_BONUS);
-    expect(res.body.data.wallet.totalBonus).toBe(PRICING.SIGNUP_BONUS);
-  });
-
-  it('never pays twice — an account already paid at signup is not paid again', async () => {
-    const { user, token } = await kycReadyUser();
-
-    // Simulates an account credited by the old signup-time grant, which used
-    // this same idempotency key.
-    await walletService.credit(user._id, PRICING.SIGNUP_BONUS, {
-      reason: 'SIGNUP_BONUS',
-      idempotencyKey: `signup-bonus-${user._id}`,
-    });
-    expect(await balanceOf(user._id)).toBe(PRICING.SIGNUP_BONUS);
-
-    await asUser(token).post('/api/v1/user/complete-kyc').send(individualKyc);
-
-    expect(await balanceOf(user._id)).toBe(PRICING.SIGNUP_BONUS);
-  });
-
-  it('is not granted twice if complete-kyc is somehow called again', async () => {
-    const { user, token } = await kycReadyUser();
-    await asUser(token).post('/api/v1/user/complete-kyc').send(individualKyc);
-
-    // Second call 409s (KYC already complete) and must not pay again.
-    const again = await asUser(token).post('/api/v1/user/complete-kyc').send(individualKyc);
-    expect(again.status).toBe(409);
-    expect(await balanceOf(user._id)).toBe(PRICING.SIGNUP_BONUS);
-  });
-
-  it('is NOT granted when the user skips KYC', async () => {
+  it('grants nothing when the user skips KYC', async () => {
     await settings.update({ kycRequired: false });
     const { user, token } = await createUser();
 
@@ -93,10 +59,11 @@ describe('joining bonus', () => {
     expect(await balanceOf(user._id)).toBe(0);
   });
 
-  it('is advertised on GET /pricing so the app can show the offer', async () => {
+  it('advertises zero on GET /pricing so no joining offer is shown', async () => {
     const { token } = await createUser();
+
     const res = await asUser(token).get('/api/v1/pricing');
 
-    expect(res.body.data.signupBonus).toBe(PRICING.SIGNUP_BONUS);
+    expect(res.body.data.signupBonus).toBe(0);
   });
 });

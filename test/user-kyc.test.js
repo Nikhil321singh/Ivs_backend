@@ -1,4 +1,4 @@
-const { app, request, createUser, asUser } = require('./helpers/factory');
+const { createUser, asUser } = require('./helpers/factory');
 const User = require('../src/models/User.model');
 const { hashAadhaar } = require('../src/utils/hash.util');
 const settings = require('../src/services/settings.service');
@@ -6,14 +6,6 @@ const settings = require('../src/services/settings.service');
 // Individual: name, email, PAN. Vendor: companyName, email.
 const baseKyc = { name: 'Asha Rao', email: 'asha@example.com', panNumber: 'ABCDE1234F' };
 const vendorKyc = { userType: 'vendor', companyName: 'Rao Devices', email: 'vendor@example.com' };
-const individualKyc = {
-  userType: 'individual', name: 'Asha Rao', phone: '9876543210',
-  email: 'asha@example.com', panNumber: 'ABCDE1234F', aadhaarNumber: '234567890123',
-};
-const vendorKyc = {
-  userType: 'vendor', companyName: 'Rao Devices', phone: '9876543211',
-  email: 'vendor@example.com', panNumber: 'ZYXWV9876K', gstNumber: '22AAAAA0000A1Z5',
-};
 
 describe('complete-kyc — required fields differ by user type', () => {
   it('completes for an individual with nothing but name, email and PAN', async () => {

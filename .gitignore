@@ -9,3 +9,6 @@ src/uploads/profile/*
 
 # PM2 logs
 logs/
+
+# A separate repo cloned inside this one — never commit it as a gitlink.
+grest-partners-backend/

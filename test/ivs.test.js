@@ -35,7 +35,8 @@ describe('POST /ivs/verify', () => {
     expect(await balanceOf(user._id)).toBe(500 - COST);
   });
 
-  it('refunds when CEIR gives no usable answer', async () => {
+  it('never charges when CEIR could not be reached', async () => {
+    const WalletTransaction = require('../src/models/WalletTransaction.model');
     const { user, token } = await createFundedUser(500);
     stubCdotBlocked();                       // provider 403s
 
@@ -43,7 +44,96 @@ describe('POST /ivs/verify', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.data.wallet.charged).toBe(false);
-    expect(await balanceOf(user._id)).toBe(500);   // debited then refunded
+    expect(await balanceOf(user._id)).toBe(500);
+
+    // The debit now runs only after a definitive answer, so an unusable result
+    // leaves the ledger untouched — no charge row, no compensating refund row.
+    expect(await WalletTransaction.countDocuments({ userId: user._id })).toBe(0);
+  });
+
+  it('charges for a wrong/unknown IMEI — C-DOT bills us for that lookup', async () => {
+    const WalletTransaction = require('../src/models/WalletTransaction.model');
+    const PRICING = require('../src/constants/pricing');
+    const { user, token } = await createFundedUser(500);
+    // Login succeeds and CEIR responds, but the response carries no entry for
+    // the IMEI we asked about — a real, billed lookup that found nothing.
+    stubCdot('999999999999999', 'non-blocked');
+
+    const res = await asUser(token).post('/api/v1/ivs/verify').send({ imei1: IMEI });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.imei1Status).toBe('UNKNOWN');
+    expect(res.body.data.wallet.charged).toBe(true);
+    expect(await balanceOf(user._id)).toBe(500 - PRICING.FEATURES.IVS_CHECK);
+    expect(await WalletTransaction.countDocuments({ userId: user._id })).toBe(1);
+  });
+
+  it('history agrees with what was actually charged', async () => {
+    const PRICING = require('../src/constants/pricing');
+    const { token } = await createFundedUser(500);
+    stubCdot('999999999999999', 'non-blocked');   // billed lookup, UNKNOWN result
+
+    await asUser(token).post('/api/v1/ivs/verify').send({ imei1: IMEI });
+    const history = await asUser(token).get('/api/v1/ivs/history');
+
+    const [row] = history.body.data.items;
+    expect(row.imei1Status).toBe('UNKNOWN');
+    // An UNKNOWN that CEIR answered is billed, so history must not show it free.
+    expect(row.charged).toBe(true);
+    expect(row.cost).toBe(PRICING.FEATURES.IVS_CHECK);
+  });
+
+  it('history shows an unreachable check as free', async () => {
+    const { token } = await createFundedUser(500);
+    stubCdotBlocked();
+
+    await asUser(token).post('/api/v1/ivs/verify').send({ imei1: IMEI });
+    const history = await asUser(token).get('/api/v1/ivs/history');
+
+    const [row] = history.body.data.items;
+    expect(row.charged).toBe(false);
+    expect(row.cost).toBe(0);
+  });
+
+  it('does not charge when the CEIR call itself fails', async () => {
+    const nock = require('nock');
+    const WalletTransaction = require('../src/models/WalletTransaction.model');
+    const { user, token } = await createFundedUser(500);
+
+    // Login succeeds, but the lookup returns 500 on every attempt — the API did
+    // not give us a successful response, so no lookup was billed to us.
+    nock('https://ivs.test.gov').post('/api/login').reply(200, {
+      accessToken: `header.${Buffer.from(
+        JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 })
+      ).toString('base64')}.sig`,
+      refreshToken: 'test-refresh',
+    });
+    nock('https://ivs.test.gov').post('/api/imei-status').times(5).reply(500, 'upstream boom');
+
+    const res = await asUser(token).post('/api/v1/ivs/verify').send({ imei1: IMEI });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.wallet.charged).toBe(false);
+    expect(await balanceOf(user._id)).toBe(500);
+    expect(await WalletTransaction.countDocuments({ userId: user._id })).toBe(0);
+  });
+
+  it('charges exactly once for a definitive answer', async () => {
+    const WalletTransaction = require('../src/models/WalletTransaction.model');
+    const PRICING = require('../src/constants/pricing');
+    const { user, token } = await createFundedUser(500);
+    stubCdot(IMEI, 'non-blocked');
+
+    const res = await asUser(token).post('/api/v1/ivs/verify').send({ imei1: IMEI });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.wallet.charged).toBe(true);
+    expect(await balanceOf(user._id)).toBe(500 - PRICING.FEATURES.IVS_CHECK);
+
+    const rows = await WalletTransaction.find({ userId: user._id });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].type).toBe('DEBIT');
+    expect(rows[0].reason).toBe('FEATURE_CHARGE');
   });
 
   it('accepts `imei` as an alias for imei1', async () => {

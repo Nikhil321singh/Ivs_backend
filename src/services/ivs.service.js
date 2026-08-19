@@ -7,8 +7,19 @@ const PRICING = require('../constants/pricing');
 // rule in ivs.controller so history rows show the correct "Paid" state.
 const DEFINITIVE = [IVS_STATUS.CLEAN, IVS_STATUS.BLOCKED, IVS_STATUS.STOLEN];
 const isDefinitive = (status) => status !== null && DEFINITIVE.includes(status);
-const wasCharged = (log) =>
-  isDefinitive(log.imei1Status) && (log.imei2Status === null || isDefinitive(log.imei2Status));
+/**
+ * Whether the user paid for a stored check.
+ *
+ * Reads the recorded outcome rather than re-deriving it from the status, so a
+ * later change to the billing rule cannot silently re-classify old rows. The
+ * status-based fallback covers rows written before `billable` existed, when a
+ * definitive answer was the rule.
+ */
+const wasCharged = (log) => {
+  if (typeof log.billable === 'boolean') return log.billable;
+
+  return isDefinitive(log.imei1Status) && (log.imei2Status === null || isDefinitive(log.imei2Status));
+};
 
 /**
  * Verifies IMEI(s) against C-DOT's CEIR blocklist and logs the outcome.
@@ -25,6 +36,7 @@ const verifyImei = async (userId, { imei1, imei2, deviceModel, customerName }, c
       // editable: without it, history would re-price old checks at today's
       // rate and tell a user they paid something they did not.
       cost,
+      billable: result.upstreamAnswered === true,
       imei1,
       imei2: imei2 || null,
       deviceModel: deviceModel || null,

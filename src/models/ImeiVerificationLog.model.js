@@ -55,6 +55,14 @@ const imeiVerificationLogSchema = new Schema(
       type: Number,
       default: null,
     },
+    // Whether CEIR actually processed the lookup, which is what decides if the
+    // user was billed — a wrong IMEI is billed, an unreachable C-DOT is not.
+    // Null on rows written before this field existed; history falls back to the
+    // old status-based rule for those.
+    billable: {
+      type: Boolean,
+      default: null,
+    },
     referenceId: {
       type: String,
       required: true,
