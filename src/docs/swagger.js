@@ -50,6 +50,7 @@ const options = {
       { name: 'Referral', description: 'Referral code and earnings' },
       { name: 'Diagnose', description: 'Third-party device diagnosis (token-billed)' },
       { name: 'Pricing', description: 'Per-feature token costs and referral rewards' },
+      { name: 'Notifications', description: 'Push notifications via Firebase Cloud Messaging (FCM)' },
     ],
     components: {
       securitySchemes: {

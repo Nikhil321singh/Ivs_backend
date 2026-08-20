@@ -118,6 +118,20 @@ const env = {
     svcPassword: process.env.AWS_COGNITO_SVC_PASSWORD,
   },
 
+  // Push notifications via Firebase Cloud Messaging. Credentials come from a
+  // Firebase service account JSON (Project Settings -> Service Accounts ->
+  // Generate new private key): project_id/client_email/private_key map to
+  // FCM_PROJECT_ID/FCM_CLIENT_EMAIL/FCM_PRIVATE_KEY. .env can't hold real
+  // newlines, so store the private key with literal \n escapes — unescaped
+  // in fcmProvider.js before use. Lazy-validated there (same pattern as
+  // Razorpay/C-DOT/S3) so the server still boots before Firebase is
+  // provisioned.
+  fcm: {
+    projectId: process.env.FCM_PROJECT_ID,
+    clientEmail: process.env.FCM_CLIENT_EMAIL,
+    privateKey: process.env.FCM_PRIVATE_KEY,
+  },
+
   isProduction: (process.env.NODE_ENV || 'development') === 'production',
 };
 

@@ -92,6 +92,12 @@ module.exports = {
   PRICING: {
     FETCHED: 'Pricing fetched successfully.',
   },
+  NOTIFICATION: {
+    TOKEN_REGISTERED: 'Device registered for push notifications.',
+    TOKEN_REMOVED: 'Device unregistered from push notifications.',
+    TEST_SENT: 'Test notification sent.',
+    NOT_CONFIGURED: 'Push notifications are not configured. Please contact support.',
+  },
   VALIDATION: {
     FAILED: 'Validation failed. Please check your input.',
   },

@@ -6,6 +6,7 @@ const walletRoutes = require('./wallet.routes');
 const referralRoutes = require('./referral.routes');
 const diagnoseRoutes = require('./diagnose.routes');
 const mediaRoutes = require('./media.routes');
+const notificationRoutes = require('./notification.routes');
 const PRICING = require('../constants/pricing');
 
 const router = express.Router();
@@ -51,5 +52,6 @@ router.use('/wallet', walletRoutes);
 router.use('/referral', referralRoutes);
 router.use('/diagnose', diagnoseRoutes);
 router.use('/media', mediaRoutes);
+router.use('/notifications', notificationRoutes);
 
 module.exports = router;
