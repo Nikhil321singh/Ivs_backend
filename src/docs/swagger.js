@@ -50,6 +50,16 @@ const options = {
       { name: 'Referral', description: 'Referral code and earnings' },
       { name: 'Diagnose', description: 'Third-party device diagnosis (token-billed)' },
       { name: 'Pricing', description: 'Per-feature token costs and referral rewards' },
+      {
+        name: 'Notifications',
+        description:
+          'FCM push: device registration and the in-app notification inbox. Every notification is stored server-side, so the inbox — not FCM — is the record of what a user was told.',
+      },
+      {
+        name: 'App',
+        description:
+          'Client app metadata. The launch-time update check that decides whether a build is current, should be offered an update, or must be blocked behind an update wall.',
+      },
     ],
     components: {
       securitySchemes: {

@@ -121,6 +121,67 @@ All endpoints are versioned under `/api/v1`. Response envelope:
 | PUT    | `/api/v1/user/update-profile`  | Yes  | Update name / email / photo     |
 | GET    | `/api/v1/user/profile`         | Yes  | Get current user profile        |
 
+### Notifications (FCM)
+
+Push is delivered through Firebase Cloud Messaging (HTTP v1), and every
+notification is also written to a per-user inbox in the database. The inbox —
+not FCM — is the record of what a user was told: a phone that is off,
+uninstalled or unregistered simply misses the push and sees the message on next
+open. A deployment with no Firebase credentials still records notifications; it
+just cannot wake devices (`pushEnabled: false` in the responses).
+
+| Method | Endpoint                                  | Auth  | Description                                  |
+|--------|-------------------------------------------|-------|----------------------------------------------|
+| POST   | `/api/v1/notifications/devices`           | Yes   | Register/refresh this device's FCM token     |
+| GET    | `/api/v1/notifications/devices`           | Yes   | My registered devices                        |
+| DELETE | `/api/v1/notifications/devices`           | Yes   | Unregister a token (call on sign-out)        |
+| GET    | `/api/v1/notifications`                   | Yes   | Inbox, newest first, with `unreadCount`      |
+| GET    | `/api/v1/notifications/unread-count`      | Yes   | Badge count                                  |
+| PATCH  | `/api/v1/notifications/{id}/read`         | Yes   | Mark one read (idempotent)                   |
+| PATCH  | `/api/v1/notifications/read-all`          | Yes   | Mark everything read                         |
+| DELETE | `/api/v1/notifications/{id}`              | Yes   | Delete one from my inbox                     |
+| POST   | `/api/v1/admin/notifications/send`        | Admin | Broadcast to ALL / USER_IDS / FILTER         |
+| GET    | `/api/v1/admin/notifications/campaigns`   | Admin | Broadcast history with delivery stats        |
+| GET    | `/api/v1/admin/notifications/campaigns/{id}` | Admin | One broadcast, incl. live progress        |
+
+Client contract: register the token after every sign-in and on Firebase's
+`onTokenRefresh` (registration is idempotent — re-sending the same token updates
+the existing row rather than creating a duplicate), and pass `fcmToken` to
+`POST /auth/logout` so the handset stops receiving the signed-out user's
+notifications.
+
+To send a notification from server code, call
+`notificationService.notifyUser(userId, { title, body, type, data })` — it
+writes the inbox row and pushes to every device the user has registered, and
+never throws if the push fails.
+
+### App update
+
+The client calls `GET /api/v1/app/version` at launch — unauthenticated, because
+a build old enough to need forcing may be too old to hold a valid session — and
+switches on `updateAction`:
+
+- `NONE` — up to date, show nothing.
+- `OPTIONAL` — offer the update, dismissible.
+- `FORCE` — block the app behind an update wall.
+
+`FORCE` is returned when the build is below `minSupportedVersion`, or when the
+operator marked the current release `mandatory`. Anything the server cannot
+judge (no release published, an unparseable version) resolves to `NONE`, so a
+misconfiguration can never lock the user base out.
+
+| Method | Endpoint                                       | Auth  | Description                                   |
+|--------|------------------------------------------------|-------|-----------------------------------------------|
+| GET    | `/api/v1/app/version?platform=&version=`       | No    | Should this build update?                     |
+| GET    | `/api/v1/admin/app-versions`                   | Admin | Published release per platform                |
+| PUT    | `/api/v1/admin/app-versions/{platform}`        | Admin | Publish/edit a release (`notify: true` to announce) |
+| POST   | `/api/v1/admin/app-versions/{platform}/notify` | Admin | Push "update available" to users on an older build |
+
+The update push targets only users whose registered device on that platform
+reports a version older than the published release, so nobody already current is
+nagged. Its `data` block carries `latestVersion`, `storeUrl` and `forceUpdate`,
+so tapping it can open the store or raise the update wall with no further call.
+
 A ready-to-import Postman collection is included: `postman_collection.json`.
 
 ## Environment Variables
@@ -132,9 +193,10 @@ are missing.
 
 ## Adding Future Modules
 
-The `DO NOT USE` / `FUTURE MODULES` list (roles, admin panel, notifications,
-payments, diagnostics, IVS verification, records, support, settings) was
-intentionally left out of this version. The MVC layout, service-based
+The original `FUTURE MODULES` list (roles, admin panel, notifications,
+payments, diagnostics, IVS verification, records, support, settings) has since
+been largely built out — notifications and the app-update gate are documented
+above. The MVC layout, service-based
 business logic, and versioned routing (`/api/v1`) mean new modules can be
 added as new `models/routes/services/controllers` files without touching
 existing ones.

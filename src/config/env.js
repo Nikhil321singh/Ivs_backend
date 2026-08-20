@@ -11,6 +11,35 @@ const REQUIRED_ENV_VARS = [
   'MSG91_FLOW_ID',
 ];
 
+/**
+ * Firebase service-account credentials, supplied either as three separate
+ * variables or as the whole downloaded JSON in one.
+ *
+ * The JSON form exists because the private key is a multi-line PEM, and most
+ * hosting dashboards (Render, PM2 ecosystem files) mangle multi-line values on
+ * paste. Base64 of that JSON is accepted for the same reason. Never throws: bad
+ * credentials must leave FCM merely unconfigured — notifications still persist
+ * to the in-app inbox — rather than stop the server from booting.
+ */
+const parseFcmServiceAccount = () => {
+  const raw = (process.env.FCM_SERVICE_ACCOUNT_JSON || '').trim();
+  if (!raw) return {};
+
+  try {
+    const json = raw.startsWith('{') ? raw : Buffer.from(raw, 'base64').toString('utf8');
+    return JSON.parse(json);
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error(
+      '[FCM] FCM_SERVICE_ACCOUNT_JSON is neither JSON nor base64-encoded JSON — ignoring it. ' +
+        'Push notifications stay disabled until it is fixed.'
+    );
+    return {};
+  }
+};
+
+const fcmServiceAccount = parseFcmServiceAccount();
+
 const missingVars = REQUIRED_ENV_VARS.filter((key) => !process.env[key]);
 
 if (missingVars.length > 0) {
@@ -120,6 +149,11 @@ const env = {
     // provider directly rather than through the GREST wrapper above.
     //   UAT  https://uat.paysprint.in/sprintverify-uat/api/v1/verification
     //   PROD https://api.verifya2z.com/api/v1/verification
+    // The UAT host serves the OTP e-KYC product only. DigiLocker has NO UAT
+    // endpoint — it is live on PROD alone, so every DigiLocker call is made
+    // against production and a successful one is billed. There is also no
+    // AADHAAR_TEST_MODE bypass for it: that switch keys off the Aadhaar number
+    // (see aadhaarProvider.js), which the DigiLocker flow never collects.
     // No default: an unset value must fail loudly at call time rather than
     // silently pointing a production deployment at UAT (or the reverse).
     baseUrl: process.env.PAYSPRINT_BASE_URL,
@@ -177,6 +211,46 @@ const env = {
   diagnose: {
     baseUrl: (process.env.DIAGNOSE_BASE_URL || '').replace(/\/+$/, ''),
     apiKey: process.env.DIAGNOSE_API_KEY,
+  },
+
+  // Firebase Cloud Messaging (HTTP v1). Credentials come from the Firebase
+  // console -> Project settings -> Service accounts -> "Generate new private
+  // key". Lazy-validated in services/providers/fcmProvider.js like the other
+  // providers, so the server boots fine before they are provisioned — pushes
+  // are simply skipped while the in-app inbox keeps working.
+  //
+  // We speak the REST API directly (axios + a signed JWT, exactly like the
+  // Paysprint integration) rather than pulling in firebase-admin, which drags
+  // in gRPC and a large dependency tree for two HTTP calls.
+  fcm: {
+    projectId: process.env.FCM_PROJECT_ID || fcmServiceAccount.project_id,
+    clientEmail: process.env.FCM_CLIENT_EMAIL || fcmServiceAccount.client_email,
+    // A PEM has real newlines; .env files cannot, so "\n" escapes are the
+    // conventional encoding and are unescaped back here.
+    privateKey: (process.env.FCM_PRIVATE_KEY || fcmServiceAccount.private_key || '').replace(
+      /\\n/g,
+      '\n'
+    ),
+    // Android 8+ ignores a notification whose channel does not exist on the
+    // device, so this must match the channel the app creates at startup.
+    androidChannelId: process.env.FCM_ANDROID_CHANNEL_ID || 'ivs_default',
+    // Ask FCM to validate the request without delivering anything. Useful for
+    // rehearsing a broadcast against production credentials.
+    dryRun: process.env.FCM_DRY_RUN === 'true',
+    // How many token sends are in flight at once. HTTP v1 has no multicast
+    // endpoint — every device is its own request — so this bounds the fan-out
+    // of a broadcast instead of opening one socket per user.
+    concurrency: parseInt(process.env.FCM_CONCURRENCY, 10) || 20,
+  },
+
+  // App version gate for the mobile clients. Values here are only the fallback
+  // used before an operator saves a release in the admin console; the stored
+  // AppVersion row wins once it exists.
+  appUpdate: {
+    androidStoreUrl:
+      process.env.APP_ANDROID_STORE_URL ||
+      'https://play.google.com/store/apps/details?id=in.grest.ivs',
+    iosStoreUrl: process.env.APP_IOS_STORE_URL || 'https://apps.apple.com/app/id0000000000',
   },
 
   defaultCountryCode: process.env.DEFAULT_COUNTRY_CODE || '+91',

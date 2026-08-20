@@ -103,6 +103,36 @@ module.exports = {
   PRICING: {
     FETCHED: 'Pricing fetched successfully.',
   },
+  NOTIFICATION: {
+    DEVICE_REGISTERED: 'Device registered for notifications.',
+    DEVICE_REMOVED: 'Device removed from notifications.',
+    DEVICES_FETCHED: 'Registered devices fetched successfully.',
+    FETCHED: 'Notifications fetched successfully.',
+    UNREAD_COUNT_FETCHED: 'Unread notification count fetched successfully.',
+    MARKED_READ: 'Notification marked as read.',
+    ALL_MARKED_READ: 'All notifications marked as read.',
+    DELETED: 'Notification deleted successfully.',
+    NOT_FOUND: 'Notification not found.',
+    SENT: 'Notification sent successfully.',
+    QUEUED: 'Notification queued. It is being delivered in the background.',
+    CAMPAIGNS_FETCHED: 'Notification campaigns fetched successfully.',
+    CAMPAIGN_FETCHED: 'Notification campaign fetched successfully.',
+    CAMPAIGN_NOT_FOUND: 'Notification campaign not found.',
+    NO_AUDIENCE: 'No users matched this audience, so nothing was sent.',
+    NOT_CONFIGURED:
+      'Push notifications are not configured on this server. Messages are saved to the in-app inbox but not delivered to devices.',
+  },
+  APP_VERSION: {
+    CHECKED: 'App version checked successfully.',
+    FETCHED: 'App versions fetched successfully.',
+    SAVED: 'App version saved successfully.',
+    NOT_CONFIGURED: 'No release has been published for this platform yet.',
+    LATEST_REQUIRED: 'latestVersion is required to publish a release.',
+    MIN_ABOVE_LATEST:
+      'minSupportedVersion cannot be newer than latestVersion — every user would be forced to update to a build that does not exist.',
+    UPDATE_TITLE: 'Update available',
+    UPDATE_NOTIFIED: 'Update notification sent to users on an older version.',
+  },
   ADMIN: {
     LOGGED_IN: 'Signed in successfully.',
     INVALID_CREDENTIALS: 'Invalid email or password.',

@@ -59,5 +59,17 @@ process.env.AADHAAR_TEST_MODE = 'false';
 process.env.OTP_TEST_MODE = 'false';
 process.env.OTP_TEST_NUMBERS = '';
 
+// FCM is deliberately left UNCONFIGURED. fcmProvider then reports itself as
+// unavailable and every send short-circuits without touching the network, so
+// the notification specs assert what the API actually guarantees — the inbox
+// row is written and the request succeeds whether or not a push goes out.
+process.env.FCM_PROJECT_ID = '';
+process.env.FCM_CLIENT_EMAIL = '';
+process.env.FCM_PRIVATE_KEY = '';
+process.env.FCM_SERVICE_ACCOUNT_JSON = '';
+
+process.env.APP_ANDROID_STORE_URL = 'https://play.google.com/store/apps/details?id=in.grest.ivs';
+process.env.APP_IOS_STORE_URL = 'https://apps.apple.com/app/id0000000000';
+
 process.env.DEFAULT_COUNTRY_CODE = '+91';
 process.env.UPLOAD_MAX_SIZE_MB = '5';
