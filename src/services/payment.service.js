@@ -74,6 +74,34 @@ const createTopupOrder = async (userId, amountInr) => {
       callback_url: razorpay.getCallbackUrl(),
       redirect: true,
       webview_intent: true,
+      // Pin the UPI block to intent + QR. Two reasons:
+      //
+      // 1. NPCI retired UPI Collect on 28 Feb 2026, so a checkout that falls
+      //    back to collect now renders an empty UPI section. Naming the flows
+      //    explicitly keeps the block populated.
+      // 2. QR needs nothing from the native wrapper. Intent only works once
+      //    the app handles the `upi:`/`intent:` URL in shouldOverrideUrlLoading;
+      //    until that ships, QR is the flow that still lets a user pay. Both
+      //    are listed so the same payload keeps working after the app updates —
+      //    no rebuild needed on either side of that change.
+      //
+      // show_default_blocks stays true so cards/netbanking/wallets still render
+      // below the UPI block; `sequence` only promotes UPI to the top. If
+      // Checkout ever ignores `flows` (it is not in the public docs — Razorpay
+      // support recommends it), this degrades to a plain UPI block rather than
+      // hiding anything.
+      config: {
+        display: {
+          blocks: {
+            upi: {
+              name: 'Pay using UPI',
+              instruments: [{ method: 'upi', flows: ['intent', 'qr'] }],
+            },
+          },
+          sequence: ['block.upi'],
+          preferences: { show_default_blocks: true },
+        },
+      },
     },
   };
 };

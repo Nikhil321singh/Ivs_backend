@@ -78,6 +78,23 @@ describe('token top-up', () => {
     expect(res.body.data.checkout.callback_url).toContain('/wallet/topup/callback');
   });
 
+  it('offers UPI intent and QR, and keeps the other default methods', async () => {
+    const { token } = await createUser();
+    stubCreateOrder('order_test_upi');
+
+    const res = await asUser(token).post('/api/v1/wallet/topup/order').send({ amount: 100 });
+
+    const { display } = res.body.data.checkout.config;
+
+    // Collect is deliberately absent — NPCI retired it on 28 Feb 2026.
+    expect(display.blocks.upi.instruments).toEqual([
+      { method: 'upi', flows: ['intent', 'qr'] },
+    ]);
+    expect(display.sequence).toEqual(['block.upi']);
+    // UPI is promoted, not made exclusive: cards/netbanking must still show.
+    expect(display.preferences.show_default_blocks).toBe(true);
+  });
+
   it('credits tokens from the redirect callback and sends the WebView to a success URL', async () => {
     const { user, token } = await createUser();
     stubCreateOrder('order_test_cb');
