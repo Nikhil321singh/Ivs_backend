@@ -48,10 +48,14 @@ if (missingVars.length > 0) {
   process.exit(1);
 }
 
+// Public origin of this API, trailing slash stripped so it can be concatenated
+// safely (the Razorpay checkout callback URL is built from it).
+const apiBaseUrl = (process.env.API_BASE_URL || 'http://localhost:5000').replace(/\/+$/, '');
+
 const env = {
   nodeEnv: process.env.NODE_ENV || 'development',
   port: parseInt(process.env.PORT, 10) || 5000,
-  apiBaseUrl: process.env.API_BASE_URL || 'http://localhost:5000',
+  apiBaseUrl,
 
   mongodbUri: process.env.MONGODB_URI,
 
@@ -204,6 +208,18 @@ const env = {
     keySecret: process.env.RAZORPAY_KEY_SECRET,
     webhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET,
     apiBaseUrl: (process.env.RAZORPAY_API_BASE_URL || 'https://api.razorpay.com/v1').replace(/\/+$/, ''),
+    // Where Razorpay Checkout POSTs the result when it runs in redirect mode
+    // (required for the Capacitor WebView flow — see payment.service.js).
+    // Must be publicly reachable, so it is derived from API_BASE_URL unless
+    // overridden explicitly.
+    callbackUrl: (
+      process.env.RAZORPAY_CALLBACK_URL || `${apiBaseUrl}/api/v1/wallet/topup/callback`
+    ).replace(/\/+$/, ''),
+    // Where the WebView is sent after we have processed that callback. Set it
+    // to a deep link the app intercepts (e.g. ivsapp://payment/result); when
+    // unset we fall back to a plain result page served by this API, which the
+    // app can just as well detect by URL.
+    webviewReturnUrl: (process.env.RAZORPAY_WEBVIEW_RETURN_URL || '').replace(/\/+$/, ''),
   },
 
   // Third-party device-diagnosis provider. Lazy-validated in

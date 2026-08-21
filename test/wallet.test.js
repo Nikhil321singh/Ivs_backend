@@ -67,6 +67,78 @@ describe('token top-up', () => {
     expect(await balanceOf(user._id)).toBeGreaterThanOrEqual(100);
   });
 
+  it('returns the WebView checkout options with the order', async () => {
+    const { token } = await createUser();
+    stubCreateOrder('order_test_wv');
+
+    const res = await asUser(token).post('/api/v1/wallet/topup/order').send({ amount: 100 });
+
+    expect(res.status).toBe(201);
+    expect(res.body.data.checkout).toMatchObject({ redirect: true, webview_intent: true });
+    expect(res.body.data.checkout.callback_url).toContain('/wallet/topup/callback');
+  });
+
+  it('credits tokens from the redirect callback and sends the WebView to a success URL', async () => {
+    const { user, token } = await createUser();
+    stubCreateOrder('order_test_cb');
+    await asUser(token).post('/api/v1/wallet/topup/order').send({ amount: 100 });
+
+    // Razorpay posts form-encoded, unauthenticated, from the user's WebView.
+    const res = await request(app)
+      .post('/api/v1/wallet/topup/callback')
+      .type('form')
+      .send({
+        razorpay_order_id: 'order_test_cb',
+        razorpay_payment_id: 'pay_cb',
+        razorpay_signature: checkoutSignature('order_test_cb', 'pay_cb'),
+      });
+
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toContain('status=success');
+    expect(res.headers.location).toContain('order_id=order_test_cb');
+    expect(await balanceOf(user._id)).toBeGreaterThanOrEqual(100);
+  });
+
+  it('redirects with status=failed and credits nothing when the callback signature is forged', async () => {
+    const { user, token } = await createUser();
+    stubCreateOrder('order_test_cb_bad');
+    await asUser(token).post('/api/v1/wallet/topup/order').send({ amount: 100 });
+
+    const res = await request(app)
+      .post('/api/v1/wallet/topup/callback')
+      .type('form')
+      .send({
+        razorpay_order_id: 'order_test_cb_bad',
+        razorpay_payment_id: 'pay_cb_bad',
+        razorpay_signature: 'forged',
+      });
+
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toContain('status=failed');
+    expect(await balanceOf(user._id)).toBe(0);
+  });
+
+  it('does not double-credit when the webhook follows the redirect callback', async () => {
+    const { user, token } = await createUser();
+    stubCreateOrder('order_test_cb_dup');
+    await asUser(token).post('/api/v1/wallet/topup/order').send({ amount: 100 });
+
+    await request(app).post('/api/v1/wallet/topup/callback').type('form').send({
+      razorpay_order_id: 'order_test_cb_dup',
+      razorpay_payment_id: 'pay_cb_dup',
+      razorpay_signature: checkoutSignature('order_test_cb_dup', 'pay_cb_dup'),
+    });
+
+    const { body, signature } = buildWebhook('payment.captured', 'order_test_cb_dup', 'pay_cb_dup');
+    await request(app)
+      .post('/api/v1/wallet/webhook/razorpay')
+      .set('x-razorpay-signature', signature)
+      .set('Content-Type', 'application/json')
+      .send(body);
+
+    expect(await balanceOf(user._id)).toBe(100);
+  });
+
   it('rejects a webhook with a bad signature', async () => {
     const { body } = buildWebhook('payment.captured', 'order_x', 'pay_x');
     const res = await request(app)

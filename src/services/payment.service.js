@@ -63,6 +63,18 @@ const createTopupOrder = async (userId, amountInr) => {
     currency: 'INR',
     tokens,
     razorpayKeyId: razorpay.getKeyId(),
+    // Checkout options for the app's WebView. Inside a WebView the JS
+    // `handler` callback is unreliable — a UPI intent hands control to the
+    // PSP app and the page that would have run the handler is gone — so
+    // Checkout has to run in redirect mode instead: Razorpay POSTs the result
+    // to `callback_url` (our /wallet/topup/callback) and `webview_intent`
+    // lets Checkout fire the UPI intent out to the native app. The client
+    // spreads this object straight into its Checkout options.
+    checkout: {
+      callback_url: razorpay.getCallbackUrl(),
+      redirect: true,
+      webview_intent: true,
+    },
   };
 };
 
@@ -107,6 +119,38 @@ const creditForPayment = async (payment, { paymentId, signature }) => {
   }
 
   return claimed;
+};
+
+/**
+ * Redirect-mode callback. With `redirect: true` Razorpay does not call the
+ * client-side handler — it form-POSTs the result straight to `callback_url`,
+ * unauthenticated and from the user's WebView. So there is no req.user here:
+ * the order id is the only identifier, and the signature is what proves the
+ * payload came from Razorpay. Never throws — the caller has to answer a
+ * browser navigation, so every outcome resolves to a status the app can act
+ * on. The webhook remains the source of truth if this path is interrupted.
+ */
+const handleCheckoutCallback = async ({ orderId, paymentId, signature }) => {
+  if (!orderId || !paymentId || !signature) {
+    // Razorpay posts error[...] fields instead of the success triplet when the
+    // payment fails or the user abandons it.
+    return { status: 'failed', orderId: orderId || null, paymentId: paymentId || null };
+  }
+
+  if (!razorpay.verifyCheckoutSignature({ orderId, paymentId, signature })) {
+    console.error('[Payment] callback signature mismatch for order', orderId);
+    return { status: 'failed', orderId, paymentId };
+  }
+
+  const payment = await Payment.findOne({ razorpayOrderId: orderId });
+  if (!payment) {
+    console.error('[Payment] callback for unknown order', orderId);
+    return { status: 'failed', orderId, paymentId };
+  }
+
+  await creditForPayment(payment, { paymentId, signature });
+
+  return { status: 'success', orderId, paymentId };
 };
 
 /**
@@ -159,6 +203,7 @@ const handleWebhook = async (rawBody, signature) => {
 
 module.exports = {
   createTopupOrder,
+  handleCheckoutCallback,
   verifyPayment,
   handleWebhook,
 };

@@ -90,6 +90,7 @@ module.exports = {
     ORDER_NOT_FOUND: 'Payment order not found.',
     MIN_AMOUNT: 'Top-up amount is below the minimum allowed.',
     MAX_AMOUNT: 'Top-up amount is above the maximum allowed.',
+    CALLBACK_FAILED: 'The payment did not go through.',
   },
   REFERRAL: {
     FETCHED: 'Referral details fetched successfully.',

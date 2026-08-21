@@ -93,8 +93,18 @@ describe('device registration', () => {
   it('retires the device on logout when the client sends its token', async () => {
     const { token } = await createUser();
 
-    await asUser(token).post('/api/v1/notifications/devices').send({ token: TOKEN, platform: 'android' });
-    await asUser(token).post('/api/v1/auth/logout').send({ deviceId: 'device-1', fcmToken: TOKEN });
+    const registered = await asUser(token)
+      .post('/api/v1/notifications/devices')
+      .send({ token: TOKEN, platform: 'android' });
+    const loggedOut = await asUser(token)
+      .post('/api/v1/auth/logout')
+      .send({ deviceId: 'device-1', fcmToken: TOKEN });
+
+    // Asserted before the database check so that a request which failed for an
+    // unrelated reason reports ITSELF, rather than surfacing as a confusing
+    // "the token was never deactivated".
+    expect(registered.status).toBe(200);
+    expect(loggedOut.status).toBe(200);
 
     const row = await DeviceToken.findOne({ token: TOKEN });
     expect(row.isActive).toBe(false);
