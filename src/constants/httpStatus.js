@@ -1,6 +1,9 @@
 module.exports = {
   OK: 200,
   CREATED: 201,
+  // POST -> GET redirect. 303 (not 302) so the Razorpay callback's form POST
+  // is guaranteed to be re-issued as a GET of the result page.
+  SEE_OTHER: 303,
   BAD_REQUEST: 400,
   UNAUTHORIZED: 401,
   PAYMENT_REQUIRED: 402,

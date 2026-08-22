@@ -11,6 +11,7 @@ const httpStatus = require('../constants/httpStatus');
 const MESSAGES = require('../constants/messages');
 const {
   VERIFICATION_STATUS,
+  VERIFICATION_SUBJECT,
   TERMINAL_STATUSES,
   FAILURE_CODE,
   PROVIDER_OPERATION,
@@ -84,19 +85,26 @@ const fail = async (session, failureCode, failureReason) => {
  * live sessions open would leave two usable callback capabilities outstanding
  * for one account.
  */
-const startVerification = async (userId) => {
+const startVerification = async (userId, { subject = VERIFICATION_SUBJECT.ACCOUNT } = {}) => {
   const user = await User.findById(userId);
 
   if (!user) {
     throw new ApiError(httpStatus.NOT_FOUND, MESSAGES.AUTH.USER_NOT_FOUND);
   }
 
-  if (user.aadhaarVerified) {
+  // Only an ACCOUNT session is one-per-lifetime. A partner verifies a different
+  // customer on every sale, so their own KYC state says nothing about whether
+  // they may open a CUSTOMER session — gating on it would lock the IMEI flow
+  // for exactly the partners who completed their KYC.
+  if (subject === VERIFICATION_SUBJECT.ACCOUNT && user.aadhaarVerified) {
     throw new ApiError(httpStatus.CONFLICT, MESSAGES.USER.AADHAAR_ALREADY_VERIFIED);
   }
 
+  // Superseding in-flight sessions is scoped to the same subject: starting a
+  // customer verification must not cancel the partner's own half-finished KYC,
+  // or vice versa.
   await AadhaarVerification.updateMany(
-    { userId, status: { $nin: TERMINAL_STATUSES } },
+    { userId, subject, status: { $nin: TERMINAL_STATUSES } },
     { status: VERIFICATION_STATUS.EXPIRED, failureCode: FAILURE_CODE.DIGILOCKER_SESSION_EXPIRED }
   );
 
@@ -104,11 +112,19 @@ const startVerification = async (userId) => {
   const session = await AadhaarVerification.create({
     userId,
     refid,
+    subject,
     status: VERIFICATION_STATUS.INITIATED,
     expiresAt: new Date(Date.now() + env.digilocker.sessionTtlMinutes * 60 * 1000),
   });
 
-  const result = await provider.initiateSession(refid, env.digilocker.redirectUrl);
+  // The refid is carried in the redirect URL we hand the provider, rather than
+  // relying on DigiLocker to echo one back. The documentation does not specify
+  // what the callback receives, and this makes that irrelevant: whatever else
+  // arrives, our own refid is always present and the session is always found.
+  const callbackUrl = new URL(env.digilocker.redirectUrl);
+  callbackUrl.searchParams.set('refid', refid);
+
+  const result = await provider.initiateSession(refid, callbackUrl.toString());
   await logProviderCall(PROVIDER_OPERATION.INITIATE_SESSION, refid, userId, result);
 
   if (!result.ok) {
@@ -216,14 +232,22 @@ const completeVerification = async (refid) => {
   //    The hash is what enforces one-Aadhaar-per-account; it is derived from
   //    the masked value here because the full number is never available to us
   //    through DigiLocker.
-  const user = await User.findById(userId);
-  if (user) {
-    user.aadhaarVerified = true;
-    user.aadhaarNumber = details.maskedAadhaar;
-    if (details.maskedAadhaar) {
-      user.aadhaarNumberHash = hashAadhaar(details.maskedAadhaar, userId);
+  //
+  //    CUSTOMER sessions stop short of this. `userId` there is the partner
+  //    operating the sale, not the person who authenticated, so writing it
+  //    would mark the partner KYC-verified off a seller's Aadhaar and bind
+  //    their one-Aadhaar-per-account hash to a stranger. The result still lands
+  //    on the session below, which is what the IMEI flow reads.
+  if (session.subject === VERIFICATION_SUBJECT.ACCOUNT) {
+    const user = await User.findById(userId);
+    if (user) {
+      user.aadhaarVerified = true;
+      user.aadhaarNumber = details.maskedAadhaar;
+      if (details.maskedAadhaar) {
+        user.aadhaarNumberHash = hashAadhaar(details.maskedAadhaar, userId);
+      }
+      await user.save();
     }
-    await user.save();
   }
 
   session.status = VERIFICATION_STATUS.VERIFIED;
@@ -242,8 +266,15 @@ const completeVerification = async (refid) => {
  * guessed verification id reveals nothing — an id belonging to someone else is
  * indistinguishable from one that does not exist.
  */
-const getVerification = async (userId, verificationId) => {
-  const session = await AadhaarVerification.findOne({ _id: verificationId, userId });
+const getVerification = async (
+  userId,
+  verificationId,
+  { subject = VERIFICATION_SUBJECT.ACCOUNT } = {}
+) => {
+  // Scoped by subject as well as owner, so the account endpoint cannot be used
+  // to read a customer session (or the reverse). The two report different
+  // things to the client and must not be interchangeable.
+  const session = await AadhaarVerification.findOne({ _id: verificationId, userId, subject });
 
   if (!session) {
     throw new ApiError(httpStatus.NOT_FOUND, MESSAGES.USER.DIGILOCKER_SESSION_NOT_FOUND);

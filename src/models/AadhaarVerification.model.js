@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const { VERIFICATION_STATUS } = require('../constants/aadhaarVerification');
+const { VERIFICATION_STATUS, VERIFICATION_SUBJECT } = require('../constants/aadhaarVerification');
 
 const { Schema } = mongoose;
 
@@ -27,6 +27,16 @@ const aadhaarVerificationSchema = new Schema(
       type: String,
       required: true,
       unique: true,
+    },
+    // Whose identity this session proves. `userId` is always the partner who
+    // opened it — for CUSTOMER sessions that is the operator, not the subject,
+    // so nothing from the result is written back to their account. Defaults to
+    // ACCOUNT so rows written before this field existed keep their meaning.
+    subject: {
+      type: String,
+      enum: Object.values(VERIFICATION_SUBJECT),
+      default: VERIFICATION_SUBJECT.ACCOUNT,
+      required: true,
     },
     status: {
       type: String,

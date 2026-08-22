@@ -85,7 +85,23 @@ app.get('/', (req, res) =>
   res.status(200).json({ name: 'IVS API', docs: '/api-docs', health: '/api/v1/health' })
 );
 
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+// helmet()'s default CSP is script-src 'self', but swaggerUi.setup() injects an
+// inline initialiser script. Under the global policy the page loads and renders
+// blank — no error, just an empty white document and a console CSP violation.
+// Relaxed for this route ONLY, so the strict policy still covers every API
+// response and the legal pages. Scoped to the docs UI, which serves no user
+// data and executes no user input.
+app.use(
+  '/api-docs',
+  helmet.contentSecurityPolicy({
+    directives: {
+      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+      'script-src': ["'self'", "'unsafe-inline'"],
+    },
+  }),
+  swaggerUi.serve,
+  swaggerUi.setup(swaggerSpec)
+);
 
 // Public legal pages. App stores require a privacy policy at a stable, publicly
 // reachable URL, so it is served here (and version-controlled in public/) rather

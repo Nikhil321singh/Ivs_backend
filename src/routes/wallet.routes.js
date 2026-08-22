@@ -91,4 +91,49 @@ router.post('/topup/order', authenticate, topupOrderValidator, validateRequest, 
  */
 router.post('/topup/verify', authenticate, verifyPaymentValidator, validateRequest, walletController.verifyPayment);
 
+/**
+ * @openapi
+ * /wallet/topup/callback:
+ *   post:
+ *     tags: [Wallet]
+ *     summary: Razorpay redirect-mode callback (WebView flow) — not called by the app
+ *     description: >
+ *       Razorpay form-POSTs here when Checkout runs with `redirect: true`
+ *       (required inside the WebView, alongside `webview_intent: true`).
+ *       Public: there is no bearer token on this request, the checkout
+ *       signature authenticates it. Verifies the signature, credits tokens,
+ *       then 303-redirects to RAZORPAY_WEBVIEW_RETURN_URL (or the result page
+ *       below) with `status`, `order_id` and `payment_id` query params for the
+ *       app's WebView navigation listener to read.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/x-www-form-urlencoded:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               razorpay_order_id: { type: string, example: "order_XXXXXXXX" }
+ *               razorpay_payment_id: { type: string, example: "pay_XXXXXXXX" }
+ *               razorpay_signature: { type: string }
+ *     responses:
+ *       303: { description: Redirect to the app return URL / result page }
+ */
+router.post('/topup/callback', walletController.handleTopupCallback);
+
+/**
+ * @openapi
+ * /wallet/topup/result:
+ *   get:
+ *     tags: [Wallet]
+ *     summary: Plain HTML landing page for the callback redirect
+ *     description: Fallback destination used when RAZORPAY_WEBVIEW_RETURN_URL is not configured.
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema: { type: string, enum: [success, failed] }
+ *     responses:
+ *       200: { description: HTML result page }
+ */
+router.get('/topup/result', walletController.renderTopupResult);
+
 module.exports = router;

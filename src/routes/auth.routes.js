@@ -88,6 +88,7 @@ router.post('/refresh-token', refreshTokenValidator, validateRequest, authContro
  *   post:
  *     tags: [Auth]
  *     summary: Revoke the refresh token for the current device
+ *     description: Pass `fcmToken` as well so the device stops receiving this user's push notifications — otherwise the next person to sign in on the same handset keeps getting them.
  *     security: [{ bearerAuth: [] }]
  *     requestBody:
  *       required: true
@@ -98,6 +99,7 @@ router.post('/refresh-token', refreshTokenValidator, validateRequest, authContro
  *             required: [deviceId]
  *             properties:
  *               deviceId: { type: string }
+ *               fcmToken: { type: string, description: The FCM registration token to unregister. Optional but strongly recommended. }
  *     responses:
  *       200: { description: Logged out successfully }
  *       401: { description: Unauthorized }

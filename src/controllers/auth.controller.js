@@ -7,6 +7,7 @@ const otpService = require('../services/otp.service');
 const userService = require('../services/user.service');
 const tokenService = require('../services/token.service');
 const referralService = require('../services/referral.service');
+const deviceTokenService = require('../services/deviceToken.service');
 
 const sendOtp = asyncHandler(async (req, res) => {
   const { mobile, countryCode = env.defaultCountryCode } = req.body;
@@ -54,9 +55,18 @@ const refreshToken = asyncHandler(async (req, res) => {
 });
 
 const logout = asyncHandler(async (req, res) => {
-  const { deviceId } = req.body;
+  const { deviceId, fcmToken } = req.body;
 
   await tokenService.revokeRefreshToken(req.user.id, deviceId);
+
+  // Retire the push registration alongside the session. Without this the
+  // handset keeps receiving the signed-out user's notifications — which on a
+  // shared shop device means one person's wallet and KYC alerts landing in
+  // front of the next. Optional so an older client that does not send it still
+  // logs out cleanly.
+  if (fcmToken) {
+    await deviceTokenService.deactivate(req.user.id, fcmToken);
+  }
 
   successResponse(res, httpStatus.OK, MESSAGES.AUTH.LOGOUT_SUCCESS, {});
 });

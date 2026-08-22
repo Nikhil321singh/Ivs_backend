@@ -10,7 +10,9 @@
     "test": "jest --runInBand",
     "seed:test-user": "node scripts/seed-test-user.js",
     "seed:admin": "node scripts/seed-admin.js",
-    "seed:credit": "node scripts/seed-credit.js"
+    "seed:credit": "node scripts/seed-credit.js",
+    "payments:status": "node scripts/payment-status.js",
+    "check:digilocker": "node scripts/check-digilocker.js"
   },
   "engines": {
     "node": ">=18.0.0"

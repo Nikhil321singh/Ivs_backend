@@ -66,7 +66,6 @@ const assertConfigured = () => {
 
 const client = axios.create({
   timeout: 60000,
-  headers: { 'Content-Type': 'application/json' },
   // Handle 4xx ourselves so a 422 can be classified (and billed) rather than
   // thrown as a generic axios error.
   validateStatus: (status) => status < 500,
@@ -86,14 +85,26 @@ const call = async (operation, body) => {
   const startedAt = Date.now();
   const url = `${env.paysprint.baseUrl}${PATHS[operation]}`;
 
+  // The documentation requires multipart/form-data, not JSON. Building a
+  // FormData lets axios set the multipart boundary itself; setting the header
+  // by hand without a boundary produces a body the provider cannot parse.
+  const form = new FormData();
+  Object.entries(body).forEach(([key, value]) => {
+    if (value !== undefined && value !== null) form.append(key, String(value));
+  });
+
   try {
-    const response = await client.post(url, body, {
+    const response = await client.post(url, form, {
       headers: {
-        // Fresh per request — never cached, never reused.
+        // Fresh per request — never cached, never reused. Five-minute validity.
         Token: generatePaysprintToken(),
+        // NOT the JWT signing key. The provider issues two different secrets:
+        // one signs the token, this one identifies the partner in the header.
+        // They only coincide if PAYSPRINT_AUTHORISEDKEY is left unset.
         Authorisedkey: env.paysprint.authorisedKey,
-        // The provider rejects requests without a User-Agent.
-        'User-Agent': 'ivs-backend',
+        // Must be the partner CORP ID — the provider treats User-Agent as an
+        // identifier, not a client name, and rejects requests without it.
+        'User-Agent': env.paysprint.partnerId,
       },
     });
 
