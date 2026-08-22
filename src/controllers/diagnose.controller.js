@@ -10,4 +10,10 @@ const diagnose = asyncHandler(async (req, res) => {
   successResponse(res, httpStatus.OK, MESSAGES.DIAGNOSE.COMPLETED, result);
 });
 
-module.exports = { diagnose };
+const getHistory = asyncHandler(async (req, res) => {
+  const result = await diagnoseService.getHistory(req.user.id, req.query);
+
+  successResponse(res, httpStatus.OK, MESSAGES.DIAGNOSE.HISTORY_FETCHED, result);
+});
+
+module.exports = { diagnose, getHistory };

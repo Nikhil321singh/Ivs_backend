@@ -99,6 +99,7 @@ module.exports = {
   },
   DIAGNOSE: {
     COMPLETED: 'Device diagnosis completed.',
+    HISTORY_FETCHED: 'Diagnosis history fetched.',
     NOT_CONFIGURED: 'Diagnosis service is not configured. Contact system administrator.',
     SERVICE_UNAVAILABLE: 'Diagnosis service is unavailable. Please try again later.',
     FAILED: 'Unable to complete the diagnosis. Please try again.',

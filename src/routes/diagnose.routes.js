@@ -38,4 +38,20 @@ router.post(
   diagnoseController.diagnose
 );
 
+/**
+ * @openapi
+ * /diagnose/history:
+ *   get:
+ *     tags: [Diagnose]
+ *     summary: The caller's past device diagnoses (newest first)
+ *     description: View-only, paginated history for the Records screen.
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: query, name: page, schema: { type: integer, default: 1 } }
+ *       - { in: query, name: limit, schema: { type: integer, default: 20, maximum: 50 } }
+ *     responses:
+ *       200: { description: Diagnosis history returned }
+ */
+router.get('/history', authenticate, diagnoseController.getHistory);
+
 module.exports = router;
