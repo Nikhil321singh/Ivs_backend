@@ -5,8 +5,10 @@ const httpStatus = require('../constants/httpStatus');
 const MESSAGES = require('../constants/messages');
 const ivsService = require('../services/ivs.service');
 const aadhaarService = require('../services/aadhaar.service');
+const digilockerAadhaarService = require('../services/digilockerAadhaar.service');
 const walletService = require('../services/wallet.service');
 const { TXN_REASON, TXN_REF_TYPE } = require('../constants/walletEnums');
+const { VERIFICATION_SUBJECT } = require('../constants/aadhaarVerification');
 
 /**
  * Whether this check cost us a CEIR lookup, which is what decides whether the
@@ -104,6 +106,33 @@ const verifyCustomerAadhaarOtp = asyncHandler(async (req, res) => {
   successResponse(res, httpStatus.OK, MESSAGES.USER.AADHAAR_VERIFIED, data);
 });
 
+/**
+ * DigiLocker equivalents of the two OTP endpoints above, and the flow the app
+ * actually uses now: the seller authenticates inside their own DigiLocker, so
+ * we never handle their Aadhaar number at all.
+ *
+ * Same contract as /user/aadhaar/digilocker/*, with one difference that matters
+ * — the CUSTOMER subject keeps the result off the partner's account. The
+ * partner is the operator here, not the person being verified.
+ */
+const startCustomerAadhaarDigilocker = asyncHandler(async (req, res) => {
+  const data = await digilockerAadhaarService.startVerification(req.user.id, {
+    subject: VERIFICATION_SUBJECT.CUSTOMER,
+  });
+
+  successResponse(res, httpStatus.OK, MESSAGES.IVS.CUSTOMER_DIGILOCKER_STARTED, data);
+});
+
+const getCustomerAadhaarDigilocker = asyncHandler(async (req, res) => {
+  const data = await digilockerAadhaarService.getVerification(
+    req.user.id,
+    req.params.verificationId,
+    { subject: VERIFICATION_SUBJECT.CUSTOMER }
+  );
+
+  successResponse(res, httpStatus.OK, MESSAGES.IVS.CUSTOMER_DIGILOCKER_FETCHED, data);
+});
+
 // GET /ivs/history — the caller's stored IMEI verifications (view-only, no charge).
 const getHistory = asyncHandler(async (req, res) => {
   const data = await ivsService.getHistory(req.user.id, {
@@ -113,4 +142,11 @@ const getHistory = asyncHandler(async (req, res) => {
   successResponse(res, httpStatus.OK, MESSAGES.IVS.HISTORY_FETCHED, data);
 });
 
-module.exports = { verifyImei, sendCustomerAadhaarOtp, verifyCustomerAadhaarOtp, getHistory };
+module.exports = {
+  verifyImei,
+  sendCustomerAadhaarOtp,
+  verifyCustomerAadhaarOtp,
+  startCustomerAadhaarDigilocker,
+  getCustomerAadhaarDigilocker,
+  getHistory,
+};

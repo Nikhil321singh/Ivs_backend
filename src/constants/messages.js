@@ -73,6 +73,8 @@ module.exports = {
     IMEI1_STOLEN: 'Device IMEI 1 is reported as stolen. This device cannot be purchased.',
     IMEI1_UNKNOWN: 'IMEI not found in CEIR database. Supervisor approval required.',
     UNABLE_TO_VERIFY: 'Unable to verify IMEI status. Please try again or use supervisor override.',
+    CUSTOMER_DIGILOCKER_STARTED: "Ask the customer to open the DigiLocker link to verify their Aadhaar.",
+    CUSTOMER_DIGILOCKER_FETCHED: 'Customer Aadhaar verification status fetched.',
   },
   WALLET: {
     FETCHED: 'Wallet fetched successfully.',

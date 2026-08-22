@@ -29,6 +29,24 @@ const TERMINAL_STATUSES = Object.freeze([
 ]);
 
 /**
+ * Who a session verifies. The flow through DigiLocker is identical; what
+ * differs is the write at the end.
+ *
+ *   ACCOUNT  — the logged-in partner proving their own identity. On success the
+ *              Aadhaar is bound to the User (aadhaarVerified + hash), which is
+ *              what gates KYC.
+ *   CUSTOMER — the device seller, verified during an IMEI sale. The partner is
+ *              only the operator here, so NOTHING is written to their account:
+ *              binding a seller's Aadhaar to the partner would both falsely
+ *              complete their KYC and burn the one-Aadhaar-per-account hash on
+ *              someone else's identity.
+ */
+const VERIFICATION_SUBJECT = Object.freeze({
+  ACCOUNT: 'ACCOUNT',
+  CUSTOMER: 'CUSTOMER',
+});
+
+/**
  * Application-level failure codes. Provider errors are mapped onto these so the
  * client never sees a SprintVerify/DigiLocker-specific state.
  */
@@ -60,6 +78,7 @@ const AADHAAR_DOCTYPE = 'ADHAR';
 
 module.exports = {
   VERIFICATION_STATUS,
+  VERIFICATION_SUBJECT,
   TERMINAL_STATUSES,
   FAILURE_CODE,
   PROVIDER_OPERATION,
