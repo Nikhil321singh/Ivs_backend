@@ -134,8 +134,8 @@ const assertFieldNotTaken = async (field, value, excludeUserId, conflictMessage)
  */
 const completeKyc = async (
   userId,
-  { userType, name, phone, companyName, email, panNumber, gstNumber, aadhaarNumber },
-  profileImage
+  { userType, name, phone, companyName, email, panNumber, gstNumber, aadhaarNumber, businessProofType },
+  { profileImage, businessProofImage } = {}
 ) => {
   const user = await getUserById(userId);
 
@@ -176,6 +176,13 @@ const completeKyc = async (
     if (profileImage) {
       user.profileImage = profileImage.url;
       user.profileImagePublicId = profileImage.publicId;
+    }
+    // Business proof (GSTIN / Udyam Aadhaar): only persist the type when its
+    // image actually uploaded, so the two never drift apart.
+    set('businessProofType', businessProofType);
+    if (businessProofImage) {
+      user.businessProofImage = businessProofImage.url;
+      user.businessProofImagePublicId = businessProofImage.publicId;
     }
   } else {
     // Aadhaar is no longer a precondition for completing KYC — name, email and
@@ -298,6 +305,19 @@ const deleteAccount = async (userId) => {
     }
   }
 
+  if (user.businessProofImagePublicId) {
+    try {
+      await uploadService.deleteProfileImage(user.businessProofImagePublicId);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[User] Business proof image delete failed during account deletion', {
+        userId: String(userId),
+        publicId: user.businessProofImagePublicId,
+        error: err.message,
+      });
+    }
+  }
+
   // Personal fields. email/panNumber/gstNumber carry sparse-unique indexes, so
   // they are set to undefined rather than null — the index then excludes the
   // row and frees the value for anyone else (see User.model.js).
@@ -309,6 +329,9 @@ const deleteAccount = async (userId) => {
   user.gstNumber = undefined;
   user.profileImage = null;
   user.profileImagePublicId = null;
+  user.businessProofType = null;
+  user.businessProofImage = null;
+  user.businessProofImagePublicId = null;
   user.isGstRegistered = false;
   user.kycCompleted = false;
   // Sign them out: they must re-authenticate by OTP, which is what restores

@@ -87,10 +87,28 @@ const userSchema = new Schema(
       type: String,
       default: null,
     },
-    // Storage provider's public_id for the profile image (e.g. Cloudinary
-    // public_id / S3 object key). Kept internal — used to delete/replace the
-    // asset; stripped from API responses in the toJSON transform below.
+    // Storage provider's public_id for the profile image (the S3 object key).
+    // Kept internal — used to delete/replace the asset; stripped from API
+    // responses in the toJSON transform below.
     profileImagePublicId: {
+      type: String,
+      default: null,
+      select: false,
+    },
+    // Vendor business proof — a photo of either a GSTIN certificate or an Udyam
+    // Aadhaar, whichever the vendor uploads. businessProofType records which one.
+    businessProofType: {
+      type: String,
+      enum: ['gstin', 'udyam'],
+      default: null,
+    },
+    businessProofImage: {
+      type: String,
+      default: null,
+    },
+    // Storage provider's public_id for the business-proof image (see
+    // profileImagePublicId above). Kept internal — stripped in the toJSON transform.
+    businessProofImagePublicId: {
       type: String,
       default: null,
       select: false,
@@ -147,6 +165,7 @@ userSchema.set('toJSON', {
     delete ret._id;
     delete ret.__v;
     delete ret.profileImagePublicId;
+    delete ret.businessProofImagePublicId;
     // These fields intentionally have no schema default (see the sparse
     // index comment above) — normalize to null so the API response shape
     // stays consistent whether or not they've been set.

@@ -46,6 +46,34 @@ const uploadProfileImage = (req, res, next) => {
   });
 };
 
+/**
+ * complete-kyc accepts up to two images: the vendor's owner photo (profileImage)
+ * and an optional business-proof photo (businessProofImage — GSTIN or Udyam
+ * Aadhaar). multer .fields() populates req.files[field] as an array; the
+ * controller reads [0] from each. Errors flow through the global handler as above.
+ */
+const uploadKycImages = (req, res, next) => {
+  const handler = multerUpload.fields([
+    { name: 'profileImage', maxCount: 1 },
+    { name: 'businessProofImage', maxCount: 1 },
+  ]);
+  handler(req, res, (err) => {
+    if (err instanceof multer.MulterError) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return next(
+          new ApiError(
+            httpStatus.BAD_REQUEST,
+            `Images must be smaller than ${env.upload.maxSizeMb}MB.`
+          )
+        );
+      }
+      return next(new ApiError(httpStatus.BAD_REQUEST, err.message));
+    }
+    if (err) return next(err);
+    next();
+  });
+};
+
 const requireProfileImage = (req, res, next) => {
   if (!req.file) {
     return next(new ApiError(httpStatus.UNPROCESSABLE_ENTITY, MESSAGES.USER.PROFILE_IMAGE_REQUIRED, [
@@ -55,4 +83,4 @@ const requireProfileImage = (req, res, next) => {
   next();
 };
 
-module.exports = { uploadProfileImage, requireProfileImage };
+module.exports = { uploadProfileImage, uploadKycImages, requireProfileImage };

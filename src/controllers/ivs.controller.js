@@ -138,6 +138,7 @@ const getHistory = asyncHandler(async (req, res) => {
   const data = await ivsService.getHistory(req.user.id, {
     page: req.query.page,
     limit: req.query.limit,
+    search: req.query.search,
   });
   successResponse(res, httpStatus.OK, MESSAGES.IVS.HISTORY_FETCHED, data);
 });

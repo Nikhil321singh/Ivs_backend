@@ -2,7 +2,7 @@ const express = require('express');
 const userController = require('../controllers/user.controller');
 const authenticate = require('../middleware/auth.middleware');
 const validateRequest = require('../middleware/validateRequest.middleware');
-const { uploadProfileImage } = require('../middleware/upload.middleware');
+const { uploadProfileImage, uploadKycImages } = require('../middleware/upload.middleware');
 const loadPolicy = require('../middleware/policy.middleware');
 const {
   completeKycValidator,
@@ -115,7 +115,7 @@ router.post(
 router.post(
   '/complete-kyc',
   authenticate,
-  uploadProfileImage,
+  uploadKycImages,
   loadPolicy,
   completeKycValidator,
   validateRequest,

@@ -1,5 +1,5 @@
 const env = require('../../config/env');
-const cloudinaryProvider = require('./cloudinaryProvider');
+const s3Provider = require('./s3Provider');
 
 /**
  * Storage driver registry / resolver. Decouples the rest of the app from any
@@ -8,18 +8,16 @@ const cloudinaryProvider = require('./cloudinaryProvider');
  *
  * Every driver implements the same contract:
  *   isConfigured(): boolean
- *   uploadImage(buffer, { folder, publicId }): Promise<{ url, publicId }>
+ *   uploadImage(buffer, { folder, publicId, contentType }): Promise<{ url, publicId }>
  *   deleteImage(publicId): Promise<void>
  *
- * To add AWS S3 later: create s3Provider.js implementing this contract
- * (put/delete against the bucket, publicId = the object key, url = the
- * object URL), register it below, and set STORAGE_DRIVER=s3. No other file
- * changes required.
+ * AWS S3 is the only backend today (Cognito-vended temp credentials — see
+ * s3Provider.js). Register another driver here and select it via STORAGE_DRIVER
+ * to swap; no other file changes required.
  */
 
 const DRIVERS = {
-  cloudinary: cloudinaryProvider,
-  // s3: require('./s3Provider'),
+  s3: s3Provider,
 };
 
 const getStorageProvider = () => {
