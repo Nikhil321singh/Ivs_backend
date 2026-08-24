@@ -124,6 +124,20 @@ const startVerification = async (userId, { subject = VERIFICATION_SUBJECT.ACCOUN
   const callbackUrl = new URL(env.digilocker.redirectUrl);
   callbackUrl.searchParams.set('refid', refid);
 
+  // Test mode short-circuits the provider entirely and hands back our own
+  // callback as the "authorization url". Opening it is exactly what DigiLocker
+  // would cause the browser to do after a real consent screen, so the client
+  // flow — open url, come back, poll status — is unchanged.
+  if (env.digilockerTest.enabled) {
+    session.status = VERIFICATION_STATUS.AUTHENTICATING;
+    await session.save();
+
+    return {
+      verificationId: session._id.toString(),
+      authorizationUrl: callbackUrl.toString(),
+    };
+  }
+
   const result = await provider.initiateSession(refid, callbackUrl.toString());
   await logProviderCall(PROVIDER_OPERATION.INITIATE_SESSION, refid, userId, result);
 
@@ -175,57 +189,75 @@ const completeVerification = async (refid) => {
   session.status = VERIFICATION_STATUS.AUTHENTICATED;
   await session.save();
 
-  // 1. Access token — proves the DigiLocker authentication completed.
-  const token = await provider.accessToken(refid);
-  await logProviderCall(PROVIDER_OPERATION.ACCESS_TOKEN, refid, userId, token);
-  if (!token.ok) {
-    return fail(session, FAILURE_CODE.DIGILOCKER_TOKEN_FAILED, token.message);
-  }
-
-  // 2. Issued files.
-  session.status = VERIFICATION_STATUS.FETCHING_DOCUMENT;
-  await session.save();
-
-  const listing = await provider.issuedFiles(refid);
-  await logProviderCall(PROVIDER_OPERATION.ISSUED_FILES, refid, userId, listing);
-  if (!listing.ok) {
-    return fail(session, FAILURE_CODE.DIGILOCKER_PROVIDER_ERROR, listing.message);
-  }
-
-  // 3. Find Aadhaar by doctype, never by display name — the name is
-  //    presentational and can be localised or reworded by the issuer.
-  const aadhaarFile = listing.files.find(
-    (file) => String(file.doctype).toUpperCase() === AADHAAR_DOCTYPE
-  );
-
-  if (!aadhaarFile || !aadhaarFile.uri) {
-    // Not an error condition: the account simply holds no Aadhaar. Stop here
-    // without calling download, which would be a billable call for nothing.
-    return fail(session, FAILURE_CODE.AADHAAR_NOT_FOUND, null);
-  }
-
-  // 4. Download only that document.
-  const download = await provider.downloadXml(refid, aadhaarFile.uri);
-  await logProviderCall(PROVIDER_OPERATION.DOWNLOAD_XML, refid, userId, download);
-  if (!download.ok) {
-    return fail(session, FAILURE_CODE.AADHAAR_DOWNLOAD_FAILED, download.message);
-  }
-
-  // 5. Decode and parse. The raw XML never leaves this scope and is never
-  //    logged or persisted.
-  session.status = VERIFICATION_STATUS.VERIFYING;
-  await session.save();
-
+  // Parsed Aadhaar identity. Test mode fills it from config and skips every
+  // provider call and the XML entirely. Everything after this point — the
+  // CUSTOMER vs ACCOUNT write rules included — is shared, so what test mode
+  // exercises is the real completion path, not a parallel implementation.
   let details;
-  try {
-    details = parse(download.base64Xml);
-  } catch (err) {
-    if (err instanceof AadhaarXmlError) {
-      console.error('[DigiLocker] Aadhaar XML rejected', { refid, reason: err.reason });
-      return fail(session, FAILURE_CODE.AADHAAR_XML_INVALID, err.reason);
+
+  if (env.digilockerTest.enabled) {
+    session.status = VERIFICATION_STATUS.VERIFYING;
+    await session.save();
+
+    details = {
+      name: env.digilockerTest.name,
+      dateOfBirth: env.digilockerTest.dateOfBirth,
+      gender: env.digilockerTest.gender,
+      maskedAadhaar: env.digilockerTest.maskedAadhaar,
+    };
+  } else {
+    // 1. Access token — proves the DigiLocker authentication completed.
+    const token = await provider.accessToken(refid);
+    await logProviderCall(PROVIDER_OPERATION.ACCESS_TOKEN, refid, userId, token);
+    if (!token.ok) {
+      return fail(session, FAILURE_CODE.DIGILOCKER_TOKEN_FAILED, token.message);
     }
-    throw err;
+
+    // 2. Issued files.
+    session.status = VERIFICATION_STATUS.FETCHING_DOCUMENT;
+    await session.save();
+
+    const listing = await provider.issuedFiles(refid);
+    await logProviderCall(PROVIDER_OPERATION.ISSUED_FILES, refid, userId, listing);
+    if (!listing.ok) {
+      return fail(session, FAILURE_CODE.DIGILOCKER_PROVIDER_ERROR, listing.message);
+    }
+
+    // 3. Find Aadhaar by doctype, never by display name — the name is
+    //    presentational and can be localised or reworded by the issuer.
+    const aadhaarFile = listing.files.find(
+      (file) => String(file.doctype).toUpperCase() === AADHAAR_DOCTYPE
+    );
+
+    if (!aadhaarFile || !aadhaarFile.uri) {
+      // Not an error condition: the account simply holds no Aadhaar. Stop here
+      // without calling download, which would be a billable call for nothing.
+      return fail(session, FAILURE_CODE.AADHAAR_NOT_FOUND, null);
+    }
+
+    // 4. Download only that document.
+    const download = await provider.downloadXml(refid, aadhaarFile.uri);
+    await logProviderCall(PROVIDER_OPERATION.DOWNLOAD_XML, refid, userId, download);
+    if (!download.ok) {
+      return fail(session, FAILURE_CODE.AADHAAR_DOWNLOAD_FAILED, download.message);
+    }
+
+    // 5. Decode and parse. The raw XML never leaves this scope and is never
+    //    logged or persisted.
+    session.status = VERIFICATION_STATUS.VERIFYING;
+    await session.save();
+
+    try {
+      details = parse(download.base64Xml);
+    } catch (err) {
+      if (err instanceof AadhaarXmlError) {
+        console.error('[DigiLocker] Aadhaar XML rejected', { refid, reason: err.reason });
+        return fail(session, FAILURE_CODE.AADHAAR_XML_INVALID, err.reason);
+      }
+      throw err;
+    }
   }
+
 
   // 6. Bind the Aadhaar to the account, writing exactly the fields the OTP
   //    flow writes so every existing consumer of aadhaarVerified is unaffected.

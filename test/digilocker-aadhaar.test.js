@@ -489,3 +489,75 @@ describe('IVS customer DigiLocker verification', () => {
     expect(res.status).toBe(404);
   });
 });
+
+/**
+ * DIGILOCKER_TEST_MODE — the provider-free path used to exercise this flow
+ * before the server's IP is whitelisted. env is read live by the service, so
+ * flipping the flag per-test is enough; restored in afterEach.
+ */
+describe('DIGILOCKER_TEST_MODE', () => {
+  const digilockerTest = env.digilockerTest;
+
+  beforeEach(() => {
+    env.digilockerTest = { ...digilockerTest, enabled: true };
+  });
+
+  afterEach(() => {
+    env.digilockerTest = digilockerTest;
+  });
+
+  // nock intercepts nothing here on purpose: any provider call would fail the
+  // request outright, so a passing test proves none was attempted.
+  it('verifies end to end without contacting the provider', async () => {
+    const { user, token } = await createUser();
+
+    const start = await asUser(token).post('/api/v1/user/aadhaar/digilocker/start');
+    expect(start.status).toBe(200);
+
+    const session = await AadhaarVerification.findById(start.body.data.verificationId);
+    const cb = await request(app).get(
+      `/api/v1/user/aadhaar/digilocker/callback?refid=${session.refid}`
+    );
+
+    expect(cb.status).toBe(302);
+
+    const done = await AadhaarVerification.findById(session._id);
+    expect(done.status).toBe(VERIFICATION_STATUS.VERIFIED);
+    expect(done.maskedAadhaar).toBe(digilockerTest.maskedAadhaar);
+    expect((await User.findById(user._id)).aadhaarVerified).toBe(true);
+  });
+
+  it('hands back our own callback as the authorization url', async () => {
+    const { token } = await createUser();
+
+    const res = await asUser(token).post('/api/v1/user/aadhaar/digilocker/start');
+
+    // The client opens this exactly as it would a real DigiLocker consent page.
+    expect(res.body.data.authorizationUrl).toContain('/user/aadhaar/digilocker/callback');
+    expect(res.body.data.authorizationUrl).toContain('refid=');
+  });
+
+  it('bills nothing — no provider call is logged', async () => {
+    const { token } = await createUser();
+
+    const start = await asUser(token).post('/api/v1/user/aadhaar/digilocker/start');
+    const session = await AadhaarVerification.findById(start.body.data.verificationId);
+    await request(app).get(`/api/v1/user/aadhaar/digilocker/callback?refid=${session.refid}`);
+
+    expect(await ProviderRequestLog.countDocuments({ provider: 'DIGILOCKER' })).toBe(0);
+  });
+
+  // Test mode must not leak past the subject rules — the whole point of the
+  // CUSTOMER split still has to hold.
+  it('still keeps a customer verification off the partner account', async () => {
+    const { user, token } = await createUser();
+
+    const start = await asUser(token).post('/api/v1/ivs/aadhaar/digilocker/start');
+    const session = await AadhaarVerification.findById(start.body.data.verificationId);
+    await request(app).get(`/api/v1/user/aadhaar/digilocker/callback?refid=${session.refid}`);
+
+    const done = await AadhaarVerification.findById(session._id);
+    expect(done.status).toBe(VERIFICATION_STATUS.VERIFIED);
+    expect((await User.findById(user._id)).aadhaarVerified).toBe(false);
+  });
+});

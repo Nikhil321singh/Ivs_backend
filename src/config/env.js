@@ -144,11 +144,17 @@ const env = {
     // value the DigiLocker documentation calls "JWT KEY".
     jwtKey: process.env.PAYSPRINT_AUTHORISED_KEY,
     // The `Authorisedkey` request header, which the provider issues as a
-    // SEPARATE value — structurally b64(secret + CORP_ID). Falls back to the
-    // JWT key so nothing breaks before the real one is provisioned, but the two
-    // are not interchangeable and the provider will reject the wrong one once
-    // it starts validating them.
-    authorisedKey: process.env.PAYSPRINT_AUTHORISEDKEY || process.env.PAYSPRINT_AUTHORISED_KEY,
+    // SEPARATE value — structurally b64(secret + CORP_ID).
+    //
+    // NO FALLBACK, deliberately. This used to fall back to the JWT key so that
+    // "nothing breaks" before the real value was provisioned; in fact it broke
+    // everything. The DigiLocker doc marks this header "UAT Only", and
+    // production rejects a WRONG value while accepting an ABSENT one — with the
+    // thoroughly misleading message "Invalid user.<caller ip>", which reads like
+    // an IP-whitelisting failure and sent us chasing the wrong problem for a
+    // while. Omitting the header beats guessing at it: leave this unset unless
+    // Paysprint has issued the real value.
+    authorisedKey: process.env.PAYSPRINT_AUTHORISEDKEY,
     // SprintVerify's own base URL, used by the DigiLocker flow, which calls the
     // provider directly rather than through the GREST wrapper above.
     //   UAT  https://uat.paysprint.in/sprintverify-uat/api/v1/verification
@@ -177,6 +183,25 @@ const env = {
     appReturnUrl: process.env.DIGILOCKER_APP_RETURN_URL || process.env.CLIENT_URL,
     // A session is useless once the user has wandered off; TTL-purged after this.
     sessionTtlMinutes: parseInt(process.env.DIGILOCKER_SESSION_TTL_MINUTES || '15', 10),
+  },
+
+  // DigiLocker test mode: runs the whole session state machine without calling
+  // SprintVerify at all, returning a fixed identity. Exists because DigiLocker
+  // has no UAT endpoint AND the provider gates on source IP, so a client cannot
+  // exercise this flow until production credentials and a whitelisted server IP
+  // are both in place — see scripts/check-digilocker.js.
+  //
+  // This is a KYC bypass: with it on, anyone who can call /start can mark an
+  // account Aadhaar-verified without proving anything. Deliberately env-driven
+  // like OTP_TEST_MODE and AADHAAR_TEST_MODE so enabling it needs server
+  // access, not an admin session. OFF unless DIGILOCKER_TEST_MODE is exactly
+  // "true", and server.js warns loudly at boot while it is on.
+  digilockerTest: {
+    enabled: process.env.DIGILOCKER_TEST_MODE === 'true',
+    name: process.env.DIGILOCKER_TEST_NAME || 'Test User',
+    dateOfBirth: process.env.DIGILOCKER_TEST_DOB || '01-01-1990',
+    gender: process.env.DIGILOCKER_TEST_GENDER || 'M',
+    maskedAadhaar: process.env.DIGILOCKER_TEST_MASKED_AADHAAR || 'XXXX-XXXX-1234',
   },
 
   // Aadhaar test mode: lets a fixed list of sandbox Aadhaar numbers verify with

@@ -10,12 +10,19 @@
  *
  * Interpreting the result:
  *
- *   "Invalid user.<ip>"  the IP is still not whitelisted. Nothing else is
- *                        wrong; this rejection happens before credentials are
- *                        checked, verified by sending a deliberately invalid
- *                        JWT key and getting the identical response.
+ *   "Invalid user.<ip>"  DOES NOT mean the IP is unwhitelisted, despite
+ *                        quoting your IP back at you. It is the provider's
+ *                        generic auth rejection. The known cause is sending an
+ *                        `Authorisedkey` header with a wrong value: production
+ *                        rejects a wrong one and accepts an absent one. Check
+ *                        PAYSPRINT_AUTHORISEDKEY is unset (or correct) first.
  *
- *   200 + authorization_url  whitelisting is live and the integration works.
+ *                        Confirmed by probing one input at a time: a wrong JWT
+ *                        key, a wrong partnerId and a wrong User-Agent all
+ *                        returned this same message, while dropping the
+ *                        Authorisedkey header alone returned 200.
+ *
+ *   200 + authorization_url  the integration works.
  *
  * Nothing is written to the database and no user data is involved. The call is
  * non-billable while it fails (201) and billable only once it succeeds (200).
@@ -30,7 +37,10 @@ const line = (label, value) => console.log(`  ${label.padEnd(16)} ${value}`);
   line('base URL', env.paysprint.baseUrl || '(unset)');
   line('partner ID', env.paysprint.partnerId || '(unset)');
   line('JWT key', env.paysprint.jwtKey ? 'set' : 'MISSING');
-  line('Authorisedkey', process.env.PAYSPRINT_AUTHORISEDKEY ? 'set' : 'falling back to JWT key');
+  line(
+    'Authorisedkey',
+    process.env.PAYSPRINT_AUTHORISEDKEY ? 'set — will be sent' : 'unset — header omitted (correct for prod)'
+  );
   line('redirect URL', env.digilocker.redirectUrl);
 
   if (!env.paysprint.baseUrl || !env.paysprint.partnerId || !env.paysprint.jwtKey) {
@@ -59,16 +69,18 @@ const line = (label, value) => console.log(`  ${label.padEnd(16)} ${value}`);
 
   if (result.ok) {
     line('authorization', result.authorizationUrl);
-    console.log('\n  ✓ Working. The IP is whitelisted and a session was created.\n');
+    console.log('\n  ✓ Working. A session was created (this call was billable).\n');
     process.exit(0);
   }
 
   if (/invalid user/i.test(result.message || '')) {
     // Anchored to four octets so the separating dot after "user" is not captured.
     const ip = (result.message.match(/(\d{1,3}(?:\.\d{1,3}){3})\s*$/) || [])[1];
-    console.log(`\n  ✗ Still blocked. Ask the provider to whitelist${ip ? ` ${ip}` : ' this host'}.`);
-    console.log('    Everything else is configured correctly — this rejection');
-    console.log('    happens before any credential is validated.\n');
+    console.log(`\n  ✗ Rejected by the provider${ip ? ` (it echoed ${ip})` : ''}.`);
+    console.log('    This message is NOT about IP whitelisting, however much it');
+    console.log('    looks like it. First check PAYSPRINT_AUTHORISEDKEY: sending');
+    console.log('    that header with a wrong value produces exactly this, while');
+    console.log('    omitting it entirely succeeds. Leave it unset on production.\n');
     process.exit(2);
   }
 
@@ -86,7 +98,7 @@ const line = (label, value) => console.log(`  ${label.padEnd(16)} ${value}`);
     process.exit(2);
   }
 
-  console.log('\n  ✗ Failed for a different reason than IP whitelisting — see message above.\n');
+  console.log('\n  ✗ Failed — see message above.\n');
   process.exit(3);
 })().catch((err) => {
   console.error('\n  ✗ Check threw:', err.message, '\n');

@@ -46,7 +46,7 @@ const BILLABLE_STATUSES = [200, 422];
 const isBillable = (status) => BILLABLE_STATUSES.includes(status);
 
 const isConfigured = () =>
-  !!env.paysprint.partnerId && !!env.paysprint.authorisedKey && !!env.paysprint.baseUrl;
+  !!env.paysprint.partnerId && !!env.paysprint.jwtKey && !!env.paysprint.baseUrl;
 
 const assertConfigured = () => {
   if (!isConfigured()) {
@@ -54,7 +54,7 @@ const assertConfigured = () => {
     // learn which provider secret is missing.
     console.error('[DigiLocker] Not configured', {
       hasPartnerId: !!env.paysprint.partnerId,
-      hasAuthorisedKey: !!env.paysprint.authorisedKey,
+      hasJwtKey: !!env.paysprint.jwtKey,
       hasBaseUrl: !!env.paysprint.baseUrl,
     });
     throw new ApiError(
@@ -98,10 +98,13 @@ const call = async (operation, body) => {
       headers: {
         // Fresh per request — never cached, never reused. Five-minute validity.
         Token: generatePaysprintToken(),
-        // NOT the JWT signing key. The provider issues two different secrets:
-        // one signs the token, this one identifies the partner in the header.
-        // They only coincide if PAYSPRINT_AUTHORISEDKEY is left unset.
-        Authorisedkey: env.paysprint.authorisedKey,
+        // Sent ONLY when explicitly configured. The doc marks it "UAT Only",
+        // and production verifiably rejects a wrong value but accepts the
+        // header being absent — so an unset PAYSPRINT_AUTHORISEDKEY must mean
+        // "omit", never "substitute something else". See config/env.js.
+        ...(env.paysprint.authorisedKey
+          ? { Authorisedkey: env.paysprint.authorisedKey }
+          : {}),
         // Must be the partner CORP ID — the provider treats User-Agent as an
         // identifier, not a client name, and rejects requests without it.
         'User-Agent': env.paysprint.partnerId,

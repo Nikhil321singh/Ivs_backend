@@ -13,6 +13,16 @@ const start = async () => {
     );
   }
 
+  if (env.digilockerTest.enabled) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      'WARNING: DIGILOCKER_TEST_MODE is ON. Every DigiLocker verification succeeds ' +
+        `locally as "${env.digilockerTest.name}" (${env.digilockerTest.maskedAadhaar}) without ` +
+        'contacting the provider — anyone who can call /start can mark an account ' +
+        'Aadhaar-verified. Unset DIGILOCKER_TEST_MODE before going live.'
+    );
+  }
+
   if (env.otpTest.enabled && env.otpTest.numbers.length > 0) {
     // eslint-disable-next-line no-console
     console.warn(

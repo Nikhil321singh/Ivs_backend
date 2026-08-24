@@ -13,7 +13,9 @@ const MESSAGES = require('../../constants/messages');
  *   verifyOtp(refId, otp)  => { success }
  */
 
-const hasPaysprintConfig = () => !!env.paysprint.partnerId && !!env.paysprint.authorisedKey;
+// Gates on the JWT signing key, which is what a request actually requires —
+// not the optional `Authorisedkey` header, which is unset in production.
+const hasPaysprintConfig = () => !!env.paysprint.partnerId && !!env.paysprint.jwtKey;
 
 // --- Test mode -------------------------------------------------------------
 // When AADHAAR_TEST_MODE=true, the sandbox Aadhaar numbers in
