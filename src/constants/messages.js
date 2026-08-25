@@ -103,6 +103,10 @@ module.exports = {
     NOT_CONFIGURED: 'Diagnosis service is not configured. Contact system administrator.',
     SERVICE_UNAVAILABLE: 'Diagnosis service is unavailable. Please try again later.',
     FAILED: 'Unable to complete the diagnosis. Please try again.',
+    RECORD_SAVED: 'Diagnosis record saved.',
+    RECORDS_FETCHED: 'Diagnosis records fetched.',
+    RECORD_FETCHED: 'Diagnosis record fetched.',
+    RECORD_NOT_FOUND: 'Diagnosis record not found.',
   },
   PRICING: {
     FETCHED: 'Pricing fetched successfully.',
