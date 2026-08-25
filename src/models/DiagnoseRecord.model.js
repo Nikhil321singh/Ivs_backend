@@ -69,7 +69,7 @@ const diagnoseRecordSchema = new Schema(
     // schema having to track that tool's shape.
     report: {
       type: Schema.Types.Mixed,
-      required: true,
+      default: null,
     },
     // Rupees charged to the customer. Not tokens.
     price: {

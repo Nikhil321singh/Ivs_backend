@@ -81,13 +81,8 @@ describe('diagnosis records', () => {
     expect(res.body.data.aadhaarNumber).toBeNull();
   });
 
-  it('rejects a missing report, a bad phone and a negative price', async () => {
+  it('rejects a bad phone and a negative price', async () => {
     const { token } = await createUser();
-
-    const missingReport = await asUser(token)
-      .post(RECORDS)
-      .send(validPayload({ report: '   ' }));
-    expect(missingReport.status).toBe(422);
 
     const badPhone = await asUser(token)
       .post(RECORDS)
@@ -147,6 +142,26 @@ describe('diagnosis records', () => {
 
     const stored = await DiagnoseRecord.findOne({ userId: user._id }).lean();
     expect(stored.imei).toBe('356938035643809');
+  });
+
+  it('records a job with no report yet, for findings written up later', async () => {
+    const { token } = await createUser();
+
+    const res = await asUser(token).post(RECORDS).send(validPayload({ report: undefined }));
+
+    expect(res.status).toBe(201);
+    expect(res.body.data.report).toBeNull();
+    expect(res.body.data.price).toBe(499);
+  });
+
+  it('stores an empty report as null rather than rejecting it', async () => {
+    const { token } = await createUser();
+
+    for (const report of ['   ', '', {}, []]) {
+      const res = await asUser(token).post(RECORDS).send(validPayload({ report }));
+      expect(res.status).toBe(201);
+      expect(res.body.data.report).toBeNull();
+    }
   });
 
   it('requires auth', async () => {

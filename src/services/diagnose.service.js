@@ -138,11 +138,22 @@ const serializeRecord = (r) => ({
   aadhaarNumber: r.customerAadhaarNumber || null,
   imei: r.imei || null,
   deviceModel: r.deviceModel || null,
-  report: r.report,
+  report: r.report ?? null,
   price: r.price,
   diagnosedAt: r.diagnosedAt,
   createdAt: r.createdAt,
 });
+
+// A report may be free text or the structured output of a diagnosis tool, so
+// "has one" is a content check rather than a type check. An empty string, [] or
+// {} means the vendor recorded the job without findings — stored as null so
+// "no report yet" is one value in the database, not four.
+const hasReport = (value) => {
+  if (typeof value === 'string') return value.trim().length > 0;
+  if (Array.isArray(value)) return value.length > 0;
+  if (value && typeof value === 'object') return Object.keys(value).length > 0;
+  return false;
+};
 
 /**
  * Stores one diagnosis record for the calling vendor.
@@ -172,7 +183,7 @@ const createRecord = async (userId, payload) => {
     customerAadhaarNumber: aadhaarNumber ? maskAadhaar(aadhaarNumber) : null,
     imei: imei || null,
     deviceModel: deviceModel || null,
-    report,
+    report: hasReport(report) ? report : null,
     price,
     // Absent means "recorded as it happened"; the schema default would cover
     // this too, but being explicit keeps the write self-describing.

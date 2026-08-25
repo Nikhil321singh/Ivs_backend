@@ -19,16 +19,6 @@ const diagnoseValidator = [
     .withMessage('Device model must be at most 200 characters.'),
 ];
 
-// A report is accepted either as free text or as the structured output of a
-// diagnosis tool, so the check is "present and carries something" rather than a
-// type assertion — an empty string, [] or {} is a caller mistake, not a record.
-const isNonEmptyReport = (value) => {
-  if (typeof value === 'string') return value.trim().length > 0;
-  if (Array.isArray(value)) return value.length > 0;
-  if (value && typeof value === 'object') return Object.keys(value).length > 0;
-  return false;
-};
-
 /**
  * Fields for a stored diagnosis record. Name, phone, report and price are the
  * record — without them there is nothing worth keeping — so they are required;
@@ -80,9 +70,11 @@ const diagnoseRecordValidator = [
     .isLength({ max: 200 })
     .withMessage('Device model must be at most 200 characters.'),
 
-  body('report')
-    .custom(isNonEmptyReport)
-    .withMessage('Diagnosis report is required.'),
+  // Optional. A vendor may log the customer, device and price at intake and
+  // write up the findings later, so demanding the report up front would block
+  // the record that makes the follow-up possible. Anything empty is stored as
+  // null rather than rejected — see services/diagnose.service.js.
+  body('report').optional(),
 
   // Rupees charged to the customer. 0 is allowed — a free check is still a
   // record worth keeping.

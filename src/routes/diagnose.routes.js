@@ -76,7 +76,7 @@ router.get('/history', authenticate, diagnoseController.getHistory);
  *         application/json:
  *           schema:
  *             type: object
- *             required: [customerName, customerPhone, report, price]
+ *             required: [customerName, customerPhone, price]
  *             properties:
  *               customerName:  { type: string, example: "Aniket Agrawal" }
  *               customerPhone: { type: string, example: "9003748031" }
@@ -85,7 +85,7 @@ router.get('/history', authenticate, diagnoseController.getHistory);
  *               imei:          { type: string, example: "356938035643809", description: "Exactly 15 digits. Optional — some devices have none." }
  *               deviceModel:   { type: string, example: "iPhone 13 Pro", description: "Free text, max 200 chars." }
  *               report:
- *                 description: Free text, or the structured output of a diagnosis tool.
+ *                 description: Optional. Free text, or the structured output of a diagnosis tool. Anything empty is stored as null.
  *                 oneOf:
  *                   - { type: string }
  *                   - { type: object }
