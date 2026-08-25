@@ -12,32 +12,35 @@
       body {
         font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
         background: #ffffff;
+        color: #17171c;
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        gap: 20px;
+        gap: 18px;
         min-height: 100%;
+        padding: 24px;
+        text-align: center;
         -webkit-font-smoothing: antialiased;
       }
-      .logo {
-        width: 96px;
-        height: 96px;
-        display: block;
-        animation: pulse 1.8s ease-in-out infinite;
+      .logo { width: 84px; height: 84px; display: block; }
+      h1 { font-size: 20px; font-weight: 700; }
+      p { font-size: 14px; color: #6b7280; max-width: 320px; line-height: 1.5; }
+      .btn {
+        display: inline-block;
+        margin-top: 6px;
+        font-size: 16px;
+        font-weight: 600;
+        color: #fff;
+        background: #eb2652;
+        border: none;
+        border-radius: 12px;
+        padding: 14px 28px;
+        text-decoration: none;
+        cursor: pointer;
       }
-      @keyframes pulse {
-        0%, 100% { opacity: 1; transform: scale(1); }
-        50% { opacity: 0.65; transform: scale(0.96); }
-      }
-      .wait {
-        font-size: 14px;
-        letter-spacing: 0.02em;
-        color: #6b7280;
-      }
-      @media (prefers-reduced-motion: reduce) {
-        .logo { animation: none; }
-      }
+      .btn:active { background: #d31f48; }
+      .hint { font-size: 12px; color: #9ca3af; }
     </style>
   </head>
   <body>
@@ -46,6 +49,29 @@
       <path d="M96.7541 45.8371L96.9854 25.9528L89.0188 33.5267C62.2875 13.416 37.2327 38.9771 42.9459 60.7751C47.5164 78.2135 62.8226 81.8272 70.645 81.6684C92.9315 80.2755 97.3686 62.5222 97.3686 51.6884L75.2486 51.6884L75.2486 61.1516L86.1978 61.1516C85.663 63.5606 80.6534 71.9181 70.645 71.9181C55.3588 71.9181 46.1425 52.2496 58.1088 41.2744C68.0751 32.1336 78.3536 37.7371 81.7882 41.2741L77.0027 45.6073L96.7541 45.8371Z" fill="white" />
       <path d="M59.5017 84.4542L53.9301 90.0258C55.323 95.5975 60.9178 102.326 69.252 102.562C84.9821 103.007 87.3435 90.8332 87.3598 84.4542L98.5031 84.4542C97.1102 102.562 85.7755 112.312 69.252 112.312C56.7159 112.312 48.3285 103.834 45.5726 98.3833L40.001 103.702L40.001 84.4542L59.5017 84.4542Z" fill="white" />
     </svg>
-    <p class="wait">Redirecting...</p>
+
+    <h1>All done</h1>
+    <p>You can return to the Grest app now — it will finish up automatically.</p>
+
+    <a class="btn" id="return" href="grest://return">Return to Grest app</a>
+    <p class="hint">If nothing happens, just close this tab.</p>
+
+    <script>
+      // Bring the Grest app back to the foreground. The app registers the
+      // `grest://` scheme (singleTask), so this re-opens the running instance and
+      // its resume listener finishes any pending verification. Auto-attempt once
+      // on load; the button is the manual fallback. Wrapped so a browser without a
+      // handler (e.g. desktop) fails quietly instead of erroring.
+      (function () {
+        var deeplink = 'grest://return';
+        function go() { try { window.location.href = deeplink; } catch (e) {} }
+        // Small delay so the page paints first (some Custom Tabs drop an instant redirect).
+        setTimeout(go, 400);
+        document.getElementById('return').addEventListener('click', function (e) {
+          e.preventDefault();
+          go();
+        });
+      })();
+    </script>
   </body>
 </html>
