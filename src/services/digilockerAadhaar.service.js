@@ -118,10 +118,13 @@ const startVerification = async (userId, { subject = VERIFICATION_SUBJECT.ACCOUN
   });
 
   // The refid is carried in the redirect URL we hand the provider, rather than
-  // relying on DigiLocker to echo one back. The documentation does not specify
-  // what the callback receives, and this makes that irrelevant: whatever else
-  // arrives, our own refid is always present and the session is always found.
-  const callbackUrl = new URL(env.digilocker.redirectUrl);
+  // relying on DigiLocker to echo one back. It goes in the PATH, not the query:
+  // Paysprint echoes its own `?refid=` onto the redirect it sends the browser,
+  // so a query-string refid arrives DUPLICATED (Express parses `?refid=x&refid=x`
+  // as an array, which never matches the string field) — and some providers drop
+  // the query entirely. A path segment survives both. The query copy is kept only
+  // as a backup for anything that preserves it; the callback prefers the path.
+  const callbackUrl = new URL(`${env.digilocker.redirectUrl}/${refid}`);
   callbackUrl.searchParams.set('refid', refid);
 
   // Test mode short-circuits the provider entirely and hands back our own

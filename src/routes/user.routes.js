@@ -332,6 +332,9 @@ router.post('/aadhaar/digilocker/start', authenticate, userController.startDigil
  *       404: { description: No such session }
  */
 router.get('/aadhaar/digilocker/callback', userController.digilockerAadhaarCallback);
+// refid in the path: the provider strips/duplicates the query on the redirect
+// back, so this is the reliable form (see startVerification). Same handler.
+router.get('/aadhaar/digilocker/callback/:refid', userController.digilockerAadhaarCallback);
 
 /**
  * @openapi
