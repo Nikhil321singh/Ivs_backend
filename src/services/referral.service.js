@@ -98,10 +98,24 @@ const maybeRewardReferral = async (refereeUserId) => {
 };
 
 const getReferralSummary = async (user) => {
-  const [totalReferred, totalRewarded] = await Promise.all([
+  const [totalReferred, totalRewarded, docs] = await Promise.all([
     Referral.countDocuments({ referrerId: user._id }),
     Referral.countDocuments({ referrerId: user._id, status: REFERRAL_STATUS.REWARDED }),
+    // The referred people, newest first. Only the KYC identity type (vendor /
+    // individual) and the time are exposed — no personal details of the referee.
+    Referral.find({ referrerId: user._id })
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .populate('refereeId', 'userType')
+      .lean(),
   ]);
+
+  const referrals = docs.map((r) => ({
+    userType: r.refereeId?.userType || null, // 'vendor' | 'individual' | null (pre-KYC)
+    status: r.status,
+    rewarded: r.status === REFERRAL_STATUS.REWARDED,
+    referredAt: r.createdAt,
+  }));
 
   return {
     referralCode: user.referralCode || null,
@@ -109,6 +123,7 @@ const getReferralSummary = async (user) => {
     totalRewarded,
     rewardPerReferral: PRICING.REFERRAL.REFERRER_BONUS,
     welcomeBonus: PRICING.REFERRAL.REFEREE_WELCOME,
+    referrals,
   };
 };
 
