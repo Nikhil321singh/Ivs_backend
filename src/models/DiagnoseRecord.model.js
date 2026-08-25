@@ -46,6 +46,24 @@ const diagnoseRecordSchema = new Schema(
       trim: true,
       default: null,
     },
+    // The device the diagnosis was run on. Optional: a vendor may record a
+    // job before the handset is in front of them, and some devices (tablets,
+    // wearables) have no IMEI at all. Stored as the plain 15-digit string —
+    // unlike Aadhaar it is a device identifier, not a person's, so the masking
+    // rule above does not apply.
+    imei: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+    // Free-text model name as the vendor wrote it ("iPhone 13 Pro", "Redmi
+    // Note 12"). Not validated against any device catalogue — there isn't one
+    // here, and a wrong-but-readable label beats a rejected record.
+    deviceModel: {
+      type: String,
+      trim: true,
+      default: null,
+    },
     // The diagnosis itself. Mixed so a caller can store either a plain text
     // summary or the structured result a diagnosis tool produced, without this
     // schema having to track that tool's shape.
@@ -73,6 +91,11 @@ const diagnoseRecordSchema = new Schema(
 
 // Serves both the history listing and its count, which always filter by userId.
 diagnoseRecordSchema.index({ userId: 1, diagnosedAt: -1 });
+
+// Looking a customer's device up by IMEI is the other way a vendor reaches a
+// record ("this handset was here before"), so it gets its own compound index
+// rather than riding the diagnosedAt one, which cannot serve an imei equality.
+diagnoseRecordSchema.index({ userId: 1, imei: 1 });
 
 diagnoseRecordSchema.set('toJSON', {
   transform: (_doc, ret) => {

@@ -65,6 +65,21 @@ const diagnoseRecordValidator = [
     .matches(AADHAAR_REGEX)
     .withMessage('Please provide a valid 12-digit Aadhaar number.'),
 
+  // Optional for the reasons given on the model: no handset in hand yet, or a
+  // device that has no IMEI. Format-checked when supplied so a mistyped one is
+  // caught at the edge rather than stored and puzzled over later.
+  body('imei')
+    .optional({ checkFalsy: true })
+    .trim()
+    .matches(IMEI_REGEX)
+    .withMessage('IMEI must be exactly 15 numeric digits.'),
+
+  body('deviceModel')
+    .optional({ checkFalsy: true })
+    .trim()
+    .isLength({ max: 200 })
+    .withMessage('Device model must be at most 200 characters.'),
+
   body('report')
     .custom(isNonEmptyReport)
     .withMessage('Diagnosis report is required.'),

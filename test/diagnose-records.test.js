@@ -8,6 +8,8 @@ const validPayload = (overrides = {}) => ({
   customerPhone: '9003748031',
   customerEmail: 'aniketagr501@gmail.com',
   aadhaarNumber: '234567890123',
+  imei: '356938035643809',
+  deviceModel: 'iPhone 13 Pro',
   report: { battery: 'degraded', screen: 'ok', verdict: 'Battery replacement advised' },
   price: 499,
   ...overrides,
@@ -107,6 +109,46 @@ describe('diagnosis records', () => {
     expect(await DiagnoseRecord.countDocuments()).toBe(0);
   });
 
+  it('stores the device IMEI and model, and returns them', async () => {
+    const { token } = await createUser();
+
+    const res = await asUser(token).post(RECORDS).send(validPayload());
+
+    expect(res.status).toBe(201);
+    expect(res.body.data.imei).toBe('356938035643809');
+    expect(res.body.data.deviceModel).toBe('iPhone 13 Pro');
+  });
+
+  it('records a device with no IMEI, since not every device has one', async () => {
+    const { token } = await createUser();
+
+    const res = await asUser(token)
+      .post(RECORDS)
+      .send(validPayload({ imei: undefined, deviceModel: undefined }));
+
+    expect(res.status).toBe(201);
+    expect(res.body.data.imei).toBeNull();
+    expect(res.body.data.deviceModel).toBeNull();
+  });
+
+  it('rejects an IMEI that is not exactly 15 digits', async () => {
+    const { token } = await createUser();
+
+    for (const imei of ['12345', '35693803564380X', '3569380356438091']) {
+      const res = await asUser(token).post(RECORDS).send(validPayload({ imei }));
+      expect(res.status).toBe(422);
+    }
+  });
+
+  it('stores the IMEI in full — it identifies a device, not a person', async () => {
+    const { user, token } = await createUser();
+
+    await asUser(token).post(RECORDS).send(validPayload());
+
+    const stored = await DiagnoseRecord.findOne({ userId: user._id }).lean();
+    expect(stored.imei).toBe('356938035643809');
+  });
+
   it('requires auth', async () => {
     expect((await request(app).post(RECORDS).send(validPayload())).status).toBe(401);
     expect((await request(app).get(RECORDS)).status).toBe(401);
@@ -145,6 +187,23 @@ describe('diagnosis record listing', () => {
     const byPrice = await asUser(token).get(`${RECORDS}?search=999`);
     expect(byPrice.body.data.items).toHaveLength(1);
     expect(byPrice.body.data.items[0].customerName).toBe('Sita Devi');
+  });
+
+  it('searches by IMEI and by device model', async () => {
+    const { token } = await createUser();
+
+    await asUser(token).post(RECORDS).send(validPayload());
+    await asUser(token).post(RECORDS).send(
+      validPayload({ customerName: 'Other Person', imei: '490154203237518', deviceModel: 'Redmi Note 12' })
+    );
+
+    const byImei = await asUser(token).get(`${RECORDS}?search=490154203237518`);
+    expect(byImei.body.data.items).toHaveLength(1);
+    expect(byImei.body.data.items[0].customerName).toBe('Other Person');
+
+    const byModel = await asUser(token).get(`${RECORDS}?search=Redmi`);
+    expect(byModel.body.data.items).toHaveLength(1);
+    expect(byModel.body.data.items[0].deviceModel).toBe('Redmi Note 12');
   });
 
   it("never returns another vendor's records", async () => {

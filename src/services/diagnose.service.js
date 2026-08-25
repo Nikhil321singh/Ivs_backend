@@ -116,7 +116,13 @@ const buildRecordSearchFilter = (search) => {
   if (!q) return null;
 
   const rx = new RegExp(escapeRegex(q), 'i');
-  const or = [{ customerName: rx }, { customerPhone: rx }, { customerEmail: rx }];
+  const or = [
+    { customerName: rx },
+    { customerPhone: rx },
+    { customerEmail: rx },
+    { imei: rx },
+    { deviceModel: rx },
+  ];
 
   if (/^\d+(\.\d+)?$/.test(q)) or.push({ price: Number(q) }); // search by amount
 
@@ -130,6 +136,8 @@ const serializeRecord = (r) => ({
   customerEmail: r.customerEmail || null,
   // Masked at write time — the full number was never stored.
   aadhaarNumber: r.customerAadhaarNumber || null,
+  imei: r.imei || null,
+  deviceModel: r.deviceModel || null,
   report: r.report,
   price: r.price,
   diagnosedAt: r.diagnosedAt,
@@ -149,6 +157,8 @@ const createRecord = async (userId, payload) => {
     customerPhone,
     customerEmail,
     aadhaarNumber,
+    imei,
+    deviceModel,
     report,
     price,
     diagnosedAt,
@@ -160,6 +170,8 @@ const createRecord = async (userId, payload) => {
     customerPhone,
     customerEmail: customerEmail || null,
     customerAadhaarNumber: aadhaarNumber ? maskAadhaar(aadhaarNumber) : null,
+    imei: imei || null,
+    deviceModel: deviceModel || null,
     report,
     price,
     // Absent means "recorded as it happened"; the schema default would cover

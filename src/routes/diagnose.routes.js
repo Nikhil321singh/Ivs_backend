@@ -82,6 +82,8 @@ router.get('/history', authenticate, diagnoseController.getHistory);
  *               customerPhone: { type: string, example: "9003748031" }
  *               customerEmail: { type: string, example: "aniketagr501@gmail.com" }
  *               aadhaarNumber: { type: string, example: "234567890123", description: "Stored masked, never in full." }
+ *               imei:          { type: string, example: "356938035643809", description: "Exactly 15 digits. Optional — some devices have none." }
+ *               deviceModel:   { type: string, example: "iPhone 13 Pro", description: "Free text, max 200 chars." }
  *               report:
  *                 description: Free text, or the structured output of a diagnosis tool.
  *                 oneOf:
@@ -113,7 +115,7 @@ router.post(
  *       - { in: query, name: limit, schema: { type: integer, default: 20, maximum: 50 } }
  *       - in: query
  *         name: search
- *         description: Case-insensitive filter across customer name, phone and email (and the price for a numeric query).
+ *         description: Case-insensitive filter across customer name, phone, email, IMEI and device model (and the price for a numeric query).
  *         schema: { type: string, example: "Aniket" }
  *     responses:
  *       200: { description: Diagnosis records returned }
