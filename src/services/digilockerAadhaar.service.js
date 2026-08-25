@@ -11,6 +11,7 @@ const httpStatus = require('../constants/httpStatus');
 const MESSAGES = require('../constants/messages');
 const {
   VERIFICATION_STATUS,
+  VERIFICATION_SUBJECT,
   TERMINAL_STATUSES,
   FAILURE_CODE,
   PROVIDER_OPERATION,
@@ -84,19 +85,26 @@ const fail = async (session, failureCode, failureReason) => {
  * live sessions open would leave two usable callback capabilities outstanding
  * for one account.
  */
-const startVerification = async (userId) => {
+const startVerification = async (userId, { subject = VERIFICATION_SUBJECT.ACCOUNT } = {}) => {
   const user = await User.findById(userId);
 
   if (!user) {
     throw new ApiError(httpStatus.NOT_FOUND, MESSAGES.AUTH.USER_NOT_FOUND);
   }
 
-  if (user.aadhaarVerified) {
+  // Only an ACCOUNT session is one-per-lifetime. A partner verifies a different
+  // customer on every sale, so their own KYC state says nothing about whether
+  // they may open a CUSTOMER session — gating on it would lock the IMEI flow
+  // for exactly the partners who completed their KYC.
+  if (subject === VERIFICATION_SUBJECT.ACCOUNT && user.aadhaarVerified) {
     throw new ApiError(httpStatus.CONFLICT, MESSAGES.USER.AADHAAR_ALREADY_VERIFIED);
   }
 
+  // Superseding in-flight sessions is scoped to the same subject: starting a
+  // customer verification must not cancel the partner's own half-finished KYC,
+  // or vice versa.
   await AadhaarVerification.updateMany(
-    { userId, status: { $nin: TERMINAL_STATUSES } },
+    { userId, subject, status: { $nin: TERMINAL_STATUSES } },
     { status: VERIFICATION_STATUS.EXPIRED, failureCode: FAILURE_CODE.DIGILOCKER_SESSION_EXPIRED }
   );
 
@@ -104,11 +112,36 @@ const startVerification = async (userId) => {
   const session = await AadhaarVerification.create({
     userId,
     refid,
+    subject,
     status: VERIFICATION_STATUS.INITIATED,
     expiresAt: new Date(Date.now() + env.digilocker.sessionTtlMinutes * 60 * 1000),
   });
 
-  const result = await provider.initiateSession(refid, env.digilocker.redirectUrl);
+  // The refid is carried in the redirect URL we hand the provider, rather than
+  // relying on DigiLocker to echo one back. It goes in the PATH, not the query:
+  // Paysprint echoes its own `?refid=` onto the redirect it sends the browser,
+  // so a query-string refid arrives DUPLICATED (Express parses `?refid=x&refid=x`
+  // as an array, which never matches the string field) — and some providers drop
+  // the query entirely. A path segment survives both. The query copy is kept only
+  // as a backup for anything that preserves it; the callback prefers the path.
+  const callbackUrl = new URL(`${env.digilocker.redirectUrl}/${refid}`);
+  callbackUrl.searchParams.set('refid', refid);
+
+  // Test mode short-circuits the provider entirely and hands back our own
+  // callback as the "authorization url". Opening it is exactly what DigiLocker
+  // would cause the browser to do after a real consent screen, so the client
+  // flow — open url, come back, poll status — is unchanged.
+  if (env.digilockerTest.enabled) {
+    session.status = VERIFICATION_STATUS.AUTHENTICATING;
+    await session.save();
+
+    return {
+      verificationId: session._id.toString(),
+      authorizationUrl: callbackUrl.toString(),
+    };
+  }
+
+  const result = await provider.initiateSession(refid, callbackUrl.toString());
   await logProviderCall(PROVIDER_OPERATION.INITIATE_SESSION, refid, userId, result);
 
   if (!result.ok) {
@@ -159,71 +192,114 @@ const completeVerification = async (refid) => {
   session.status = VERIFICATION_STATUS.AUTHENTICATED;
   await session.save();
 
-  // 1. Access token — proves the DigiLocker authentication completed.
-  const token = await provider.accessToken(refid);
-  await logProviderCall(PROVIDER_OPERATION.ACCESS_TOKEN, refid, userId, token);
-  if (!token.ok) {
-    return fail(session, FAILURE_CODE.DIGILOCKER_TOKEN_FAILED, token.message);
-  }
-
-  // 2. Issued files.
-  session.status = VERIFICATION_STATUS.FETCHING_DOCUMENT;
-  await session.save();
-
-  const listing = await provider.issuedFiles(refid);
-  await logProviderCall(PROVIDER_OPERATION.ISSUED_FILES, refid, userId, listing);
-  if (!listing.ok) {
-    return fail(session, FAILURE_CODE.DIGILOCKER_PROVIDER_ERROR, listing.message);
-  }
-
-  // 3. Find Aadhaar by doctype, never by display name — the name is
-  //    presentational and can be localised or reworded by the issuer.
-  const aadhaarFile = listing.files.find(
-    (file) => String(file.doctype).toUpperCase() === AADHAAR_DOCTYPE
-  );
-
-  if (!aadhaarFile || !aadhaarFile.uri) {
-    // Not an error condition: the account simply holds no Aadhaar. Stop here
-    // without calling download, which would be a billable call for nothing.
-    return fail(session, FAILURE_CODE.AADHAAR_NOT_FOUND, null);
-  }
-
-  // 4. Download only that document.
-  const download = await provider.downloadXml(refid, aadhaarFile.uri);
-  await logProviderCall(PROVIDER_OPERATION.DOWNLOAD_XML, refid, userId, download);
-  if (!download.ok) {
-    return fail(session, FAILURE_CODE.AADHAAR_DOWNLOAD_FAILED, download.message);
-  }
-
-  // 5. Decode and parse. The raw XML never leaves this scope and is never
-  //    logged or persisted.
-  session.status = VERIFICATION_STATUS.VERIFYING;
-  await session.save();
-
+  // Parsed Aadhaar identity. Test mode fills it from config and skips every
+  // provider call and the XML entirely. Everything after this point — the
+  // CUSTOMER vs ACCOUNT write rules included — is shared, so what test mode
+  // exercises is the real completion path, not a parallel implementation.
   let details;
-  try {
-    details = parse(download.base64Xml);
-  } catch (err) {
-    if (err instanceof AadhaarXmlError) {
-      console.error('[DigiLocker] Aadhaar XML rejected', { refid, reason: err.reason });
-      return fail(session, FAILURE_CODE.AADHAAR_XML_INVALID, err.reason);
+
+  if (env.digilockerTest.enabled) {
+    session.status = VERIFICATION_STATUS.VERIFYING;
+    await session.save();
+
+    details = {
+      name: env.digilockerTest.name,
+      dateOfBirth: env.digilockerTest.dateOfBirth,
+      gender: env.digilockerTest.gender,
+      maskedAadhaar: env.digilockerTest.maskedAadhaar,
+    };
+  } else {
+    // 1. Access token — proves the DigiLocker authentication completed.
+    const token = await provider.accessToken(refid);
+    await logProviderCall(PROVIDER_OPERATION.ACCESS_TOKEN, refid, userId, token);
+    if (!token.ok) {
+      return fail(session, FAILURE_CODE.DIGILOCKER_TOKEN_FAILED, token.message);
     }
-    throw err;
+
+    // 2. Issued files.
+    session.status = VERIFICATION_STATUS.FETCHING_DOCUMENT;
+    await session.save();
+
+    const listing = await provider.issuedFiles(refid);
+    await logProviderCall(PROVIDER_OPERATION.ISSUED_FILES, refid, userId, listing);
+    if (!listing.ok) {
+      return fail(session, FAILURE_CODE.DIGILOCKER_PROVIDER_ERROR, listing.message);
+    }
+
+    // 3. Find Aadhaar by doctype, never by display name — the name is
+    //    presentational and can be localised or reworded by the issuer.
+    const aadhaarFile = listing.files.find(
+      (file) => String(file.doctype).toUpperCase() === AADHAAR_DOCTYPE
+    );
+
+    if (!aadhaarFile || !aadhaarFile.uri) {
+      // Not an error condition: the account simply holds no Aadhaar. Stop here
+      // without calling download, which would be a billable call for nothing.
+      return fail(session, FAILURE_CODE.AADHAAR_NOT_FOUND, null);
+    }
+
+    // 4. Download only that document.
+    const download = await provider.downloadXml(refid, aadhaarFile.uri);
+    await logProviderCall(PROVIDER_OPERATION.DOWNLOAD_XML, refid, userId, download);
+    if (!download.ok) {
+      return fail(session, FAILURE_CODE.AADHAAR_DOWNLOAD_FAILED, download.message);
+    }
+
+    // 5. Decode and parse. The raw XML never leaves this scope and is never
+    //    logged or persisted.
+    session.status = VERIFICATION_STATUS.VERIFYING;
+    await session.save();
+
+    try {
+      details = parse(download.base64Xml);
+    } catch (err) {
+      if (err instanceof AadhaarXmlError) {
+        console.error('[DigiLocker] Aadhaar XML rejected', { refid, reason: err.reason });
+        return fail(session, FAILURE_CODE.AADHAAR_XML_INVALID, err.reason);
+      }
+      throw err;
+    }
   }
+
 
   // 6. Bind the Aadhaar to the account, writing exactly the fields the OTP
   //    flow writes so every existing consumer of aadhaarVerified is unaffected.
   //    The hash is what enforces one-Aadhaar-per-account; it is derived from
   //    the masked value here because the full number is never available to us
   //    through DigiLocker.
-  const user = await User.findById(userId);
-  if (user) {
-    user.aadhaarVerified = true;
-    user.aadhaarNumber = details.maskedAadhaar;
-    if (details.maskedAadhaar) {
-      user.aadhaarNumberHash = hashAadhaar(details.maskedAadhaar, userId);
+  //
+  //    CUSTOMER sessions stop short of this. `userId` there is the partner
+  //    operating the sale, not the person who authenticated, so writing it
+  //    would mark the partner KYC-verified off a seller's Aadhaar and bind
+  //    their one-Aadhaar-per-account hash to a stranger. The result still lands
+  //    on the session below, which is what the IMEI flow reads.
+  if (session.subject === VERIFICATION_SUBJECT.ACCOUNT) {
+    const user = await User.findById(userId);
+    if (user) {
+      user.aadhaarVerified = true;
+      user.aadhaarNumber = details.maskedAadhaar;
+      if (details.maskedAadhaar) {
+        user.aadhaarNumberHash = hashAadhaar(details.maskedAadhaar, userId);
+      }
+      try {
+        await user.save();
+      } catch (err) {
+        // The sparse-unique aadhaarNumberHash enforces one-Aadhaar-per-account.
+        // A duplicate key here means this Aadhaar is already linked to a
+        // different account — a verification failure, not a 500. Fail the
+        // session gracefully so the callback still redirects the browser back
+        // to the app (with a FAILED status) instead of the error middleware
+        // rendering a raw JSON 409 into the user's browser/WebView.
+        if (err.code === 11000) {
+          return fail(
+            session,
+            FAILURE_CODE.AADHAAR_ALREADY_LINKED,
+            'This Aadhaar is already linked to another account.'
+          );
+        }
+        throw err;
+      }
     }
-    await user.save();
   }
 
   session.status = VERIFICATION_STATUS.VERIFIED;
@@ -242,8 +318,15 @@ const completeVerification = async (refid) => {
  * guessed verification id reveals nothing — an id belonging to someone else is
  * indistinguishable from one that does not exist.
  */
-const getVerification = async (userId, verificationId) => {
-  const session = await AadhaarVerification.findOne({ _id: verificationId, userId });
+const getVerification = async (
+  userId,
+  verificationId,
+  { subject = VERIFICATION_SUBJECT.ACCOUNT } = {}
+) => {
+  // Scoped by subject as well as owner, so the account endpoint cannot be used
+  // to read a customer session (or the reverse). The two report different
+  // things to the client and must not be interchangeable.
+  const session = await AadhaarVerification.findOne({ _id: verificationId, userId, subject });
 
   if (!session) {
     throw new ApiError(httpStatus.NOT_FOUND, MESSAGES.USER.DIGILOCKER_SESSION_NOT_FOUND);

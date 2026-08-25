@@ -5,6 +5,8 @@ const ivsRoutes = require('./ivs.routes');
 const walletRoutes = require('./wallet.routes');
 const referralRoutes = require('./referral.routes');
 const diagnoseRoutes = require('./diagnose.routes');
+const notificationRoutes = require('./notification.routes');
+const appRoutes = require('./app.routes');
 // Self-contained admin module — see src/admin/README.md.
 const adminModule = require('../admin');
 const PRICING = require('../constants/pricing');
@@ -85,6 +87,10 @@ router.use('/ivs', ivsRoutes);
 router.use('/wallet', walletRoutes);
 router.use('/referral', referralRoutes);
 router.use('/diagnose', diagnoseRoutes);
+router.use('/notifications', notificationRoutes);
+// Client-facing app metadata (the launch-time update check). Unauthenticated —
+// see routes/app.routes.js.
+router.use('/app', appRoutes);
 router.use('/admin', adminModule.router);
 
 module.exports = router;

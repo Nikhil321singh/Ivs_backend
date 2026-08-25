@@ -11,6 +11,35 @@ const REQUIRED_ENV_VARS = [
   'MSG91_FLOW_ID',
 ];
 
+/**
+ * Firebase service-account credentials, supplied either as three separate
+ * variables or as the whole downloaded JSON in one.
+ *
+ * The JSON form exists because the private key is a multi-line PEM, and most
+ * hosting dashboards (Render, PM2 ecosystem files) mangle multi-line values on
+ * paste. Base64 of that JSON is accepted for the same reason. Never throws: bad
+ * credentials must leave FCM merely unconfigured — notifications still persist
+ * to the in-app inbox — rather than stop the server from booting.
+ */
+const parseFcmServiceAccount = () => {
+  const raw = (process.env.FCM_SERVICE_ACCOUNT_JSON || '').trim();
+  if (!raw) return {};
+
+  try {
+    const json = raw.startsWith('{') ? raw : Buffer.from(raw, 'base64').toString('utf8');
+    return JSON.parse(json);
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error(
+      '[FCM] FCM_SERVICE_ACCOUNT_JSON is neither JSON nor base64-encoded JSON — ignoring it. ' +
+        'Push notifications stay disabled until it is fixed.'
+    );
+    return {};
+  }
+};
+
+const fcmServiceAccount = parseFcmServiceAccount();
+
 const missingVars = REQUIRED_ENV_VARS.filter((key) => !process.env[key]);
 
 if (missingVars.length > 0) {
@@ -19,10 +48,14 @@ if (missingVars.length > 0) {
   process.exit(1);
 }
 
+// Public origin of this API, trailing slash stripped so it can be concatenated
+// safely (the Razorpay checkout callback URL is built from it).
+const apiBaseUrl = (process.env.API_BASE_URL || 'http://localhost:5000').replace(/\/+$/, '');
+
 const env = {
   nodeEnv: process.env.NODE_ENV || 'development',
   port: parseInt(process.env.PORT, 10) || 5000,
-  apiBaseUrl: process.env.API_BASE_URL || 'http://localhost:5000',
+  apiBaseUrl,
 
   mongodbUri: process.env.MONGODB_URI,
 
@@ -107,11 +140,30 @@ const env = {
   },
   paysprint: {
     partnerId: process.env.PAYSPRINT_PARTNER_ID,
-    authorisedKey: process.env.PAYSPRINT_AUTHORISED_KEY,
+    // Signs the JWT. Structurally this is b64(CORP_ID + b64(secret)) — the
+    // value the DigiLocker documentation calls "JWT KEY".
+    jwtKey: process.env.PAYSPRINT_AUTHORISED_KEY,
+    // The `Authorisedkey` request header, which the provider issues as a
+    // SEPARATE value — structurally b64(secret + CORP_ID).
+    //
+    // NO FALLBACK, deliberately. This used to fall back to the JWT key so that
+    // "nothing breaks" before the real value was provisioned; in fact it broke
+    // everything. The DigiLocker doc marks this header "UAT Only", and
+    // production rejects a WRONG value while accepting an ABSENT one — with the
+    // thoroughly misleading message "Invalid user.<caller ip>", which reads like
+    // an IP-whitelisting failure and sent us chasing the wrong problem for a
+    // while. Omitting the header beats guessing at it: leave this unset unless
+    // Paysprint has issued the real value.
+    authorisedKey: process.env.PAYSPRINT_AUTHORISEDKEY,
     // SprintVerify's own base URL, used by the DigiLocker flow, which calls the
     // provider directly rather than through the GREST wrapper above.
     //   UAT  https://uat.paysprint.in/sprintverify-uat/api/v1/verification
     //   PROD https://api.verifya2z.com/api/v1/verification
+    // The UAT host serves the OTP e-KYC product only. DigiLocker has NO UAT
+    // endpoint — it is live on PROD alone, so every DigiLocker call is made
+    // against production and a successful one is billed. There is also no
+    // AADHAAR_TEST_MODE bypass for it: that switch keys off the Aadhaar number
+    // (see aadhaarProvider.js), which the DigiLocker flow never collects.
     // No default: an unset value must fail loudly at call time rather than
     // silently pointing a production deployment at UAT (or the reverse).
     baseUrl: process.env.PAYSPRINT_BASE_URL,
@@ -131,6 +183,25 @@ const env = {
     appReturnUrl: process.env.DIGILOCKER_APP_RETURN_URL || process.env.CLIENT_URL,
     // A session is useless once the user has wandered off; TTL-purged after this.
     sessionTtlMinutes: parseInt(process.env.DIGILOCKER_SESSION_TTL_MINUTES || '15', 10),
+  },
+
+  // DigiLocker test mode: runs the whole session state machine without calling
+  // SprintVerify at all, returning a fixed identity. Exists because DigiLocker
+  // has no UAT endpoint AND the provider gates on source IP, so a client cannot
+  // exercise this flow until production credentials and a whitelisted server IP
+  // are both in place — see scripts/check-digilocker.js.
+  //
+  // This is a KYC bypass: with it on, anyone who can call /start can mark an
+  // account Aadhaar-verified without proving anything. Deliberately env-driven
+  // like OTP_TEST_MODE and AADHAAR_TEST_MODE so enabling it needs server
+  // access, not an admin session. OFF unless DIGILOCKER_TEST_MODE is exactly
+  // "true", and server.js warns loudly at boot while it is on.
+  digilockerTest: {
+    enabled: process.env.DIGILOCKER_TEST_MODE === 'true',
+    name: process.env.DIGILOCKER_TEST_NAME || 'Test User',
+    dateOfBirth: process.env.DIGILOCKER_TEST_DOB || '01-01-1990',
+    gender: process.env.DIGILOCKER_TEST_GENDER || 'M',
+    maskedAadhaar: process.env.DIGILOCKER_TEST_MASKED_AADHAAR || 'XXXX-XXXX-1234',
   },
 
   // Aadhaar test mode: lets a fixed list of sandbox Aadhaar numbers verify with
@@ -162,6 +233,18 @@ const env = {
     keySecret: process.env.RAZORPAY_KEY_SECRET,
     webhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET,
     apiBaseUrl: (process.env.RAZORPAY_API_BASE_URL || 'https://api.razorpay.com/v1').replace(/\/+$/, ''),
+    // Where Razorpay Checkout POSTs the result when it runs in redirect mode
+    // (required for the Capacitor WebView flow — see payment.service.js).
+    // Must be publicly reachable, so it is derived from API_BASE_URL unless
+    // overridden explicitly.
+    callbackUrl: (
+      process.env.RAZORPAY_CALLBACK_URL || `${apiBaseUrl}/api/v1/wallet/topup/callback`
+    ).replace(/\/+$/, ''),
+    // Where the WebView is sent after we have processed that callback. Set it
+    // to a deep link the app intercepts (e.g. ivsapp://payment/result); when
+    // unset we fall back to a plain result page served by this API, which the
+    // app can just as well detect by URL.
+    webviewReturnUrl: (process.env.RAZORPAY_WEBVIEW_RETURN_URL || '').replace(/\/+$/, ''),
   },
 
   // Third-party device-diagnosis provider. Lazy-validated in
@@ -169,6 +252,46 @@ const env = {
   diagnose: {
     baseUrl: (process.env.DIAGNOSE_BASE_URL || '').replace(/\/+$/, ''),
     apiKey: process.env.DIAGNOSE_API_KEY,
+  },
+
+  // Firebase Cloud Messaging (HTTP v1). Credentials come from the Firebase
+  // console -> Project settings -> Service accounts -> "Generate new private
+  // key". Lazy-validated in services/providers/fcmProvider.js like the other
+  // providers, so the server boots fine before they are provisioned — pushes
+  // are simply skipped while the in-app inbox keeps working.
+  //
+  // We speak the REST API directly (axios + a signed JWT, exactly like the
+  // Paysprint integration) rather than pulling in firebase-admin, which drags
+  // in gRPC and a large dependency tree for two HTTP calls.
+  fcm: {
+    projectId: process.env.FCM_PROJECT_ID || fcmServiceAccount.project_id,
+    clientEmail: process.env.FCM_CLIENT_EMAIL || fcmServiceAccount.client_email,
+    // A PEM has real newlines; .env files cannot, so "\n" escapes are the
+    // conventional encoding and are unescaped back here.
+    privateKey: (process.env.FCM_PRIVATE_KEY || fcmServiceAccount.private_key || '').replace(
+      /\\n/g,
+      '\n'
+    ),
+    // Android 8+ ignores a notification whose channel does not exist on the
+    // device, so this must match the channel the app creates at startup.
+    androidChannelId: process.env.FCM_ANDROID_CHANNEL_ID || 'ivs_default',
+    // Ask FCM to validate the request without delivering anything. Useful for
+    // rehearsing a broadcast against production credentials.
+    dryRun: process.env.FCM_DRY_RUN === 'true',
+    // How many token sends are in flight at once. HTTP v1 has no multicast
+    // endpoint — every device is its own request — so this bounds the fan-out
+    // of a broadcast instead of opening one socket per user.
+    concurrency: parseInt(process.env.FCM_CONCURRENCY, 10) || 20,
+  },
+
+  // App version gate for the mobile clients. Values here are only the fallback
+  // used before an operator saves a release in the admin console; the stored
+  // AppVersion row wins once it exists.
+  appUpdate: {
+    androidStoreUrl:
+      process.env.APP_ANDROID_STORE_URL ||
+      'https://play.google.com/store/apps/details?id=in.grest.ivs',
+    iosStoreUrl: process.env.APP_IOS_STORE_URL || 'https://apps.apple.com/app/id0000000000',
   },
 
   defaultCountryCode: process.env.DEFAULT_COUNTRY_CODE || '+91',

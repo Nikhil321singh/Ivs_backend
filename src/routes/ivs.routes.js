@@ -133,4 +133,80 @@ router.post(
   ivsController.verifyCustomerAadhaarOtp
 );
 
+/**
+ * @openapi
+ * /ivs/aadhaar/digilocker/start:
+ *   post:
+ *     tags: [IVS]
+ *     summary: Start a DigiLocker Aadhaar verification for the customer (device seller)
+ *     description: >
+ *       Customer-facing counterpart to /user/aadhaar/digilocker/start. The seller
+ *       authenticates in their own DigiLocker, so this API never receives an
+ *       Aadhaar number. The result is recorded against the session only — it does
+ *       NOT mark the calling partner's account as Aadhaar-verified, unlike the
+ *       /user endpoint. Hand `authorizationUrl` to the seller and poll the status
+ *       endpoint with `verificationId`.
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200:
+ *         description: Session created
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     verificationId: { type: string }
+ *                     authorizationUrl: { type: string }
+ *       401: { description: Unauthenticated }
+ *       502: { description: DigiLocker session could not be created }
+ */
+router.post(
+  '/aadhaar/digilocker/start',
+  authenticate,
+  ivsController.startCustomerAadhaarDigilocker
+);
+
+/**
+ * @openapi
+ * /ivs/aadhaar/digilocker/{verificationId}:
+ *   get:
+ *     tags: [IVS]
+ *     summary: Outcome of one customer DigiLocker verification
+ *     description: >
+ *       Scoped to the calling partner and to customer sessions, so a guessed id
+ *       reveals nothing and an account-KYC session cannot be read through here.
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: verificationId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Status returned
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     status: { type: string, example: VERIFIED }
+ *                     verified: { type: boolean }
+ *                     name: { type: string, nullable: true }
+ *                     maskedAadhaar: { type: string, nullable: true, example: "XXXX-XXXX-1234" }
+ *                     failureCode: { type: string, nullable: true }
+ *       401: { description: Unauthenticated }
+ *       404: { description: No such customer verification for this partner }
+ */
+router.get(
+  '/aadhaar/digilocker/:verificationId',
+  authenticate,
+  ivsController.getCustomerAadhaarDigilocker
+);
+
 module.exports = router;

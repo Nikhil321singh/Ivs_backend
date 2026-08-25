@@ -46,7 +46,7 @@ const BILLABLE_STATUSES = [200, 422];
 const isBillable = (status) => BILLABLE_STATUSES.includes(status);
 
 const isConfigured = () =>
-  !!env.paysprint.partnerId && !!env.paysprint.authorisedKey && !!env.paysprint.baseUrl;
+  !!env.paysprint.partnerId && !!env.paysprint.jwtKey && !!env.paysprint.baseUrl;
 
 const assertConfigured = () => {
   if (!isConfigured()) {
@@ -54,7 +54,7 @@ const assertConfigured = () => {
     // learn which provider secret is missing.
     console.error('[DigiLocker] Not configured', {
       hasPartnerId: !!env.paysprint.partnerId,
-      hasAuthorisedKey: !!env.paysprint.authorisedKey,
+      hasJwtKey: !!env.paysprint.jwtKey,
       hasBaseUrl: !!env.paysprint.baseUrl,
     });
     throw new ApiError(
@@ -66,7 +66,6 @@ const assertConfigured = () => {
 
 const client = axios.create({
   timeout: 60000,
-  headers: { 'Content-Type': 'application/json' },
   // Handle 4xx ourselves so a 422 can be classified (and billed) rather than
   // thrown as a generic axios error.
   validateStatus: (status) => status < 500,
@@ -86,14 +85,29 @@ const call = async (operation, body) => {
   const startedAt = Date.now();
   const url = `${env.paysprint.baseUrl}${PATHS[operation]}`;
 
+  // The documentation requires multipart/form-data, not JSON. Building a
+  // FormData lets axios set the multipart boundary itself; setting the header
+  // by hand without a boundary produces a body the provider cannot parse.
+  const form = new FormData();
+  Object.entries(body).forEach(([key, value]) => {
+    if (value !== undefined && value !== null) form.append(key, String(value));
+  });
+
   try {
-    const response = await client.post(url, body, {
+    const response = await client.post(url, form, {
       headers: {
-        // Fresh per request — never cached, never reused.
+        // Fresh per request — never cached, never reused. Five-minute validity.
         Token: generatePaysprintToken(),
-        Authorisedkey: env.paysprint.authorisedKey,
-        // The provider rejects requests without a User-Agent.
-        'User-Agent': 'ivs-backend',
+        // Sent ONLY when explicitly configured. The doc marks it "UAT Only",
+        // and production verifiably rejects a wrong value but accepts the
+        // header being absent — so an unset PAYSPRINT_AUTHORISEDKEY must mean
+        // "omit", never "substitute something else". See config/env.js.
+        ...(env.paysprint.authorisedKey
+          ? { Authorisedkey: env.paysprint.authorisedKey }
+          : {}),
+        // Must be the partner CORP ID — the provider treats User-Agent as an
+        // identifier, not a client name, and rejects requests without it.
+        'User-Agent': env.paysprint.partnerId,
       },
     });
 
@@ -142,7 +156,12 @@ const pickAuthorizationUrl = (data) => {
 
 const pickIssuedFiles = (data) => {
   const d = data?.data ?? data ?? {};
-  const files = d.files ?? d.issued_files ?? d.issuedFiles ?? d.documents ?? [];
+  // Per the SprintVerify DigiLocker doc (API 3), issued_files returns `data` AS
+  // the array of documents directly. Some products nested it under
+  // files/issued_files, so accept both: when `d` is already the array, use it.
+  const files = Array.isArray(d)
+    ? d
+    : d.files ?? d.issued_files ?? d.issuedFiles ?? d.documents ?? [];
   if (!Array.isArray(files)) return [];
 
   return files.map((file) => ({
@@ -155,6 +174,9 @@ const pickIssuedFiles = (data) => {
 
 const pickBase64Xml = (data) => {
   const d = data?.data ?? data ?? {};
+  // Per the doc (API 4), download_xml returns `data` AS the Base64-encoded XML
+  // string directly. Fall back to object shapes only if a product nests it.
+  if (typeof d === 'string') return d;
   return d.xml ?? d.document ?? d.base64 ?? d.file ?? null;
 };
 

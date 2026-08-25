@@ -56,4 +56,37 @@ const runDiagnosis = async (userId, input) => {
   };
 };
 
-module.exports = { runDiagnosis, RESULT_STATUS };
+/**
+ * The caller's past diagnosis sessions, newest first. View-only history for the
+ * Records screen — mirrors the IVS history contract (paginated, lean).
+ */
+const getHistory = async (userId, { page = 1, limit = 20 } = {}) => {
+  const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 50);
+  const safePage = Math.max(parseInt(page, 10) || 1, 1);
+  const skip = (safePage - 1) * safeLimit;
+
+  const [sessions, total] = await Promise.all([
+    DiagnoseSession.find({ userId }).sort({ createdAt: -1 }).skip(skip).limit(safeLimit).lean(),
+    DiagnoseSession.countDocuments({ userId }),
+  ]);
+
+  const items = sessions.map((s) => ({
+    id: String(s._id),
+    deviceModel: (s.input && s.input.deviceModel) || null,
+    imei: (s.input && s.input.imei) || null,
+    resultStatus: s.resultStatus,
+    status: s.status,
+    charged: !!s.chargeTxnId,
+    createdAt: s.createdAt,
+  }));
+
+  return {
+    items,
+    page: safePage,
+    limit: safeLimit,
+    total,
+    totalPages: Math.ceil(total / safeLimit) || 1,
+  };
+};
+
+module.exports = { runDiagnosis, getHistory, RESULT_STATUS };

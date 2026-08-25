@@ -5,9 +5,10 @@
  * process.exit(1) if any is missing — which would kill the Jest worker with no
  * useful message. Seeding them here is what makes the suite importable at all.
  *
- * Every value is fake. Nothing here reaches a real provider: the suite stubs
- * MSG91, C-DOT, Paysprint and Razorpay with nock, and test/setup/db.js swaps
- * MONGODB_URI for an in-memory server.
+ * Every credential is fake. Base URLs are the real provider hosts (MSG91,
+ * Razorpay, Paysprint) so the nock stubs match the paths production actually
+ * calls — nothing reaches them, because test/setup/db.js calls
+ * nock.disableNetConnect() and swaps MONGODB_URI for an in-memory server.
  */
 process.env.NODE_ENV = 'test';
 process.env.PORT = '0';
@@ -34,7 +35,7 @@ process.env.MSG91_OTP_EXPIRY_MINUTES = '5';
 process.env.GREST_WRAPPER_BASE_URL = 'https://grest.test/api';
 process.env.GREST_WRAPPER_AUTH_TOKEN = 'test-wrapper-token';
 process.env.PAYSPRINT_PARTNER_ID = 'TESTPARTNER';
-process.env.PAYSPRINT_BASE_URL = 'https://sprintverify.test/api/v1/verification';
+process.env.PAYSPRINT_BASE_URL = 'https://api.verifya2z.com/api/v1/verification';
 process.env.DIGILOCKER_REDIRECT_URL = 'http://localhost:5000/api/v1/user/aadhaar/digilocker/callback';
 process.env.DIGILOCKER_APP_RETURN_URL = 'http://localhost:3000/kyc/aadhaar';
 process.env.PAYSPRINT_AUTHORISED_KEY = 'test-authorised-key';
@@ -58,6 +59,18 @@ process.env.STORAGE_DRIVER = 'cloudinary';
 process.env.AADHAAR_TEST_MODE = 'false';
 process.env.OTP_TEST_MODE = 'false';
 process.env.OTP_TEST_NUMBERS = '';
+
+// FCM is deliberately left UNCONFIGURED. fcmProvider then reports itself as
+// unavailable and every send short-circuits without touching the network, so
+// the notification specs assert what the API actually guarantees — the inbox
+// row is written and the request succeeds whether or not a push goes out.
+process.env.FCM_PROJECT_ID = '';
+process.env.FCM_CLIENT_EMAIL = '';
+process.env.FCM_PRIVATE_KEY = '';
+process.env.FCM_SERVICE_ACCOUNT_JSON = '';
+
+process.env.APP_ANDROID_STORE_URL = 'https://play.google.com/store/apps/details?id=in.grest.ivs';
+process.env.APP_IOS_STORE_URL = 'https://apps.apple.com/app/id0000000000';
 
 process.env.DEFAULT_COUNTRY_CODE = '+91';
 process.env.UPLOAD_MAX_SIZE_MB = '5';

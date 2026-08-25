@@ -353,3 +353,211 @@ describe('GET /user/aadhaar/digilocker/:verificationId', () => {
     expect(res.status).toBe(404);
   });
 });
+
+/**
+ * Customer (device seller) verification, /ivs/aadhaar/digilocker/*.
+ *
+ * Same DigiLocker flow as the account endpoints; the whole point of the subject
+ * split is what happens at the end, so that is what these cover.
+ */
+describe('IVS customer DigiLocker verification', () => {
+  /** start → callback on the customer endpoints. */
+  const runCustomerFlow = async (token) => {
+    const start = await asUser(token).post('/api/v1/ivs/aadhaar/digilocker/start');
+    const session = await AadhaarVerification.findById(start.body.data.verificationId);
+    const cb = await request(app).get(
+      `/api/v1/user/aadhaar/digilocker/callback?refid=${session.refid}`
+    );
+    return { start, cb, session: await AadhaarVerification.findById(session._id) };
+  };
+
+  it('rejects an unauthenticated caller', async () => {
+    const res = await request(app).post('/api/v1/ivs/aadhaar/digilocker/start');
+
+    expect(res.status).toBe(401);
+  });
+
+  it('creates a CUSTOMER session and returns the authorization url', async () => {
+    stubInitiate();
+    const { user, token } = await createUser();
+
+    const res = await asUser(token).post('/api/v1/ivs/aadhaar/digilocker/start');
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.authorizationUrl).toBe('https://digilocker.test/auth/abc');
+
+    const session = await AadhaarVerification.findOne({ userId: user._id });
+    expect(session.subject).toBe('CUSTOMER');
+  });
+
+  // The reason the subject field exists: the partner is the operator, not the
+  // person authenticating, so a seller's Aadhaar must never complete their KYC
+  // or claim their one-Aadhaar-per-account hash.
+  it('does NOT mark the operating partner Aadhaar-verified', async () => {
+    stubInitiate();
+    stubToken();
+    stubIssuedFiles([AADHAAR_FILE]);
+    stubDownload(aadhaarXml());
+    const { user, token } = await createUser();
+
+    const { session } = await runCustomerFlow(token);
+
+    expect(session.status).toBe(VERIFICATION_STATUS.VERIFIED);
+    expect(session.maskedAadhaar).toBeTruthy();
+
+    const after = await User.findById(user._id);
+    expect(after.aadhaarVerified).toBe(false);
+    expect(after.aadhaarNumber).toBeFalsy();
+    expect(after.aadhaarNumberHash).toBeFalsy();
+  });
+
+  // Contrast with the above — the account flow still writes through, so the
+  // split hasn't broken KYC.
+  it('still marks the account verified on the /user flow', async () => {
+    stubInitiate();
+    stubToken();
+    stubIssuedFiles([AADHAAR_FILE]);
+    stubDownload(aadhaarXml());
+    const { user, token } = await createUser();
+
+    await runFlow(token);
+
+    const after = await User.findById(user._id);
+    expect(after.aadhaarVerified).toBe(true);
+  });
+
+  it('lets an already-KYC-verified partner keep verifying customers', async () => {
+    stubInitiate();
+    const { token } = await createUser({ aadhaarVerified: true });
+
+    const res = await asUser(token).post('/api/v1/ivs/aadhaar/digilocker/start');
+
+    // The /user endpoint 409s in this state; this one must not, or completing
+    // KYC would lock the partner out of the IMEI flow entirely.
+    expect(res.status).toBe(200);
+  });
+
+  it('does not cancel the partner own in-flight KYC session', async () => {
+    stubInitiate();
+    stubInitiate();
+    const { user, token } = await createUser();
+
+    await asUser(token).post('/api/v1/user/aadhaar/digilocker/start');
+    await asUser(token).post('/api/v1/ivs/aadhaar/digilocker/start');
+
+    const account = await AadhaarVerification.findOne({ userId: user._id, subject: 'ACCOUNT' });
+    expect(account.status).not.toBe(VERIFICATION_STATUS.EXPIRED);
+  });
+
+  it('reads the status back, scoped to customer sessions', async () => {
+    stubInitiate();
+    const { token } = await createUser();
+
+    const start = await asUser(token).post('/api/v1/ivs/aadhaar/digilocker/start');
+    const id = start.body.data.verificationId;
+
+    const res = await asUser(token).get(`/api/v1/ivs/aadhaar/digilocker/${id}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.verificationId).toBe(id);
+    expect(res.body.data.verified).toBe(false);
+  });
+
+  it('404s when reading an account session through the customer endpoint', async () => {
+    stubInitiate();
+    const { token } = await createUser();
+
+    const start = await asUser(token).post('/api/v1/user/aadhaar/digilocker/start');
+    const id = start.body.data.verificationId;
+
+    const res = await asUser(token).get(`/api/v1/ivs/aadhaar/digilocker/${id}`);
+
+    expect(res.status).toBe(404);
+  });
+
+  it("404s on another partner's customer session", async () => {
+    stubInitiate();
+    const { token } = await createUser();
+    const other = await createUser();
+
+    const start = await asUser(token).post('/api/v1/ivs/aadhaar/digilocker/start');
+
+    const res = await asUser(other.token).get(
+      `/api/v1/ivs/aadhaar/digilocker/${start.body.data.verificationId}`
+    );
+
+    expect(res.status).toBe(404);
+  });
+});
+
+/**
+ * DIGILOCKER_TEST_MODE — the provider-free path used to exercise this flow
+ * before the server's IP is whitelisted. env is read live by the service, so
+ * flipping the flag per-test is enough; restored in afterEach.
+ */
+describe('DIGILOCKER_TEST_MODE', () => {
+  const digilockerTest = env.digilockerTest;
+
+  beforeEach(() => {
+    env.digilockerTest = { ...digilockerTest, enabled: true };
+  });
+
+  afterEach(() => {
+    env.digilockerTest = digilockerTest;
+  });
+
+  // nock intercepts nothing here on purpose: any provider call would fail the
+  // request outright, so a passing test proves none was attempted.
+  it('verifies end to end without contacting the provider', async () => {
+    const { user, token } = await createUser();
+
+    const start = await asUser(token).post('/api/v1/user/aadhaar/digilocker/start');
+    expect(start.status).toBe(200);
+
+    const session = await AadhaarVerification.findById(start.body.data.verificationId);
+    const cb = await request(app).get(
+      `/api/v1/user/aadhaar/digilocker/callback?refid=${session.refid}`
+    );
+
+    expect(cb.status).toBe(302);
+
+    const done = await AadhaarVerification.findById(session._id);
+    expect(done.status).toBe(VERIFICATION_STATUS.VERIFIED);
+    expect(done.maskedAadhaar).toBe(digilockerTest.maskedAadhaar);
+    expect((await User.findById(user._id)).aadhaarVerified).toBe(true);
+  });
+
+  it('hands back our own callback as the authorization url', async () => {
+    const { token } = await createUser();
+
+    const res = await asUser(token).post('/api/v1/user/aadhaar/digilocker/start');
+
+    // The client opens this exactly as it would a real DigiLocker consent page.
+    expect(res.body.data.authorizationUrl).toContain('/user/aadhaar/digilocker/callback');
+    expect(res.body.data.authorizationUrl).toContain('refid=');
+  });
+
+  it('bills nothing — no provider call is logged', async () => {
+    const { token } = await createUser();
+
+    const start = await asUser(token).post('/api/v1/user/aadhaar/digilocker/start');
+    const session = await AadhaarVerification.findById(start.body.data.verificationId);
+    await request(app).get(`/api/v1/user/aadhaar/digilocker/callback?refid=${session.refid}`);
+
+    expect(await ProviderRequestLog.countDocuments({ provider: 'DIGILOCKER' })).toBe(0);
+  });
+
+  // Test mode must not leak past the subject rules — the whole point of the
+  // CUSTOMER split still has to hold.
+  it('still keeps a customer verification off the partner account', async () => {
+    const { user, token } = await createUser();
+
+    const start = await asUser(token).post('/api/v1/ivs/aadhaar/digilocker/start');
+    const session = await AadhaarVerification.findById(start.body.data.verificationId);
+    await request(app).get(`/api/v1/user/aadhaar/digilocker/callback?refid=${session.refid}`);
+
+    const done = await AadhaarVerification.findById(session._id);
+    expect(done.status).toBe(VERIFICATION_STATUS.VERIFIED);
+    expect((await User.findById(user._id)).aadhaarVerified).toBe(false);
+  });
+});

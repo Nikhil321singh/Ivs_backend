@@ -6,7 +6,6 @@ const userService = require('../services/user.service');
 const uploadService = require('../services/upload.service');
 const aadhaarService = require('../services/aadhaar.service');
 const digilockerAadhaarService = require('../services/digilockerAadhaar.service');
-const ApiError = require('../utils/apiError');
 const env = require('../config/env');
 
 const sendAadhaarOtp = asyncHandler(async (req, res) => {
@@ -105,19 +104,38 @@ const startDigilockerAadhaar = asyncHandler(async (req, res) => {
  * the authenticated status endpoint.
  */
 const digilockerAadhaarCallback = asyncHandler(async (req, res) => {
-  const refid = req.query.refid || req.query.ref_id || req.body?.refid;
+  // refid arrives primarily as a path segment (see startVerification). The query
+  // is only a backup and may be duplicated by the provider — take the first value
+  // if Express parsed it into an array.
+  const first = (v) => (Array.isArray(v) ? v.find(Boolean) : v);
+  const refid =
+    req.params.refid || first(req.query.refid) || first(req.query.ref_id) || first(req.body?.refid);
+
+  // This endpoint is shown to the user's browser, so it must never render raw JSON
+  // (a lost refid or unknown session would otherwise dump an error page into the
+  // DigiLocker tab). Always bounce back to the app; its status poll surfaces the
+  // real outcome. If no return URL is configured, fall back to a plain message.
+  const returnToApp = (params) => {
+    if (!env.digilocker.appReturnUrl) {
+      return res.status(200).send('Verification received. You can return to the app.');
+    }
+    const target = new URL(env.digilocker.appReturnUrl);
+    Object.entries(params).forEach(([k, v]) => target.searchParams.set(k, v));
+    return res.redirect(302, target.toString());
+  };
 
   if (!refid) {
-    throw new ApiError(httpStatus.BAD_REQUEST, MESSAGES.USER.DIGILOCKER_SESSION_NOT_FOUND);
+    return returnToApp({ status: 'FAILED', error: 'session_not_found' });
   }
 
-  const session = await digilockerAadhaarService.completeVerification(refid);
+  let session;
+  try {
+    session = await digilockerAadhaarService.completeVerification(refid);
+  } catch (err) {
+    return returnToApp({ status: 'FAILED', error: 'session_not_found' });
+  }
 
-  const target = new URL(env.digilocker.appReturnUrl);
-  target.searchParams.set('verificationId', session._id.toString());
-  target.searchParams.set('status', session.status);
-
-  return res.redirect(302, target.toString());
+  return returnToApp({ verificationId: session._id.toString(), status: session.status });
 });
 
 const getDigilockerAadhaarVerification = asyncHandler(async (req, res) => {

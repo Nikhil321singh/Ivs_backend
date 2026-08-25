@@ -167,16 +167,20 @@ const completeKyc = async (
   set('email', email);
   set('panNumber', panNumber);
 
+  // Profile photo applies to BOTH types — a vendor's owner photo and an
+  // individual's profile photo are the same field. Persist it in the common
+  // path so an individual's photo isn't silently dropped at KYC.
+  if (profileImage) {
+    user.profileImage = profileImage.url;
+    user.profileImagePublicId = profileImage.publicId;
+  }
+
   if (resolvedType === USER_TYPE.VENDOR) {
     await assertFieldNotTaken('gstNumber', gstNumber, userId, MESSAGES.USER.GST_ALREADY_EXISTS);
 
     set('companyName', companyName);
     user.isGstRegistered = true;
     set('gstNumber', gstNumber);
-    if (profileImage) {
-      user.profileImage = profileImage.url;
-      user.profileImagePublicId = profileImage.publicId;
-    }
     // Business proof (GSTIN / Udyam Aadhaar): only persist the type when its
     // image actually uploaded, so the two never drift apart.
     set('businessProofType', businessProofType);

@@ -1,5 +1,11 @@
 const { body, param } = require('express-validator');
 const { SETTING_DEFINITIONS } = require('../../constants/settings');
+const {
+  NOTIFICATION_TYPE,
+  AUDIENCE_MODE,
+  DEVICE_PLATFORM,
+} = require('../../constants/notification');
+const USER_TYPE = require('../../constants/userType');
 
 const loginValidator = [
   body('email')
@@ -66,4 +72,111 @@ const userIdParamValidator = [
   param('userId').isMongoId().withMessage('A valid user id is required.'),
 ];
 
-module.exports = { loginValidator, updateSettingsValidator, userIdParamValidator };
+/**
+ * A broadcast from the console.
+ *
+ * The audience modes an admin may pick here are ALL, USER_IDS and FILTER.
+ * OUTDATED_APP is deliberately absent: it needs a published release to compare
+ * against, so it is only reachable through the app-update endpoint, which has
+ * that release in hand.
+ */
+const BROADCAST_AUDIENCE_MODES = [
+  AUDIENCE_MODE.ALL,
+  AUDIENCE_MODE.USER_IDS,
+  AUDIENCE_MODE.FILTER,
+];
+
+const MONGO_ID = /^[0-9a-fA-F]{24}$/;
+
+const sendNotificationValidator = [
+  body('title')
+    .trim()
+    .notEmpty()
+    .withMessage('Title is required.')
+    .bail()
+    // Android truncates a notification title around 65 characters and iOS
+    // around 40. 120 leaves room for the inbox copy while still refusing an
+    // entire paragraph pasted into the wrong field.
+    .isLength({ max: 120 })
+    .withMessage('Title must be 120 characters or fewer.'),
+  body('body')
+    .trim()
+    .notEmpty()
+    .withMessage('Message body is required.')
+    .bail()
+    .isLength({ max: 500 })
+    .withMessage('Message body must be 500 characters or fewer.'),
+  body('type')
+    .optional({ values: 'falsy' })
+    .isIn(Object.values(NOTIFICATION_TYPE))
+    .withMessage(`Type must be one of: ${Object.values(NOTIFICATION_TYPE).join(', ')}.`),
+  body('imageUrl')
+    .optional({ values: 'falsy' })
+    .trim()
+    .isURL({ require_protocol: true })
+    .withMessage('imageUrl must be a full URL including https://'),
+  body('data')
+    .optional()
+    .custom((value) => {
+      if (typeof value !== 'object' || Array.isArray(value) || value === null) {
+        throw new Error('data must be an object of key/value pairs.');
+      }
+      return true;
+    }),
+  body('audience')
+    .optional()
+    .custom((audience) => {
+      if (typeof audience !== 'object' || Array.isArray(audience) || audience === null) {
+        throw new Error('audience must be an object.');
+      }
+
+      const mode = audience.mode || AUDIENCE_MODE.ALL;
+
+      if (!BROADCAST_AUDIENCE_MODES.includes(mode)) {
+        throw new Error(`audience.mode must be one of: ${BROADCAST_AUDIENCE_MODES.join(', ')}.`);
+      }
+
+      if (mode === AUDIENCE_MODE.USER_IDS) {
+        const ids = audience.userIds;
+        if (!Array.isArray(ids) || ids.length === 0) {
+          throw new Error('audience.userIds must be a non-empty array for mode USER_IDS.');
+        }
+        // Caught here rather than by Mongo, so one mistyped id reports itself
+        // instead of failing the whole send with a CastError.
+        if (!ids.every((id) => MONGO_ID.test(String(id)))) {
+          throw new Error('audience.userIds must all be valid user ids.');
+        }
+      }
+
+      if (mode === AUDIENCE_MODE.FILTER) {
+        const filter = audience.filter || {};
+        if (filter.userType && !Object.values(USER_TYPE).includes(filter.userType)) {
+          throw new Error(`audience.filter.userType must be one of: ${Object.values(USER_TYPE).join(', ')}.`);
+        }
+        if (filter.platform && !Object.values(DEVICE_PLATFORM).includes(filter.platform)) {
+          throw new Error(`audience.filter.platform must be one of: ${Object.values(DEVICE_PLATFORM).join(', ')}.`);
+        }
+        if (
+          filter.kycCompleted !== undefined &&
+          typeof filter.kycCompleted !== 'boolean' &&
+          !['true', 'false'].includes(String(filter.kycCompleted))
+        ) {
+          throw new Error('audience.filter.kycCompleted must be true or false.');
+        }
+      }
+
+      return true;
+    }),
+];
+
+const campaignIdParamValidator = [
+  param('campaignId').isMongoId().withMessage('A valid campaign id is required.'),
+];
+
+module.exports = {
+  loginValidator,
+  updateSettingsValidator,
+  userIdParamValidator,
+  sendNotificationValidator,
+  campaignIdParamValidator,
+};
