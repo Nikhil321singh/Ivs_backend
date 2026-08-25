@@ -34,8 +34,9 @@ module.exports = Object.freeze({
   SIGNUP_BONUS: 0,
 
   // Referral payout, in tokens, granted on the referee's first paid top-up.
+  // Only the referrer is rewarded; the referee gets nothing (REFEREE_WELCOME 0).
   REFERRAL: Object.freeze({
     REFERRER_BONUS: 50, // credited to the person who shared the code
-    REFEREE_WELCOME: 10, // credited to the new user who used the code
+    REFEREE_WELCOME: 0, // referee earns no referral tokens
   }),
 });

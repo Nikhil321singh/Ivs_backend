@@ -81,6 +81,8 @@ const maybeRewardReferral = async (refereeUserId) => {
 
   if (!claimed) return null; // no pending referral, or already rewarded
 
+  // Only the referrer (the person whose code was used) is rewarded. The referee
+  // gets no welcome bonus — so nothing referral-related lands in their ledger.
   const referrerTxn = await walletService.credit(claimed.referrerId, PRICING.REFERRAL.REFERRER_BONUS, {
     reason: TXN_REASON.REFERRAL_BONUS,
     referenceType: TXN_REF_TYPE.REFERRAL,
@@ -89,16 +91,7 @@ const maybeRewardReferral = async (refereeUserId) => {
     metadata: { refereeId: String(refereeUserId) },
   });
 
-  const refereeTxn = await walletService.credit(refereeUserId, PRICING.REFERRAL.REFEREE_WELCOME, {
-    reason: TXN_REASON.WELCOME_BONUS,
-    referenceType: TXN_REF_TYPE.REFERRAL,
-    referenceId: claimed._id,
-    idempotencyKey: `referral-referee-${claimed._id}`,
-    metadata: { referrerId: String(claimed.referrerId) },
-  });
-
   claimed.referrerRewardTxnId = referrerTxn._id;
-  claimed.refereeRewardTxnId = refereeTxn._id;
   await claimed.save();
 
   return claimed;
