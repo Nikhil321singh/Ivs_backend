@@ -77,12 +77,23 @@ app.post(
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Top-level liveness endpoints for platform health checks (Render pings
-// `/health`) and a friendly root. The full API health check lives at
-// /api/v1/health. Kept outside the rate limiter so probes never get throttled.
+// Top-level liveness endpoint for platform health checks (Render pings
+// `/health`). The full API health check lives at /api/v1/health. Kept outside
+// the rate limiter so probes never get throttled.
 app.get('/health', (req, res) => res.status(200).json({ status: 'ok' }));
-app.get('/', (req, res) =>
+
+// The API shares its domain with a browser audience, so a person opening the
+// root in a browser should see a real page, not the API's JSON banner. Serve a
+// static landing page from public/ (favicon lives there too). The JSON service
+// info moved to /api so tooling/scripts can still discover docs + health.
+app.get('/api', (req, res) =>
   res.status(200).json({ name: 'IVS API', docs: '/api-docs', health: '/api/v1/health' })
+);
+app.get('/', (req, res) =>
+  res.sendFile(path.join(__dirname, '..', 'public', 'index.html'))
+);
+app.get('/favicon.svg', (req, res) =>
+  res.sendFile(path.join(__dirname, '..', 'public', 'favicon.svg'))
 );
 
 // helmet()'s default CSP is script-src 'self', but swaggerUi.setup() injects an

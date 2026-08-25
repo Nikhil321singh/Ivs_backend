@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#EB2652" />
+    <meta
+      name="description"
+      content="Grest Partners — device services for retail partners: verification, diagnostics, theft protection and payments, in one app."
+    />
+    <title>Grest Partners</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <style>
+      :root {
+        --primary: #eb2652;
+        --primary-press: #d31f48;
+        --secondary: #2e2f81;
+        --ink: #17171c;
+        --muted: #6b7280;
+        --line: #ece7ec;
+        --field: #f3f3f5;
+        --grad-top: #fbe2e9;
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body { height: 100%; }
+      body {
+        font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(1200px 600px at 50% -10%, var(--grad-top), transparent 70%),
+          #ffffff;
+        min-height: 100%;
+        display: flex;
+        flex-direction: column;
+        -webkit-font-smoothing: antialiased;
+      }
+      main {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 48px 24px;
+      }
+      .logo {
+        width: 84px;
+        height: 84px;
+        display: block;
+        margin: 0 auto 24px;
+      }
+      .badge {
+        display: inline-block;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--primary);
+        background: #fce7ec;
+        padding: 6px 12px;
+        border-radius: 999px;
+        margin-bottom: 20px;
+      }
+      h1 {
+        font-size: 34px;
+        line-height: 1.15;
+        letter-spacing: -0.01em;
+        margin-bottom: 14px;
+      }
+      h1 .accent { color: var(--primary); }
+      p.lead {
+        font-size: 17px;
+        line-height: 1.6;
+        color: var(--muted);
+        max-width: 460px;
+        margin: 0 auto 32px;
+      }
+      .features {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        justify-content: center;
+        max-width: 480px;
+        margin-bottom: 36px;
+      }
+      .chip {
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--secondary);
+        background: #ececf8;
+        border-radius: 10px;
+        padding: 9px 14px;
+      }
+      .cta {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 16px;
+        font-weight: 600;
+        color: #fff;
+        background: var(--primary);
+        border: none;
+        border-radius: 12px;
+        padding: 14px 26px;
+        text-decoration: none;
+        transition: background 0.15s ease;
+      }
+      .cta:hover { background: var(--primary-press); }
+      .note {
+        margin-top: 16px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      footer {
+        border-top: 1px solid var(--line);
+        padding: 22px 24px;
+        text-align: center;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      footer a {
+        color: var(--secondary);
+        text-decoration: none;
+        font-weight: 500;
+      }
+      footer a:hover { text-decoration: underline; }
+      footer .sep { margin: 0 8px; color: var(--line); }
+    </style>
+  </head>
+  <body>
+    <main>
+      <svg class="logo" viewBox="0 0 138 138" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Grest">
+        <circle cx="69" cy="69" r="69" fill="#EB2652" />
+        <path d="M96.7541 45.8371L96.9854 25.9528L89.0188 33.5267C62.2875 13.416 37.2327 38.9771 42.9459 60.7751C47.5164 78.2135 62.8226 81.8272 70.645 81.6684C92.9315 80.2755 97.3686 62.5222 97.3686 51.6884L75.2486 51.6884L75.2486 61.1516L86.1978 61.1516C85.663 63.5606 80.6534 71.9181 70.645 71.9181C55.3588 71.9181 46.1425 52.2496 58.1088 41.2744C68.0751 32.1336 78.3536 37.7371 81.7882 41.2741L77.0027 45.6073L96.7541 45.8371Z" fill="white" />
+        <path d="M59.5017 84.4542L53.9301 90.0258C55.323 95.5975 60.9178 102.326 69.252 102.562C84.9821 103.007 87.3435 90.8332 87.3598 84.4542L98.5031 84.4542C97.1102 102.562 85.7755 112.312 69.252 112.312C56.7159 112.312 48.3285 103.834 45.5726 98.3833L40.001 103.702L40.001 84.4542L59.5017 84.4542Z" fill="white" />
+      </svg>
+
+      <span class="badge">Coming Soon</span>
+      <h1>Grest <span class="accent">Partners</span></h1>
+      <p class="lead">
+        Device services for retail partners — verification, diagnostics, theft
+        protection and payments, all in one app.
+      </p>
+
+      <div class="features">
+        <span class="chip">KYC &amp; Verification</span>
+        <span class="chip">Theft Protection</span>
+        <span class="chip">Diagnostics</span>
+        <span class="chip">Payments</span>
+      </div>
+
+      <a class="cta" href="/privacy">Read our Privacy Policy</a>
+      <p class="note">The Grest Partners app is available on Android.</p>
+    </main>
+
+    <footer>
+      <a href="/privacy">Privacy Policy</a>
+      <span class="sep">·</span>
+      <a href="/account-deletion">Account Deletion</a>
+      <span class="sep">·</span>
+      <span>© Grest</span>
+    </footer>
+  </body>
+</html>
