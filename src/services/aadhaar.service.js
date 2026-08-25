@@ -3,6 +3,7 @@ const User = require('../models/User.model');
 const provider = require('./providers/aadhaarProvider');
 const settingsService = require('./settings.service');
 const { hashAadhaar } = require('../utils/hash.util');
+const { maskAadhaar } = require('../utils/mask.util');
 const ApiError = require('../utils/apiError');
 const httpStatus = require('../constants/httpStatus');
 const MESSAGES = require('../constants/messages');
@@ -12,8 +13,6 @@ const AADHAAR_OTP_EXPIRY_MINUTES = 10;
 // Marks a session created while the Aadhaar kill switch was off, so verify can
 // tell "provider was skipped" from a real provider refId.
 const DISABLED_REF = 'AADHAAR-DISABLED';
-
-const maskAadhaar = (aadhaarNumber) => `XXXXXXXX${aadhaarNumber.slice(-4)}`;
 
 /**
  * Kicks off UIDAI e-KYC by asking the provider to send an OTP for the given
