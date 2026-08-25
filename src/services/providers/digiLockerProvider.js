@@ -156,7 +156,12 @@ const pickAuthorizationUrl = (data) => {
 
 const pickIssuedFiles = (data) => {
   const d = data?.data ?? data ?? {};
-  const files = d.files ?? d.issued_files ?? d.issuedFiles ?? d.documents ?? [];
+  // Per the SprintVerify DigiLocker doc (API 3), issued_files returns `data` AS
+  // the array of documents directly. Some products nested it under
+  // files/issued_files, so accept both: when `d` is already the array, use it.
+  const files = Array.isArray(d)
+    ? d
+    : d.files ?? d.issued_files ?? d.issuedFiles ?? d.documents ?? [];
   if (!Array.isArray(files)) return [];
 
   return files.map((file) => ({
@@ -169,6 +174,9 @@ const pickIssuedFiles = (data) => {
 
 const pickBase64Xml = (data) => {
   const d = data?.data ?? data ?? {};
+  // Per the doc (API 4), download_xml returns `data` AS the Base64-encoded XML
+  // string directly. Fall back to object shapes only if a product nests it.
+  if (typeof d === 'string') return d;
   return d.xml ?? d.document ?? d.base64 ?? d.file ?? null;
 };
 

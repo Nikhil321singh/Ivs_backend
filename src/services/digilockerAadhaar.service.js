@@ -278,7 +278,24 @@ const completeVerification = async (refid) => {
       if (details.maskedAadhaar) {
         user.aadhaarNumberHash = hashAadhaar(details.maskedAadhaar, userId);
       }
-      await user.save();
+      try {
+        await user.save();
+      } catch (err) {
+        // The sparse-unique aadhaarNumberHash enforces one-Aadhaar-per-account.
+        // A duplicate key here means this Aadhaar is already linked to a
+        // different account — a verification failure, not a 500. Fail the
+        // session gracefully so the callback still redirects the browser back
+        // to the app (with a FAILED status) instead of the error middleware
+        // rendering a raw JSON 409 into the user's browser/WebView.
+        if (err.code === 11000) {
+          return fail(
+            session,
+            FAILURE_CODE.AADHAAR_ALREADY_LINKED,
+            'This Aadhaar is already linked to another account.'
+          );
+        }
+        throw err;
+      }
     }
   }
 
