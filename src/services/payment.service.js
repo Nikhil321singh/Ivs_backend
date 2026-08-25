@@ -63,6 +63,46 @@ const createTopupOrder = async (userId, amountInr) => {
     currency: 'INR',
     tokens,
     razorpayKeyId: razorpay.getKeyId(),
+    // Checkout options for the app's WebView. Inside a WebView the JS
+    // `handler` callback is unreliable — a UPI intent hands control to the
+    // PSP app and the page that would have run the handler is gone — so
+    // Checkout has to run in redirect mode instead: Razorpay POSTs the result
+    // to `callback_url` (our /wallet/topup/callback) and `webview_intent`
+    // lets Checkout fire the UPI intent out to the native app. The client
+    // spreads this object straight into its Checkout options.
+    checkout: {
+      callback_url: razorpay.getCallbackUrl(),
+      redirect: true,
+      webview_intent: true,
+      // Pin the UPI block to intent + QR. Two reasons:
+      //
+      // 1. NPCI retired UPI Collect on 28 Feb 2026, so a checkout that falls
+      //    back to collect now renders an empty UPI section. Naming the flows
+      //    explicitly keeps the block populated.
+      // 2. QR needs nothing from the native wrapper. Intent only works once
+      //    the app handles the `upi:`/`intent:` URL in shouldOverrideUrlLoading;
+      //    until that ships, QR is the flow that still lets a user pay. Both
+      //    are listed so the same payload keeps working after the app updates —
+      //    no rebuild needed on either side of that change.
+      //
+      // show_default_blocks stays true so cards/netbanking/wallets still render
+      // below the UPI block; `sequence` only promotes UPI to the top. If
+      // Checkout ever ignores `flows` (it is not in the public docs — Razorpay
+      // support recommends it), this degrades to a plain UPI block rather than
+      // hiding anything.
+      config: {
+        display: {
+          blocks: {
+            upi: {
+              name: 'Pay using UPI',
+              instruments: [{ method: 'upi', flows: ['intent', 'qr'] }],
+            },
+          },
+          sequence: ['block.upi'],
+          preferences: { show_default_blocks: true },
+        },
+      },
+    },
   };
 };
 
@@ -107,6 +147,38 @@ const creditForPayment = async (payment, { paymentId, signature }) => {
   }
 
   return claimed;
+};
+
+/**
+ * Redirect-mode callback. With `redirect: true` Razorpay does not call the
+ * client-side handler — it form-POSTs the result straight to `callback_url`,
+ * unauthenticated and from the user's WebView. So there is no req.user here:
+ * the order id is the only identifier, and the signature is what proves the
+ * payload came from Razorpay. Never throws — the caller has to answer a
+ * browser navigation, so every outcome resolves to a status the app can act
+ * on. The webhook remains the source of truth if this path is interrupted.
+ */
+const handleCheckoutCallback = async ({ orderId, paymentId, signature }) => {
+  if (!orderId || !paymentId || !signature) {
+    // Razorpay posts error[...] fields instead of the success triplet when the
+    // payment fails or the user abandons it.
+    return { status: 'failed', orderId: orderId || null, paymentId: paymentId || null };
+  }
+
+  if (!razorpay.verifyCheckoutSignature({ orderId, paymentId, signature })) {
+    console.error('[Payment] callback signature mismatch for order', orderId);
+    return { status: 'failed', orderId, paymentId };
+  }
+
+  const payment = await Payment.findOne({ razorpayOrderId: orderId });
+  if (!payment) {
+    console.error('[Payment] callback for unknown order', orderId);
+    return { status: 'failed', orderId, paymentId };
+  }
+
+  await creditForPayment(payment, { paymentId, signature });
+
+  return { status: 'success', orderId, paymentId };
 };
 
 /**
@@ -159,6 +231,7 @@ const handleWebhook = async (rawBody, signature) => {
 
 module.exports = {
   createTopupOrder,
+  handleCheckoutCallback,
   verifyPayment,
   handleWebhook,
 };

@@ -20,6 +20,8 @@ const isConfigured = () =>
 
 const getKeyId = () => env.razorpay.keyId;
 
+const getCallbackUrl = () => env.razorpay.callbackUrl;
+
 const createOrder = async ({ amountPaise, currency = 'INR', receipt, notes }) => {
   const response = await axios.post(
     `${env.razorpay.apiBaseUrl}/orders`,
@@ -64,6 +66,7 @@ const verifyWebhookSignature = (rawBody, signature) => {
 module.exports = {
   isConfigured,
   getKeyId,
+  getCallbackUrl,
   createOrder,
   verifyCheckoutSignature,
   verifyWebhookSignature,
