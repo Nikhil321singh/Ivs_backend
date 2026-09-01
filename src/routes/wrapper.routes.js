@@ -6,8 +6,13 @@ const router = express.Router();
 /**
  * DigiLocker wrapper — deliberately UNAUTHENTICATED.
  *
- * The caller is our own app on Lambda, whose egress IP rotates; this route
- * exists purely to lend it this server's fixed IP for the provider call.
+ * The caller is our own app on Lambda, whose egress IP rotates; these routes
+ * exist purely to lend it this server's fixed IP for the provider calls.
+ *
+ * All four provider steps are covered — initiate, access-token, issued-files,
+ * download-xml — because the allowlist applies to every outbound call, not just
+ * the first. The caller drives the sequence and owns the refid; nothing here
+ * stores a session or decides which document matters.
  * Everything it needs arrives in the body, and no user, JWT or shared secret is
  * involved, by design.
  *
@@ -52,5 +57,81 @@ const router = express.Router();
  *       502: { description: Provider refused — providerStatus and providerMessage are passed through }
  */
 router.post('/digilocker/initiate', wrapperController.initiateSession);
+
+/**
+ * @openapi
+ * /wrapper/digilocker/access-token:
+ *   post:
+ *     tags: [Wrapper]
+ *     summary: Exchange a completed DigiLocker authentication for provider access
+ *     description: Step 2 of 4. Must run before issued-files.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [refid]
+ *             properties:
+ *               refid: { type: string, description: "The refid the session was opened with." }
+ *               token: { type: string, description: "Optional. Caller's own Paysprint JWT, forwarded verbatim." }
+ *               user_agent: { type: string, example: "CORP00002424", description: "Optional. Partner CORP id; defaults to the partnerId inside the token." }
+ *     responses:
+ *       200: { description: Access granted }
+ *       502: { description: Provider refused — providerStatus and providerMessage are passed through }
+ */
+router.post('/digilocker/access-token', wrapperController.accessToken);
+
+/**
+ * @openapi
+ * /wrapper/digilocker/issued-files:
+ *   post:
+ *     tags: [Wrapper]
+ *     summary: List the documents issued to the authenticated DigiLocker account
+ *     description: Step 3 of 4. Returns the file list; the caller picks the Aadhaar uri itself.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [refid]
+ *             properties:
+ *               refid: { type: string }
+ *               token: { type: string, description: "Optional. Caller's own Paysprint JWT, forwarded verbatim." }
+ *               user_agent: { type: string, example: "CORP00002424" }
+ *     responses:
+ *       200: { description: "Returns files[] with name, doctype, issuer and uri" }
+ *       502: { description: Provider refused }
+ */
+router.post('/digilocker/issued-files', wrapperController.issuedFiles);
+
+/**
+ * @openapi
+ * /wrapper/digilocker/download-xml:
+ *   post:
+ *     tags: [Wrapper]
+ *     summary: Download one issued document as Base64 XML
+ *     description: >
+ *       Step 4 of 4. Returns the provider's Base64 XML unparsed and unstored —
+ *       this server keeps no copy. The caller owns whatever it does with the
+ *       Aadhaar data inside.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [refid, uri]
+ *             properties:
+ *               refid: { type: string }
+ *               uri: { type: string, example: "in.gov.uidai-ADHAR-f9044e68a093881d1ffb183f479b6959", description: "From the issued-files response." }
+ *               token: { type: string, description: "Optional. Caller's own Paysprint JWT, forwarded verbatim." }
+ *               user_agent: { type: string, example: "CORP00002424" }
+ *     responses:
+ *       200: { description: Returns base64Xml }
+ *       502: { description: Provider refused }
+ */
+router.post('/digilocker/download-xml', wrapperController.downloadXml);
 
 module.exports = router;

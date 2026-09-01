@@ -187,3 +187,91 @@ function stubInitiateRejection() {
     .post(path('/digilocker/initiate_session'))
     .reply(201, { status: false, message: 'Please provide unique reference number.' });
 }
+
+
+describe('wrapper — the remaining three provider steps', () => {
+  const REFID = 'accaca1721281630414815099abcaccacaa';
+  const URI = 'in.gov.uidai-ADHAR-f9044e68a093881d1ffb183f479b6959';
+
+  const post = (p, body) => request(app).post(`/api/v1/wrapper/digilocker/${p}`).send(body);
+
+  it('relays access-token and logs it under the right operation', async () => {
+    host().post(path('/digilocker/access_token')).reply(200, { status: true, data: {} });
+
+    const res = await post('access-token', { refid: REFID });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.refid).toBe(REFID);
+
+    const log = await ProviderRequestLog.findOne({
+      refid: REFID,
+      operation: PROVIDER_OPERATION.ACCESS_TOKEN,
+    });
+    expect(log.billable).toBe(true);
+  });
+
+  it('returns the issued file list', async () => {
+    const files = [{ name: 'Aadhaar Card', doctype: 'ADHAR', issuer: 'UIDAI', uri: URI }];
+    host().post(path('/digilocker/issued_files')).reply(200, { status: true, data: { files } });
+
+    const res = await post('issued-files', { refid: REFID });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.files).toHaveLength(1);
+    expect(res.body.data.files[0].uri).toBe(URI);
+  });
+
+  it('returns download-xml as base64 without storing it', async () => {
+    const xml = Buffer.from('<OfflinePaperlessKyc/>').toString('base64');
+    let sent = null;
+    host()
+      .post(path('/digilocker/download_xml'), (body) => {
+        sent = body;
+        return true;
+      })
+      .reply(200, { status: true, data: { xml } });
+
+    const res = await post('download-xml', { refid: REFID, uri: URI });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.base64Xml).toBe(xml);
+    // The uri the caller chose is the one asked for — this wrapper picks no
+    // document of its own.
+    expect(sent).toContain(URI);
+  });
+
+  /**
+   * Passthrough has to hold on every step, not just initiate: the caller's own
+   * token is what the provider sees, and the User-Agent must name its signer.
+   */
+  it('forwards a caller token and user_agent on the later steps too', async () => {
+    let headers = null;
+    host()
+      .post(path('/digilocker/issued_files'))
+      .reply(function reply() {
+        headers = this.req.headers;
+        return [200, { status: true, data: { files: [] } }];
+      });
+
+    await post('issued-files', {
+      refid: REFID,
+      token: 'header.payload.signature',
+      user_agent: 'CORP00002424',
+    });
+
+    expect(headers.token).toBe('header.payload.signature');
+    expect(headers['user-agent']).toBe('CORP00002424');
+  });
+
+  it('passes a provider refusal through with its status intact', async () => {
+    host()
+      .post(path('/digilocker/access_token'))
+      .reply(201, { status: false, message: 'Please provide unique reference number.' });
+
+    const res = await post('access-token', { refid: REFID });
+
+    expect(res.status).toBe(502);
+    expect(res.body.data.providerStatus).toBe(201);
+    expect(res.body.data.providerMessage).toBe('Please provide unique reference number.');
+  });
+});

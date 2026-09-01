@@ -70,13 +70,13 @@ const partnerIdFromToken = (token) => {
  * Never throws — a failed log must not turn a successful provider call into an
  * error response, because the call has already been made and billed.
  */
-const logProviderCall = async (refid, result) => {
+const logProviderCall = async (refid, operation, result) => {
   try {
     await ProviderRequestLog.create({
       provider: 'DIGILOCKER',
       userId: null,
       refid,
-      operation: PROVIDER_OPERATION.INITIATE_SESSION,
+      operation,
       providerStatus: result.status,
       billable: result.billable,
       providerMessage: result.message,
@@ -86,6 +86,40 @@ const logProviderCall = async (refid, result) => {
     // eslint-disable-next-line no-console
     console.error('[Wrapper] Failed to write provider log', { refid, message: error.message });
   }
+};
+
+/**
+ * Reads passthrough credentials off any wrapper request body. Shared by all
+ * four routes because the rule is the same everywhere: a caller-supplied token
+ * is relayed untouched, and the User-Agent must name whoever signed it.
+ */
+const overridesFrom = (body) => {
+  const token = body.token || null;
+  if (!token) return {};
+
+  return {
+    token,
+    userAgent: body.user_agent || body.partnerId || partnerIdFromToken(token),
+  };
+};
+
+/**
+ * The provider's answer, relayed. Failure keeps the provider's own status and
+ * message rather than flattening them, for the reason given on initiateSession:
+ * the caller is a server we operate and can only decide whether to retry if it
+ * can see what actually happened.
+ */
+const relay = (res, refid, result, { okMessage, failMessage, payload = {} }) => {
+  if (!result.ok) {
+    return res.status(httpStatus.BAD_GATEWAY).json({
+      success: false,
+      message: result.message || failMessage,
+      errors: [],
+      data: { refid, providerStatus: result.status, providerMessage: result.message },
+    });
+  }
+
+  return successResponse(res, httpStatus.OK, okMessage, { refid, ...payload });
 };
 
 const initiateSession = asyncHandler(async (req, res) => {
@@ -104,33 +138,76 @@ const initiateSession = asyncHandler(async (req, res) => {
     : {};
 
   const result = await provider.initiateSession(refid, redirectUrl, overrides);
-  await logProviderCall(refid, result);
+  await logProviderCall(refid, PROVIDER_OPERATION.INITIATE_SESSION, result);
 
-  if (!result.ok) {
-    // The provider's own status and message are passed through rather than
-    // flattened into a generic failure. The caller is a server we operate, not
-    // an end user, and it can only decide whether to retry if it can see what
-    // actually happened — a 201 "unique reference number" (its own bug, not
-    // billed) reads very differently from a 5xx (theirs, worth retrying).
-    return res.status(httpStatus.BAD_GATEWAY).json({
-      success: false,
-      message: result.message || MESSAGES.WRAPPER.SESSION_FAILED,
-      errors: [],
-      data: {
-        refid,
-        providerStatus: result.status,
-        providerMessage: result.message,
-      },
-    });
-  }
-
-  return successResponse(res, httpStatus.OK, MESSAGES.WRAPPER.SESSION_STARTED, {
-    refid,
-    authorizationUrl: result.authorizationUrl,
-    // Included so the caller does not have to reconstruct which URL this
-    // session was bound to when it later handles the callback.
-    redirectUrl,
+  return relay(res, refid, result, {
+    okMessage: MESSAGES.WRAPPER.SESSION_STARTED,
+    failMessage: MESSAGES.WRAPPER.SESSION_FAILED,
+    payload: {
+      authorizationUrl: result.authorizationUrl,
+      // Included so the caller does not have to reconstruct which URL this
+      // session was bound to when it later handles the callback.
+      redirectUrl,
+    },
   });
 });
 
-module.exports = { initiateSession };
+/**
+ * Step 2 of 4. Exchanges a completed DigiLocker authentication for provider-side
+ * access. Must run before issued-files; the provider rejects it otherwise.
+ */
+const accessToken = asyncHandler(async (req, res) => {
+  const { refid } = req.body;
+
+  const result = await provider.accessToken(refid, overridesFrom(req.body));
+  await logProviderCall(refid, PROVIDER_OPERATION.ACCESS_TOKEN, result);
+
+  return relay(res, refid, result, {
+    okMessage: MESSAGES.WRAPPER.TOKEN_FETCHED,
+    failMessage: MESSAGES.WRAPPER.TOKEN_FAILED,
+  });
+});
+
+/**
+ * Step 3 of 4. Lists the documents in the authenticated DigiLocker account. The
+ * caller picks the Aadhaar one and passes its uri to download-xml — this
+ * wrapper does not choose for it, since it owns no session and no policy about
+ * which document matters.
+ */
+const issuedFiles = asyncHandler(async (req, res) => {
+  const { refid } = req.body;
+
+  const result = await provider.issuedFiles(refid, overridesFrom(req.body));
+  await logProviderCall(refid, PROVIDER_OPERATION.ISSUED_FILES, result);
+
+  return relay(res, refid, result, {
+    okMessage: MESSAGES.WRAPPER.FILES_FETCHED,
+    failMessage: MESSAGES.WRAPPER.FILES_FAILED,
+    payload: { files: result.files },
+  });
+});
+
+/**
+ * Step 4 of 4. Returns the document as Base64 XML, exactly as the provider gave
+ * it — unparsed and unstored.
+ *
+ * This is the one route that can carry Aadhaar data, and it deliberately does
+ * not persist or log any of it: the body is handed straight back to the caller,
+ * which owns the session and the decision about what to keep. digilockerAadhaar
+ * .service.js parses in-scope and never writes the raw XML; a caller relaying
+ * through here inherits that responsibility rather than delegating it.
+ */
+const downloadXml = asyncHandler(async (req, res) => {
+  const { refid, uri } = req.body;
+
+  const result = await provider.downloadXml(refid, uri, overridesFrom(req.body));
+  await logProviderCall(refid, PROVIDER_OPERATION.DOWNLOAD_XML, result);
+
+  return relay(res, refid, result, {
+    okMessage: MESSAGES.WRAPPER.XML_FETCHED,
+    failMessage: MESSAGES.WRAPPER.XML_FAILED,
+    payload: { base64Xml: result.base64Xml },
+  });
+});
+
+module.exports = { initiateSession, accessToken, issuedFiles, downloadXml };

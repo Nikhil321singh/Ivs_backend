@@ -65,6 +65,12 @@ module.exports = {
     SESSION_STARTED: 'DigiLocker session created.',
     REDIRECT_HOST_NOT_ALLOWED: 'redirect_url host is not allowed.',
     SESSION_FAILED: 'Could not create a DigiLocker session.',
+    TOKEN_FETCHED: 'DigiLocker access token retrieved.',
+    TOKEN_FAILED: 'Could not retrieve the DigiLocker access token.',
+    FILES_FETCHED: 'Issued files retrieved.',
+    FILES_FAILED: 'Could not list the issued files.',
+    XML_FETCHED: 'Document downloaded.',
+    XML_FAILED: 'Could not download the document.',
   },
 
   IVS: {

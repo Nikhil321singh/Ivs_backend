@@ -220,15 +220,15 @@ const initiateSession = async (refid, redirectUrl, overrides = {}) => {
 };
 
 /** Exchanges a completed DigiLocker authentication for provider-side access. */
-const accessToken = async (refid) => {
-  const result = await call(PROVIDER_OPERATION.ACCESS_TOKEN, { refid });
+const accessToken = async (refid, overrides = {}) => {
+  const result = await call(PROVIDER_OPERATION.ACCESS_TOKEN, { refid }, overrides);
 
   return { ...result, failureCode: FAILURE_CODE.DIGILOCKER_TOKEN_FAILED };
 };
 
 /** Lists the documents issued to the authenticated DigiLocker account. */
-const issuedFiles = async (refid) => {
-  const result = await call(PROVIDER_OPERATION.ISSUED_FILES, { refid });
+const issuedFiles = async (refid, overrides = {}) => {
+  const result = await call(PROVIDER_OPERATION.ISSUED_FILES, { refid }, overrides);
 
   return {
     ...result,
@@ -238,8 +238,8 @@ const issuedFiles = async (refid) => {
 };
 
 /** Downloads one issued document as Base64 XML, by the uri from issuedFiles. */
-const downloadXml = async (refid, uri) => {
-  const result = await call(PROVIDER_OPERATION.DOWNLOAD_XML, { refid, uri });
+const downloadXml = async (refid, uri, overrides = {}) => {
+  const result = await call(PROVIDER_OPERATION.DOWNLOAD_XML, { refid, uri }, overrides);
 
   const base64Xml = result.ok ? pickBase64Xml(result.data) : null;
 
