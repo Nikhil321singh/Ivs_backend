@@ -50,12 +50,11 @@ const strictKycChain = [
     .withMessage('Please provide a valid email address.')
     .normalizeEmail(),
 
-  // Individual only.
+  // Individual only. Name is optional — only its format is checked when supplied.
   body('name')
     .if((value, { req }) => isIndividual(req))
+    .optional({ checkFalsy: true })
     .trim()
-    .notEmpty()
-    .withMessage('Name is required.')
     .isLength({ min: 2, max: 100 })
     .withMessage('Name must be between 2 and 100 characters.'),
   body('panNumber')
