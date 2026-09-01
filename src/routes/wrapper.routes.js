@@ -1,7 +1,5 @@
 const express = require('express');
 const wrapperController = require('../controllers/wrapper.controller');
-const validateRequest = require('../middleware/validateRequest.middleware');
-const { initiateSessionValidator } = require('../validators/wrapper.validator');
 
 const router = express.Router();
 
@@ -13,12 +11,17 @@ const router = express.Router();
  * Everything it needs arrives in the body, and no user, JWT or shared secret is
  * involved, by design.
  *
+ * Request validation has been removed at the caller's request: the body is
+ * passed to the provider as given, so refid shape, redirect_url form and token
+ * shape are all the caller's responsibility now.
+ *
  * The consequence, recorded here so it is not rediscovered later: anyone who
  * finds this URL can make billable provider calls, and can supply their own
  * redirect_url — which points a genuine Aadhaar consent flow at a host they
- * choose. DIGILOCKER_WRAPPER_REDIRECT_HOSTS bounds the second of those and is
- * unset by default. Every call is recorded in ProviderRequestLog, which is the
- * only way abuse would surface.
+ * choose. Nothing bounds that any more; DIGILOCKER_WRAPPER_REDIRECT_HOSTS is no
+ * longer consulted. A malformed body is no longer refused for free either — it
+ * reaches the provider, and a 422 there is billable. Every call is recorded in
+ * ProviderRequestLog, which is the only way abuse would surface.
  */
 
 /**
@@ -42,18 +45,12 @@ const router = express.Router();
  *             properties:
  *               token: { type: string, description: "Optional. The caller's own Paysprint JWT, forwarded verbatim as the provider's Token header. Omit it and this server signs with its own PAYSPRINT_AUTHORISED_KEY instead." }
  *               user_agent: { type: string, example: "CORP00002424", description: "Optional. Partner CORP id, sent as the provider's User-Agent header. Only meaningful alongside token; defaults to the partnerId inside that token, then to this server's own." }
- *               redirect_url: { type: string, example: "https://your-app.example.com/digilocker/callback/abc123", description: "Where the provider sends the browser after consent. Must be an absolute http(s) URL, and its host must be allowlisted when DIGILOCKER_WRAPPER_REDIRECT_HOSTS is set." }
- *               refid: { type: string, example: "202df2ce82b6b9bebf00b491e61a70d3", description: "Caller's own session id, 8-64 chars of [A-Za-z0-9_-]. Single-use: the provider rejects a refid it has already seen. Generated if omitted." }
+ *               redirect_url: { type: string, example: "https://your-app.example.com/digilocker/callback/abc123", description: "Where the provider sends the browser after consent. Not validated — sent to the provider as given." }
+ *               refid: { type: string, example: "202df2ce82b6b9bebf00b491e61a70d3", description: "Caller's own session id, sent to the provider as given. Single-use: the provider rejects a refid it has already seen. Generated if omitted." }
  *     responses:
  *       200: { description: DigiLocker session created — returns refid and authorizationUrl }
- *       422: { description: Validation failed }
  *       502: { description: Provider refused — providerStatus and providerMessage are passed through }
  */
-router.post(
-  '/digilocker/initiate',
-  initiateSessionValidator,
-  validateRequest,
-  wrapperController.initiateSession
-);
+router.post('/digilocker/initiate', wrapperController.initiateSession);
 
 module.exports = router;
