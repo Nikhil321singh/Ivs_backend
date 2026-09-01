@@ -45,11 +45,19 @@ const PATHS = Object.freeze({
 const BILLABLE_STATUSES = [200, 422];
 const isBillable = (status) => BILLABLE_STATUSES.includes(status);
 
-const isConfigured = () =>
-  !!env.paysprint.partnerId && !!env.paysprint.jwtKey && !!env.paysprint.baseUrl;
+/**
+ * `overrides` carries credentials supplied by a caller rather than read from
+ * this server's env — the wrapper route's passthrough mode, where the Lambda
+ * app mints its own Token and sends it in the body. When one is supplied, the
+ * local partnerId and jwtKey are irrelevant: nothing here signs anything. Only
+ * baseUrl is still required, because that is ours to know either way.
+ */
+const isConfigured = (overrides = {}) =>
+  !!env.paysprint.baseUrl &&
+  (!!overrides.token || (!!env.paysprint.partnerId && !!env.paysprint.jwtKey));
 
-const assertConfigured = () => {
-  if (!isConfigured()) {
+const assertConfigured = (overrides = {}) => {
+  if (!isConfigured(overrides)) {
     // Deliberately vague to the caller, specific in the log: a client must not
     // learn which provider secret is missing.
     console.error('[DigiLocker] Not configured', {
@@ -79,8 +87,8 @@ const client = axios.create({
  * Never throws for a provider-level failure; returns `ok: false` instead, so
  * the service layer decides how a given operation's failure maps to a state.
  */
-const call = async (operation, body) => {
-  assertConfigured();
+const call = async (operation, body, overrides = {}) => {
+  assertConfigured(overrides);
 
   const startedAt = Date.now();
   const url = `${env.paysprint.baseUrl}${PATHS[operation]}`;
@@ -97,7 +105,10 @@ const call = async (operation, body) => {
     const response = await client.post(url, form, {
       headers: {
         // Fresh per request — never cached, never reused. Five-minute validity.
-        Token: generatePaysprintToken(),
+        // A caller-supplied token is forwarded verbatim instead: the wrapper
+        // route lets the Lambda app sign with its own credentials, and this
+        // server has no business re-signing a request it is only relaying.
+        Token: overrides.token || generatePaysprintToken(),
         // Sent ONLY when explicitly configured. The doc marks it "UAT Only",
         // and production verifiably rejects a wrong value but accepts the
         // header being absent — so an unset PAYSPRINT_AUTHORISEDKEY must mean
@@ -106,8 +117,10 @@ const call = async (operation, body) => {
           ? { Authorisedkey: env.paysprint.authorisedKey }
           : {}),
         // Must be the partner CORP ID — the provider treats User-Agent as an
-        // identifier, not a client name, and rejects requests without it.
-        'User-Agent': env.paysprint.partnerId,
+        // identifier, not a client name, and rejects requests without it. It
+        // has to travel with the token: a token signed by one partner and a
+        // User-Agent naming another is a mismatch the provider will reject.
+        'User-Agent': overrides.userAgent || env.paysprint.partnerId,
       },
     });
 
@@ -186,11 +199,15 @@ const pickBase64Xml = (data) => {
  * Opens a DigiLocker authorization session. The refid must be unique per
  * session and is reused for every later call in the same flow.
  */
-const initiateSession = async (refid, redirectUrl) => {
-  const result = await call(PROVIDER_OPERATION.INITIATE_SESSION, {
-    refid,
-    redirect_url: redirectUrl,
-  });
+const initiateSession = async (refid, redirectUrl, overrides = {}) => {
+  const result = await call(
+    PROVIDER_OPERATION.INITIATE_SESSION,
+    {
+      refid,
+      redirect_url: redirectUrl,
+    },
+    overrides
+  );
 
   const authorizationUrl = result.ok ? pickAuthorizationUrl(result.data) : null;
 

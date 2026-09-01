@@ -61,6 +61,12 @@ module.exports = {
     OWNER_IMAGE_REQUIRED: 'Owner image is required for a vendor.',
     USER_TYPE_INVALID: 'User type must be either "vendor" or "individual".',
   },
+  WRAPPER: {
+    SESSION_STARTED: 'DigiLocker session created.',
+    REDIRECT_HOST_NOT_ALLOWED: 'redirect_url host is not allowed.',
+    SESSION_FAILED: 'Could not create a DigiLocker session.',
+  },
+
   IVS: {
     VERIFIED: 'IMEI verification completed.',
     HISTORY_FETCHED: 'Verification history fetched.',

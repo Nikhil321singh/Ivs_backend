@@ -185,6 +185,29 @@ const env = {
     sessionTtlMinutes: parseInt(process.env.DIGILOCKER_SESSION_TTL_MINUTES || '15', 10),
   },
 
+  // Server-to-server wrapper around the provider's DigiLocker endpoints, for
+  // callers that cannot present a stable source IP — the Lambda app, whose
+  // egress address rotates. It exists ONLY to lend those callers this server's
+  // fixed IP: it mints the provider Token, forwards the call, and returns the
+  // provider's answer. No session is stored and no Aadhaar data passes through
+  // it, which is what keeps it a proxy rather than a second implementation of
+  // the flow in digilockerAadhaar.service.js.
+  //
+  // The route is deliberately UNAUTHENTICATED — the caller supplies everything
+  // in the body and presents no user, JWT or shared secret. See
+  // routes/wrapper.routes.js for what that costs.
+  //
+  // `allowedRedirectHosts` is the one bound available: it restricts where a
+  // session may send the browser after consent, so an uninvited caller cannot
+  // point a real Aadhaar consent flow at a host they control. Empty means
+  // unrestricted, which is the default.
+  digilockerWrapper: {
+    allowedRedirectHosts: (process.env.DIGILOCKER_WRAPPER_REDIRECT_HOSTS || '')
+      .split(',')
+      .map((host) => host.trim().toLowerCase())
+      .filter(Boolean),
+  },
+
   // DigiLocker test mode: runs the whole session state machine without calling
   // SprintVerify at all, returning a fixed identity. Exists because DigiLocker
   // has no UAT endpoint AND the provider gates on source IP, so a client cannot
