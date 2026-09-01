@@ -1,4 +1,3 @@
-const crypto = require('crypto');
 const asyncHandler = require('../helpers/asyncHandler');
 const { successResponse } = require('../helpers/apiResponse');
 const httpStatus = require('../constants/httpStatus');
@@ -26,10 +25,19 @@ const { PROVIDER_OPERATION } = require('../constants/aadhaarVerification');
  * is real, this endpoint alone will not be enough.
  */
 
-// Matches generateRefid in digilockerAadhaar.service.js. Used only when the
-// caller does not supply one — normally it does, since it needs the refid to
-// drive the rest of the flow.
-const generateRefid = () => crypto.randomBytes(16).toString('hex');
+/**
+ * The refid used when the caller supplies none. Fixed by request.
+ *
+ * RECORDED SO IT IS NOT REDISCOVERED AS A BUG: the provider rejects any refid
+ * it has already issued a session for, and this one is spent. A request that
+ * falls back to it therefore returns 502 with providerStatus 201, "Please
+ * provide unique reference number" — every time, not intermittently. Verified
+ * against production on 2026-09-01; a random refid returned 200 in the same
+ * session, so this is the value, not the endpoint.
+ *
+ * Callers that need a working session must send their own unique refid.
+ */
+const DEFAULT_REFID = 'UTA5U1VEQXdNREF5TkRJMFQxUnJNMDFVWTNwTmFtc3lUV2M5UFE9PQ==';
 
 /**
  * Reads partnerId out of a caller-supplied token, to use as the User-Agent when
@@ -81,7 +89,7 @@ const logProviderCall = async (refid, result) => {
 };
 
 const initiateSession = asyncHandler(async (req, res) => {
-  const refid = req.body.refid || generateRefid();
+  const refid = req.body.refid || DEFAULT_REFID;
   const redirectUrl = req.body.redirect_url;
 
   // Passthrough mode. When the caller sends its own provider token, it is

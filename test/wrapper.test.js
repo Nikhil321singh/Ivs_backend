@@ -94,6 +94,47 @@ describe('wrapper initiate — refid collision', () => {
   });
 });
 
+describe('wrapper initiate — default refid', () => {
+  const DEFAULT_REFID = 'UTA5U1VEQXdNREF5TkRJMFQxUnJNMDFVWTNwTmFtc3lUV2M5UFE9PQ==';
+
+  /**
+   * A caller that sends no refid gets this fixed one, by request. It is pinned
+   * here because it is deliberate and its consequence is severe: the value is
+   * already spent with the provider, so the fallback path cannot produce a
+   * working session. Anyone reading a 201 in the logs should find this test and
+   * know it is the chosen behaviour rather than a regression.
+   */
+  it('falls back to the fixed refid when the caller sends none', async () => {
+    let sent = null;
+    host()
+      .post(path('/digilocker/initiate_session'), (body) => {
+        sent = body;
+        return true;
+      })
+      .reply(201, { status: false, message: 'Please provide unique reference number.' });
+
+    const res = await initiate({ redirect_url: REDIRECT_URL });
+
+    expect(sent).toContain(DEFAULT_REFID);
+    expect(res.body.data.refid).toBe(DEFAULT_REFID);
+    expect(res.status).toBe(502);
+    expect(res.body.data.providerStatus).toBe(201);
+  });
+
+  /** A caller-supplied refid still wins over the default. */
+  it('prefers a refid the caller supplied', async () => {
+    const mine = buildRefid('9812345678');
+    host()
+      .post(path('/digilocker/initiate_session'))
+      .reply(200, { status: true, data: { authorization_url: 'https://digilocker.test/auth/abc' } });
+
+    const res = await initiate({ refid: mine, redirect_url: REDIRECT_URL });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.refid).toBe(mine);
+  });
+});
+
 describe('wrapper initiate — refid shape', () => {
   /**
    * Input validation was removed from this route, so the refid is relayed
