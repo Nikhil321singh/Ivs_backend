@@ -38,6 +38,7 @@ const PATHS = Object.freeze({
   [PROVIDER_OPERATION.ACCESS_TOKEN]: '/digilocker/access_token',
   [PROVIDER_OPERATION.ISSUED_FILES]: '/digilocker/issued_files',
   [PROVIDER_OPERATION.DOWNLOAD_XML]: '/digilocker/download_xml',
+  [PROVIDER_OPERATION.REVOKE_TOKEN]: '/digilocker/revoke_token',
 });
 
 // Per the provider's billing rules: a 200 or a 422 is charged, a 201 is not.
@@ -234,10 +235,23 @@ const downloadXml = async (refid, uri) => {
   };
 };
 
+/**
+ * Revokes (deletes) the DigiLocker token held for this refid, freeing the
+ * account to open a brand-new session. Best-effort: the provider is done with
+ * our request either way, so a failed revoke is logged for billing but never
+ * changes the verification's outcome.
+ */
+const revokeToken = async (refid) => {
+  const result = await call(PROVIDER_OPERATION.REVOKE_TOKEN, { refid });
+
+  return { ...result, failureCode: FAILURE_CODE.DIGILOCKER_PROVIDER_ERROR };
+};
+
 module.exports = {
   isConfigured,
   initiateSession,
   accessToken,
   issuedFiles,
   downloadXml,
+  revokeToken,
 };
