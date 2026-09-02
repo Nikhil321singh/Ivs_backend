@@ -116,6 +116,19 @@ const startVerification = async (userId, { subject = VERIFICATION_SUBJECT.ACCOUN
     throw new ApiError(httpStatus.CONFLICT, MESSAGES.USER.AADHAAR_ALREADY_VERIFIED);
   }
 
+  // Before opening a fresh session, delete the DigiLocker token still held by
+  // this subject's most recent earlier session. The provider keeps the previous
+  // consent/token alive, so without this the new authorization would silently
+  // reuse the last login instead of forcing a fresh one — the customer (or the
+  // partner) would never be asked to authenticate again. Best-effort, and
+  // skipped in test mode where no real token was ever issued.
+  if (!env.digilockerTest.enabled) {
+    const prior = await AadhaarVerification.findOne({ userId, subject })
+      .sort({ createdAt: -1 })
+      .select('refid');
+    if (prior?.refid) await revokeToken(prior.refid, userId);
+  }
+
   // Superseding in-flight sessions is scoped to the same subject: starting a
   // customer verification must not cancel the partner's own half-finished KYC,
   // or vice versa.
