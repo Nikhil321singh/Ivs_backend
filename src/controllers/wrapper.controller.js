@@ -40,6 +40,13 @@ const { PROVIDER_OPERATION } = require('../constants/aadhaarVerification');
 const DEFAULT_REFID = 'UTA5U1VEQXdNREF5TkRJMFQxUnJNMDFVWTNwTmFtc3lUV2M5UFE9PQ==';
 
 /**
+ * Stands in for a refid the caller did not send, so the billing row still gets
+ * written. Deliberately not a plausible refid: it must never be mistaken for
+ * one, and it makes these requests greppable in the log.
+ */
+const MISSING_REFID = '(missing)';
+
+/**
  * Reads partnerId out of a caller-supplied token, to use as the User-Agent when
  * the caller sent a token but no explicit user_agent.
  *
@@ -75,7 +82,12 @@ const logProviderCall = async (refid, operation, result) => {
     await ProviderRequestLog.create({
       provider: 'DIGILOCKER',
       userId: null,
-      refid,
+      // A caller can omit refid entirely now that the route validates nothing.
+      // The provider call still went out and may still have been billed, so the
+      // row must be written regardless — refid is `required` on the model, and
+      // passing undefined threw, which silently lost the billing record for
+      // exactly the malformed requests most worth having a record of.
+      refid: refid || MISSING_REFID,
       operation,
       providerStatus: result.status,
       billable: result.billable,

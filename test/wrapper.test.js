@@ -335,3 +335,46 @@ describe('wrapper — revoke-token', () => {
     expect(res.body.data.providerStatus).toBe(201);
   });
 });
+
+describe('wrapper — a caller that omits refid', () => {
+  /**
+   * Seen in production: "[Wrapper] Failed to write provider log { refid:
+   * undefined }". With no validation on the route, refid can simply be absent —
+   * the provider call still goes out and a 422 there is billable, but
+   * ProviderRequestLog.create() threw on the required field and the billing row
+   * was lost. Exactly the requests most worth a record left none.
+   */
+  it('still writes a billing row when refid is absent', async () => {
+    host()
+      .post(path('/digilocker/access_token'))
+      .reply(422, { status: false, message: 'refid required' });
+
+    const res = await request(app)
+      .post('/api/v1/wrapper/digilocker/access-token')
+      .send({ token: 'header.payload.signature', user_agent: 'CORP00002424' });
+
+    expect(res.status).toBe(502);
+
+    const log = await ProviderRequestLog.findOne({
+      operation: PROVIDER_OPERATION.ACCESS_TOKEN,
+      refid: '(missing)',
+    });
+    expect(log).not.toBeNull();
+    // 422 is billable — losing this row is losing money we cannot reconcile.
+    expect(log.billable).toBe(true);
+  });
+
+  it('does the same for the other refid-only steps', async () => {
+    for (const [route, providerPath, operation] of [
+      ['issued-files', '/digilocker/issued_files', PROVIDER_OPERATION.ISSUED_FILES],
+      ['revoke-token', '/digilocker/revoke_token', PROVIDER_OPERATION.REVOKE_TOKEN],
+    ]) {
+      host().post(path(providerPath)).reply(422, { status: false, message: 'refid required' });
+
+      await request(app).post(`/api/v1/wrapper/digilocker/${route}`).send({});
+
+      const log = await ProviderRequestLog.findOne({ operation, refid: '(missing)' });
+      expect(log).not.toBeNull();
+    }
+  });
+});
