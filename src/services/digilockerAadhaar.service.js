@@ -65,22 +65,6 @@ const logProviderCall = async (operation, refid, userId, result) => {
   }
 };
 
-/**
- * Deletes the provider-side DigiLocker token for this refid once the flow is
- * done with it, so the next verification for the same account opens a clean
- * session instead of colliding with a stale token/consent. Best-effort: the
- * Aadhaar is already downloaded by the time this runs, so a failed revoke must
- * never fail the verification — it is logged for billing and swallowed.
- */
-const revokeToken = async (refid, userId) => {
-  try {
-    const result = await provider.revokeToken(refid);
-    await logProviderCall(PROVIDER_OPERATION.REVOKE_TOKEN, refid, userId, result);
-  } catch (err) {
-    console.error('[DigiLocker] Token revoke failed', { refid, error: err.message });
-  }
-};
-
 const fail = async (session, failureCode, failureReason) => {
   session.status =
     failureCode === FAILURE_CODE.AADHAAR_NOT_FOUND
@@ -275,12 +259,6 @@ const completeVerification = async (refid) => {
       }
       throw err;
     }
-
-    // 5b. The Aadhaar is in hand; the DigiLocker token has served its purpose.
-    //     Revoke it so a later re-verification for this account starts a fresh
-    //     session rather than reusing a stale token. Best-effort — never blocks
-    //     the write below.
-    await revokeToken(refid, userId);
   }
 
 
