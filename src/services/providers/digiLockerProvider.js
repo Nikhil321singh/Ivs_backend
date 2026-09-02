@@ -17,6 +17,7 @@ const { PROVIDER_OPERATION, FAILURE_CODE } = require('../../constants/aadhaarVer
  *   accessToken(refid)                  => { ok }
  *   issuedFiles(refid)                  => { files: [{ name, doctype, issuer, uri }] }
  *   downloadXml(refid, uri)             => { base64Xml }
+ *   revokeToken(refid)                  => { ok }        (optional teardown)
  *
  * Every call mints a fresh JWT (see utils/paysprintToken.js) — the provider
  * requires one per request and rejects reuse.
@@ -38,6 +39,7 @@ const PATHS = Object.freeze({
   [PROVIDER_OPERATION.ACCESS_TOKEN]: '/digilocker/access_token',
   [PROVIDER_OPERATION.ISSUED_FILES]: '/digilocker/issued_files',
   [PROVIDER_OPERATION.DOWNLOAD_XML]: '/digilocker/download_xml',
+  [PROVIDER_OPERATION.REVOKE_TOKEN]: '/digilocker/revoke_token',
 });
 
 // Per the provider's billing rules: a 200 or a 422 is charged, a 201 is not.
@@ -251,10 +253,23 @@ const downloadXml = async (refid, uri, overrides = {}) => {
   };
 };
 
+/**
+ * Ends the provider-side session for a refid. Optional: the flow completes
+ * without it, and the provider expires sessions on its own. Worth calling once
+ * the document is in hand so a consented session is not left open longer than
+ * the work needed it.
+ */
+const revokeToken = async (refid, overrides = {}) => {
+  const result = await call(PROVIDER_OPERATION.REVOKE_TOKEN, { refid }, overrides);
+
+  return { ...result, failureCode: FAILURE_CODE.DIGILOCKER_REVOKE_FAILED };
+};
+
 module.exports = {
   isConfigured,
   initiateSession,
   accessToken,
   issuedFiles,
   downloadXml,
+  revokeToken,
 };

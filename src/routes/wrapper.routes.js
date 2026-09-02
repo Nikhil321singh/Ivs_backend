@@ -9,9 +9,9 @@ const router = express.Router();
  * The caller is our own app on Lambda, whose egress IP rotates; these routes
  * exist purely to lend it this server's fixed IP for the provider calls.
  *
- * All four provider steps are covered — initiate, access-token, issued-files,
- * download-xml — because the allowlist applies to every outbound call, not just
- * the first. The caller drives the sequence and owns the refid; nothing here
+ * All five provider operations are covered — initiate, access-token,
+ * issued-files, download-xml and revoke-token — because the allowlist applies to
+ * every outbound call, not just the first. The caller drives the sequence and owns the refid; nothing here
  * stores a session or decides which document matters.
  * Everything it needs arrives in the body, and no user, JWT or shared secret is
  * involved, by design.
@@ -133,5 +133,33 @@ router.post('/digilocker/issued-files', wrapperController.issuedFiles);
  *       502: { description: Provider refused }
  */
 router.post('/digilocker/download-xml', wrapperController.downloadXml);
+
+/**
+ * @openapi
+ * /wrapper/digilocker/revoke-token:
+ *   post:
+ *     tags: [Wrapper]
+ *     summary: End the provider-side DigiLocker session for a refid
+ *     description: >
+ *       Optional teardown. The flow completes without it and the provider
+ *       expires sessions on its own, but a consented session left open is an
+ *       outstanding capability against someone's Aadhaar — a caller that is
+ *       finished should revoke rather than wait for the timeout.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [refid]
+ *             properties:
+ *               refid: { type: string, description: "The refid the session was opened with." }
+ *               token: { type: string, description: "Optional. Caller's own Paysprint JWT, forwarded verbatim." }
+ *               user_agent: { type: string, example: "CORP00002424" }
+ *     responses:
+ *       200: { description: Session revoked }
+ *       502: { description: Provider refused — providerStatus and providerMessage are passed through }
+ */
+router.post('/digilocker/revoke-token', wrapperController.revokeToken);
 
 module.exports = router;

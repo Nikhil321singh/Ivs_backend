@@ -275,3 +275,63 @@ describe('wrapper — the remaining three provider steps', () => {
     expect(res.body.data.providerMessage).toBe('Please provide unique reference number.');
   });
 });
+
+describe('wrapper — revoke-token', () => {
+  const REFID = 'accaca1721281630414815099abcaccacaa';
+  const post = (body) => request(app).post('/api/v1/wrapper/digilocker/revoke-token').send(body);
+
+  it('revokes the session and sends the refid the provider expects', async () => {
+    let sent = null;
+    host()
+      .post(path('/digilocker/revoke_token'), (body) => {
+        sent = body;
+        return true;
+      })
+      .reply(200, { status: true });
+
+    const res = await post({ refid: REFID });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.refid).toBe(REFID);
+    expect(sent).toContain(REFID);
+  });
+
+  it('logs the call under REVOKE_TOKEN', async () => {
+    host().post(path('/digilocker/revoke_token')).reply(200, { status: true });
+
+    await post({ refid: REFID });
+
+    const log = await ProviderRequestLog.findOne({
+      refid: REFID,
+      operation: PROVIDER_OPERATION.REVOKE_TOKEN,
+    });
+    expect(log).not.toBeNull();
+    expect(log.providerStatus).toBe(200);
+  });
+
+  it('forwards a caller token in passthrough mode', async () => {
+    let headers = null;
+    host()
+      .post(path('/digilocker/revoke_token'))
+      .reply(function reply() {
+        headers = this.req.headers;
+        return [200, { status: true }];
+      });
+
+    await post({ refid: REFID, token: 'header.payload.signature', user_agent: 'CORP00002424' });
+
+    expect(headers.token).toBe('header.payload.signature');
+    expect(headers['user-agent']).toBe('CORP00002424');
+  });
+
+  it('passes a provider refusal through with its status', async () => {
+    host()
+      .post(path('/digilocker/revoke_token'))
+      .reply(201, { status: false, message: 'Provide unique reference number.' });
+
+    const res = await post({ refid: REFID });
+
+    expect(res.status).toBe(502);
+    expect(res.body.data.providerStatus).toBe(201);
+  });
+});

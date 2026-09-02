@@ -210,4 +210,24 @@ const downloadXml = asyncHandler(async (req, res) => {
   });
 });
 
-module.exports = { initiateSession, accessToken, issuedFiles, downloadXml };
+/**
+ * Teardown. Ends the provider-side session for a refid.
+ *
+ * Optional in the sense that the flow completes without it — but a consented
+ * DigiLocker session left open is an outstanding capability against someone's
+ * Aadhaar, so a caller that is finished should say so rather than waiting for
+ * the provider to time it out.
+ */
+const revokeToken = asyncHandler(async (req, res) => {
+  const { refid } = req.body;
+
+  const result = await provider.revokeToken(refid, overridesFrom(req.body));
+  await logProviderCall(refid, PROVIDER_OPERATION.REVOKE_TOKEN, result);
+
+  return relay(res, refid, result, {
+    okMessage: MESSAGES.WRAPPER.TOKEN_REVOKED,
+    failMessage: MESSAGES.WRAPPER.REVOKE_FAILED,
+  });
+});
+
+module.exports = { initiateSession, accessToken, issuedFiles, downloadXml, revokeToken };

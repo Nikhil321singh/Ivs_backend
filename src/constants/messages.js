@@ -71,6 +71,8 @@ module.exports = {
     FILES_FAILED: 'Could not list the issued files.',
     XML_FETCHED: 'Document downloaded.',
     XML_FAILED: 'Could not download the document.',
+    TOKEN_REVOKED: 'DigiLocker session revoked.',
+    REVOKE_FAILED: 'Could not revoke the DigiLocker session.',
   },
 
   IVS: {
