@@ -3,7 +3,11 @@ const { app, request, createUser, asUser } = require('./helpers/factory');
 const User = require('../src/models/User.model');
 const AadhaarVerification = require('../src/models/AadhaarVerification.model');
 const ProviderRequestLog = require('../src/models/ProviderRequestLog.model');
-const { VERIFICATION_STATUS, FAILURE_CODE } = require('../src/constants/aadhaarVerification');
+const {
+  VERIFICATION_STATUS,
+  FAILURE_CODE,
+  PROVIDER_OPERATION,
+} = require('../src/constants/aadhaarVerification');
 const env = require('../src/config/env');
 
 const BASE = env.paysprint.baseUrl;
@@ -39,6 +43,9 @@ const stubIssuedFiles = (files, status = 200) =>
 
 const stubDownload = (base64, status = 200) =>
   host().post(path('/digilocker/download_xml')).reply(status, { status: true, data: { xml: base64 } });
+
+const stubRevoke = (status = 200) =>
+  host().post(path('/digilocker/revoke_token')).reply(status, { status: true });
 
 const AADHAAR_FILE = {
   name: 'Aadhaar Card',
@@ -294,14 +301,20 @@ describe('billing log', () => {
     stubToken();
     stubIssuedFiles([AADHAAR_FILE]);
     stubDownload(aadhaarXml());
+    stubRevoke();
 
     const { user, token } = await createUser();
     const { session } = await runFlow(token);
 
     const rows = await ProviderRequestLog.find({ refid: session.refid });
-    expect(rows).toHaveLength(4);
-    expect(rows.every((r) => r.billable === true)).toBe(true); // all 200s
+    // Five calls, not four: the flow revokes the DigiLocker token once the
+    // Aadhaar is in hand, and that call is logged like any other.
+    expect(rows).toHaveLength(5);
     expect(rows.every((r) => String(r.userId) === String(user._id))).toBe(true);
+
+    const billable = rows.filter((r) => r.billable);
+    expect(billable).toHaveLength(5); // every stub answers 200
+    expect(rows.map((r) => r.operation)).toContain(PROVIDER_OPERATION.REVOKE_TOKEN);
   });
 
   it('marks a 201 non-billable and a 422 billable', async () => {

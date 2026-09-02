@@ -104,14 +104,17 @@ describe('complete-kyc — required fields differ by user type', () => {
     expect(res.body.data.user.isGstRegistered).toBe(true);
   });
 
-  it('rejects a submission missing name, email or PAN', async () => {
+  it('accepts a submission with no name', async () => {
     const { token } = await createUser();
 
     const noName = await asUser(token)
       .post('/api/v1/user/complete-kyc')
       .send({ email: 'a@b.com', panNumber: 'ABCDE1234F' });
-    expect(noName.status).toBe(422);
-    expect(noName.body.errors.map((e) => e.field)).toContain('name');
+    expect(noName.status).toBe(200);
+  });
+
+  it('rejects a submission missing email or PAN', async () => {
+    const { token } = await createUser();
 
     const noEmail = await asUser(token)
       .post('/api/v1/user/complete-kyc')
@@ -136,6 +139,11 @@ describe('complete-kyc — required fields differ by user type', () => {
       .post('/api/v1/user/complete-kyc')
       .send({ ...baseKyc, aadhaarNumber: '123' });
     expect(badAadhaar.status).toBe(422);
+
+    const badName = await asUser(token)
+      .post('/api/v1/user/complete-kyc')
+      .send({ ...baseKyc, name: 'A' });
+    expect(badName.status).toBe(422);
   });
 
   it('rejects a malformed PAN', async () => {

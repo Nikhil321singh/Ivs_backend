@@ -7,6 +7,7 @@ const referralRoutes = require('./referral.routes');
 const diagnoseRoutes = require('./diagnose.routes');
 const notificationRoutes = require('./notification.routes');
 const appRoutes = require('./app.routes');
+const wrapperRoutes = require('./wrapper.routes');
 // Self-contained admin module — see src/admin/README.md.
 const adminModule = require('../admin');
 const PRICING = require('../constants/pricing');
@@ -91,6 +92,9 @@ router.use('/notifications', notificationRoutes);
 // Client-facing app metadata (the launch-time update check). Unauthenticated —
 // see routes/app.routes.js.
 router.use('/app', appRoutes);
+// Server-to-server only — authenticated by a shared secret in the body, not by
+// a user session. See wrapper.routes.js.
+router.use('/wrapper', wrapperRoutes);
 router.use('/admin', adminModule.router);
 
 module.exports = router;
