@@ -229,58 +229,67 @@ const completeVerification = async (refid) => {
     const token = await provider.accessToken(refid);
     await logProviderCall(PROVIDER_OPERATION.ACCESS_TOKEN, refid, userId, token);
     if (!token.ok) {
+      // No token was issued — the DigiLocker login never completed on the
+      // provider side, so there is nothing to revoke.
       return fail(session, FAILURE_CODE.DIGILOCKER_TOKEN_FAILED, token.message);
     }
 
-    // 2. Issued files.
-    session.status = VERIFICATION_STATUS.FETCHING_DOCUMENT;
-    await session.save();
-
-    const listing = await provider.issuedFiles(refid);
-    await logProviderCall(PROVIDER_OPERATION.ISSUED_FILES, refid, userId, listing);
-    if (!listing.ok) {
-      return fail(session, FAILURE_CODE.DIGILOCKER_PROVIDER_ERROR, listing.message);
-    }
-
-    // 3. Find Aadhaar by doctype, never by display name — the name is
-    //    presentational and can be localised or reworded by the issuer.
-    const aadhaarFile = listing.files.find(
-      (file) => String(file.doctype).toUpperCase() === AADHAAR_DOCTYPE
-    );
-
-    if (!aadhaarFile || !aadhaarFile.uri) {
-      // Not an error condition: the account simply holds no Aadhaar. Stop here
-      // without calling download, which would be a billable call for nothing.
-      return fail(session, FAILURE_CODE.AADHAAR_NOT_FOUND, null);
-    }
-
-    // 4. Download only that document.
-    const download = await provider.downloadXml(refid, aadhaarFile.uri);
-    await logProviderCall(PROVIDER_OPERATION.DOWNLOAD_XML, refid, userId, download);
-    if (!download.ok) {
-      return fail(session, FAILURE_CODE.AADHAAR_DOWNLOAD_FAILED, download.message);
-    }
-
-    // 5. Decode and parse. The raw XML never leaves this scope and is never
-    //    logged or persisted.
-    session.status = VERIFICATION_STATUS.VERIFYING;
-    await session.save();
-
+    // A DigiLocker token now exists on the provider. However this flow ends —
+    // verified, no-Aadhaar, a download error, or a parse throw — that token
+    // MUST be revoked so the DigiLocker session is logged out and the next
+    // verification forces a fresh login instead of silently reusing this
+    // consent. The `finally` guarantees the revoke on every exit path below,
+    // including each `return fail(...)`.
     try {
-      details = parse(download.base64Xml);
-    } catch (err) {
-      if (err instanceof AadhaarXmlError) {
-        console.error('[DigiLocker] Aadhaar XML rejected', { refid, reason: err.reason });
-        return fail(session, FAILURE_CODE.AADHAAR_XML_INVALID, err.reason);
-      }
-      throw err;
-    }
+      // 2. Issued files.
+      session.status = VERIFICATION_STATUS.FETCHING_DOCUMENT;
+      await session.save();
 
-    // 5b. The Aadhaar is in hand; the DigiLocker token has served its purpose.
-    //     Revoke it so a later re-verification for this account starts a fresh
-    //     session rather than reusing a stale token. Best-effort — never blocks
-    //     the write below.
-    await revokeToken(refid, userId);
+      const listing = await provider.issuedFiles(refid);
+      await logProviderCall(PROVIDER_OPERATION.ISSUED_FILES, refid, userId, listing);
+      if (!listing.ok) {
+        return fail(session, FAILURE_CODE.DIGILOCKER_PROVIDER_ERROR, listing.message);
+      }
+
+      // 3. Find Aadhaar by doctype, never by display name — the name is
+      //    presentational and can be localised or reworded by the issuer.
+      const aadhaarFile = listing.files.find(
+        (file) => String(file.doctype).toUpperCase() === AADHAAR_DOCTYPE
+      );
+
+      if (!aadhaarFile || !aadhaarFile.uri) {
+        // Not an error condition: the account simply holds no Aadhaar. Stop here
+        // without calling download, which would be a billable call for nothing.
+        return fail(session, FAILURE_CODE.AADHAAR_NOT_FOUND, null);
+      }
+
+      // 4. Download only that document.
+      const download = await provider.downloadXml(refid, aadhaarFile.uri);
+      await logProviderCall(PROVIDER_OPERATION.DOWNLOAD_XML, refid, userId, download);
+      if (!download.ok) {
+        return fail(session, FAILURE_CODE.AADHAAR_DOWNLOAD_FAILED, download.message);
+      }
+
+      // 5. Decode and parse. The raw XML never leaves this scope and is never
+      //    logged or persisted.
+      session.status = VERIFICATION_STATUS.VERIFYING;
+      await session.save();
+
+      try {
+        details = parse(download.base64Xml);
+      } catch (err) {
+        if (err instanceof AadhaarXmlError) {
+          console.error('[DigiLocker] Aadhaar XML rejected', { refid, reason: err.reason });
+          return fail(session, FAILURE_CODE.AADHAAR_XML_INVALID, err.reason);
+        }
+        throw err;
+      }
+    } finally {
+      // Logout: delete the DigiLocker token now that the flow is done with it.
+      // Best-effort — a failed revoke is logged for billing but never changes
+      // the verification's outcome or blocks the User write below.
+      await revokeToken(refid, userId);
+    }
   }
 
 
