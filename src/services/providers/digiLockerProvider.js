@@ -254,10 +254,14 @@ const downloadXml = async (refid, uri, overrides = {}) => {
 };
 
 /**
- * Ends the provider-side session for a refid. Optional: the flow completes
- * without it, and the provider expires sessions on its own. Worth calling once
- * the document is in hand so a consented session is not left open longer than
- * the work needed it.
+ * Revokes (deletes) the DigiLocker token held for this refid, freeing the
+ * account to open a brand-new session. Best-effort: the provider is done with
+ * our request either way, so a failed revoke is logged for billing but never
+ * changes the verification's outcome.
+ *
+ * Takes `overrides` like every other operation here, so the wrapper route can
+ * relay a caller's own token on this step too — a caller that opened the
+ * session with its credentials must be able to close it with them.
  */
 const revokeToken = async (refid, overrides = {}) => {
   const result = await call(PROVIDER_OPERATION.REVOKE_TOKEN, { refid }, overrides);
