@@ -98,6 +98,18 @@ const findOrCreateUserByMobile = async (countryCode, mobile) => {
   return { user, isNewUser, isRestored };
 };
 
+/**
+ * Whether a mobile number already has an account. Used at send-otp time so the
+ * client can decide up front whether to ask for a referral code (only brand-new
+ * signups can bind one — see the isNewUser branch in findOrCreateUserByMobile).
+ * A soft-deleted account still counts as registered: re-signing in restores it
+ * rather than creating a new user, so no referral is captured for it either.
+ */
+const isMobileRegistered = async (countryCode, mobile) => {
+  const user = await User.findOne({ countryCode, mobile }).select('_id').lean();
+  return Boolean(user);
+};
+
 const getUserById = async (userId) => {
   const user = await User.findById(userId);
 
@@ -522,6 +534,7 @@ const getUserDetails = async (userId) => {
 
 module.exports = {
   findOrCreateUserByMobile,
+  isMobileRegistered,
   getUserById,
   getUserDetails,
   completeKyc,

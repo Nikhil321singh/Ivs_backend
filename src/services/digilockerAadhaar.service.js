@@ -40,6 +40,28 @@ const {
  */
 const generateRefid = () => crypto.randomBytes(16).toString('hex');
 
+/**
+ * Force a fresh DigiLocker login by adding the standard OIDC `prompt=login` to
+ * the authorize URL. Revoking our provider token logs out the GRANT, but the
+ * user's meripehchaan SSO cookie lives in the browser's Custom Tab — which the
+ * mobile app cannot clear — so without this the next session silently reuses the
+ * previous person's login. `prompt=login` makes meripehchaan re-authenticate.
+ *
+ * Only takes effect when the provider hands back a real meripehchaan authorize
+ * URL (a query param it reads); if the provider returns its own wrapper URL the
+ * extra param is harmless. Tolerant of a non-URL string: returns it untouched.
+ */
+const withForcedLogin = (authorizationUrl) => {
+  if (!env.digilocker.forceLogin || !authorizationUrl) return authorizationUrl;
+  try {
+    const url = new URL(authorizationUrl);
+    url.searchParams.set('prompt', 'login');
+    return url.toString();
+  } catch {
+    return authorizationUrl;
+  }
+};
+
 /** Records a provider call for billing reconciliation. Never throws. */
 const logProviderCall = async (operation, refid, userId, result) => {
   try {
@@ -116,6 +138,19 @@ const startVerification = async (userId, { subject = VERIFICATION_SUBJECT.ACCOUN
     throw new ApiError(httpStatus.CONFLICT, MESSAGES.USER.AADHAAR_ALREADY_VERIFIED);
   }
 
+  // Before opening a fresh session, delete the DigiLocker token still held by
+  // this subject's most recent earlier session. The provider keeps the previous
+  // consent/token alive, so without this the new authorization would silently
+  // reuse the last login instead of forcing a fresh one — the customer (or the
+  // partner) would never be asked to authenticate again. Best-effort, and
+  // skipped in test mode where no real token was ever issued.
+  if (!env.digilockerTest.enabled) {
+    const prior = await AadhaarVerification.findOne({ userId, subject })
+      .sort({ createdAt: -1 })
+      .select('refid');
+    if (prior?.refid) await revokeToken(prior.refid, userId);
+  }
+
   // Superseding in-flight sessions is scoped to the same subject: starting a
   // customer verification must not cancel the partner's own half-finished KYC,
   // or vice versa.
@@ -168,7 +203,10 @@ const startVerification = async (userId, { subject = VERIFICATION_SUBJECT.ACCOUN
   session.status = VERIFICATION_STATUS.AUTHENTICATING;
   await session.save();
 
-  return { verificationId: session._id.toString(), authorizationUrl: result.authorizationUrl };
+  return {
+    verificationId: session._id.toString(),
+    authorizationUrl: withForcedLogin(result.authorizationUrl),
+  };
 };
 
 /**

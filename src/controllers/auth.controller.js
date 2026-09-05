@@ -14,7 +14,11 @@ const sendOtp = asyncHandler(async (req, res) => {
 
   await otpService.sendOtp(countryCode, mobile);
 
-  successResponse(res, httpStatus.OK, MESSAGES.AUTH.OTP_SENT, { mobile, countryCode });
+  // Tell the client whether this number is brand new, so it only asks for a
+  // referral code on first-time signups (existing users can't bind one).
+  const isNewUser = !(await userService.isMobileRegistered(countryCode, mobile));
+
+  successResponse(res, httpStatus.OK, MESSAGES.AUTH.OTP_SENT, { mobile, countryCode, isNewUser });
 });
 
 const verifyOtp = asyncHandler(async (req, res) => {
