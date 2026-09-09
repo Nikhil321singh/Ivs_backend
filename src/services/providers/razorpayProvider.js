@@ -63,10 +63,58 @@ const verifyWebhookSignature = (rawBody, signature) => {
   return safeEquals(hmacSha256(payload, env.razorpay.webhookSecret), signature);
 };
 
+/**
+ * Checkout options for the app's WebView, spread straight into the client's
+ * Razorpay Checkout call. Shared by every kind of order we raise (token top-up
+ * and credit pack alike) so this hard-won configuration lives in exactly one
+ * place — it took a production UPI outage to get right, and a second copy would
+ * inevitably drift.
+ *
+ * Inside a WebView the JS `handler` callback is unreliable — a UPI intent hands
+ * control to the PSP app and the page that would have run the handler is gone —
+ * so Checkout has to run in redirect mode instead: Razorpay POSTs the result to
+ * `callback_url` and `webview_intent` lets Checkout fire the UPI intent out to
+ * the native app.
+ */
+const getCheckoutOptions = () => ({
+  callback_url: getCallbackUrl(),
+  redirect: true,
+  webview_intent: true,
+  // Pin the UPI block to intent + QR. Two reasons:
+  //
+  // 1. NPCI retired UPI Collect on 28 Feb 2026, so a checkout that falls
+  //    back to collect now renders an empty UPI section. Naming the flows
+  //    explicitly keeps the block populated.
+  // 2. QR needs nothing from the native wrapper. Intent only works once
+  //    the app handles the `upi:`/`intent:` URL in shouldOverrideUrlLoading;
+  //    until that ships, QR is the flow that still lets a user pay. Both
+  //    are listed so the same payload keeps working after the app updates —
+  //    no rebuild needed on either side of that change.
+  //
+  // show_default_blocks stays true so cards/netbanking/wallets still render
+  // below the UPI block; `sequence` only promotes UPI to the top. If
+  // Checkout ever ignores `flows` (it is not in the public docs — Razorpay
+  // support recommends it), this degrades to a plain UPI block rather than
+  // hiding anything.
+  config: {
+    display: {
+      blocks: {
+        upi: {
+          name: 'Pay using UPI',
+          instruments: [{ method: 'upi', flows: ['intent', 'qr'] }],
+        },
+      },
+      sequence: ['block.upi'],
+      preferences: { show_default_blocks: true },
+    },
+  },
+});
+
 module.exports = {
   isConfigured,
   getKeyId,
   getCallbackUrl,
+  getCheckoutOptions,
   createOrder,
   verifyCheckoutSignature,
   verifyWebhookSignature,

@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const { PAYMENT_STATUS } = require('../constants/walletEnums');
+const { PAYMENT_PURPOSE } = require('../constants/entitlementEnums');
 
 const { Schema } = mongoose;
 
@@ -10,6 +11,11 @@ const { Schema } = mongoose;
  * wallet and `creditTxnId` links the resulting ledger row.
  *
  * `amountPaise` is stored in paise (Razorpay's unit) to avoid float rounding.
+ *
+ * `purpose` says what was bought. TOPUP is the legacy token wallet path; PLAN
+ * is a credit pack, fulfilled by crediting `planSnapshot.quotas` into the user's
+ * Entitlement. The default is TOPUP so every row written before credit packs
+ * existed stays valid without a migration.
  */
 const paymentSchema = new Schema(
   {
@@ -39,10 +45,45 @@ const paymentSchema = new Schema(
       type: String,
       default: 'INR',
     },
+    purpose: {
+      type: String,
+      enum: Object.values(PAYMENT_PURPOSE),
+      default: PAYMENT_PURPOSE.TOPUP,
+    },
     // Tokens to credit on success (amountPaise / 100 * TOKEN_PER_INR).
+    // Only meaningful for TOPUP; zero on a plan purchase.
     tokens: {
       type: Number,
-      required: true,
+      default: 0,
+    },
+    // The catalogue plan bought. Null for a custom pack, which has no Plan row.
+    planId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Plan',
+      default: null,
+    },
+    /**
+     * What was actually sold, frozen at purchase time — this, never the live
+     * Plan document, is what gets credited on PAID.
+     *
+     * Two reasons it has to be a snapshot: an admin editing a plan must not
+     * retroactively change a purchase already made (same reasoning as the stored
+     * `cost` on ImeiVerificationLog), and a custom pack has no plan row to read
+     * back at all.
+     */
+    planSnapshot: {
+      type: new Schema(
+        {
+          code: String,
+          name: String,
+          tier: String,
+          quotas: { type: Map, of: Number },
+          pricePaise: Number,
+          discountPercent: Number,
+        },
+        { _id: false }
+      ),
+      default: null,
     },
     status: {
       type: String,
@@ -63,6 +104,7 @@ const paymentSchema = new Schema(
 );
 
 paymentSchema.index({ userId: 1, createdAt: -1 });
+paymentSchema.index({ purpose: 1, status: 1, createdAt: -1 });
 paymentSchema.index({ razorpayPaymentId: 1 }, { sparse: true });
 
 paymentSchema.set('toJSON', {

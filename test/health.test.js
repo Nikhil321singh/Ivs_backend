@@ -29,6 +29,15 @@ describe('public endpoints', () => {
       kycRequired: true,
       ivsCheckCost: PRICING.FEATURES.IVS_CHECK,
       diagnoseCost: PRICING.FEATURES.DIAGNOSE,
+      // Credit packs. The client needs billingMode to know whether to offer
+      // plans or a wallet top-up, and the custom rules to render the fourth
+      // plan card without a round trip.
+      billingMode: 'SUBSCRIPTION',
+      ivsListPricePaise: PRICING.FEATURES.IVS_CHECK * 100,
+      diagnoseListPricePaise: PRICING.FEATURES.DIAGNOSE * 100,
+      customMinIvsCheck: 100,
+      customMinDiagnose: 50,
+      customDiscountPercent: 5,
     });
   });
 

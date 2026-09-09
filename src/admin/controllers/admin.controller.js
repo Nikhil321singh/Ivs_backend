@@ -3,6 +3,7 @@ const { successResponse } = require('../../helpers/apiResponse');
 const httpStatus = require('../../constants/httpStatus');
 const MESSAGES = require('../../constants/messages');
 const adminService = require('../services/admin.service');
+const subscriptionAdminService = require('../services/subscription.admin.service');
 const settingsService = require('../../services/settings.service');
 const notificationService = require('../../services/notification.service');
 const appVersionService = require('../../services/appVersion.service');
@@ -199,6 +200,56 @@ const getStats = asyncHandler(async (req, res) => {
   successResponse(res, httpStatus.OK, MESSAGES.ADMIN.STATS_FETCHED, stats);
 });
 
+/* ---------------------------------------------------------------- *
+ * Credit packs — catalogue, customer credits, revenue.
+ * Everything a customer pays or receives is edited here rather than in
+ * code. See SUBSCRIPTION_DESIGN.md §8.
+ * ---------------------------------------------------------------- */
+
+const listPlans = asyncHandler(async (req, res) => {
+  const data = await subscriptionAdminService.listPlans();
+
+  successResponse(res, httpStatus.OK, MESSAGES.PLAN.FETCHED, data);
+});
+
+const createPlan = asyncHandler(async (req, res) => {
+  const data = await subscriptionAdminService.createPlan(req.body, req.admin._id);
+
+  successResponse(res, httpStatus.CREATED, MESSAGES.PLAN.CREATED, data);
+});
+
+const updatePlan = asyncHandler(async (req, res) => {
+  const data = await subscriptionAdminService.updatePlan(
+    req.params.planId,
+    req.body,
+    req.admin._id
+  );
+
+  successResponse(res, httpStatus.OK, MESSAGES.PLAN.UPDATED, data);
+});
+
+const getUserEntitlement = asyncHandler(async (req, res) => {
+  const data = await subscriptionAdminService.getUserEntitlement(req.params.userId);
+
+  successResponse(res, httpStatus.OK, MESSAGES.ENTITLEMENT.FETCHED, data);
+});
+
+const adjustCredits = asyncHandler(async (req, res) => {
+  const data = await subscriptionAdminService.adjustCredits(
+    req.params.userId,
+    { feature: req.body.feature, delta: req.body.delta, note: req.body.note },
+    req.admin._id
+  );
+
+  successResponse(res, httpStatus.OK, MESSAGES.ENTITLEMENT.ADJUSTED, data);
+});
+
+const listPlanPayments = asyncHandler(async (req, res) => {
+  const data = await subscriptionAdminService.listPlanPayments(req.query);
+
+  successResponse(res, httpStatus.OK, MESSAGES.SUBSCRIPTION.PURCHASES_FETCHED, data);
+});
+
 module.exports = {
   login,
   me,
@@ -215,4 +266,10 @@ module.exports = {
   listAppVersions,
   upsertAppVersion,
   notifyAppUpdate,
+  listPlans,
+  createPlan,
+  updatePlan,
+  getUserEntitlement,
+  adjustCredits,
+  listPlanPayments,
 };

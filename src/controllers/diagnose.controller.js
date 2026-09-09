@@ -5,7 +5,13 @@ const MESSAGES = require('../constants/messages');
 const diagnoseService = require('../services/diagnose.service');
 
 const diagnose = asyncHandler(async (req, res) => {
-  const result = await diagnoseService.runDiagnosis(req.user.id, req.body);
+  // requireFeatureAccess decided which system pays and, for the wallet path,
+  // the exact price it checked against. Both are passed through rather than
+  // re-read, so a setting changed mid-request cannot alter the charge.
+  const result = await diagnoseService.runDiagnosis(req.user.id, req.body, {
+    billingSource: req.billingSource,
+    cost: req.featureCost,
+  });
 
   successResponse(res, httpStatus.OK, MESSAGES.DIAGNOSE.COMPLETED, result);
 });

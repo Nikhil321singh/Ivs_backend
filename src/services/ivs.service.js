@@ -2,6 +2,7 @@ const ImeiVerificationLog = require('../models/ImeiVerificationLog.model');
 const ivsProvider = require('./providers/cdotIvsProvider');
 const { IVS_STATUS } = ivsProvider;
 const PRICING = require('../constants/pricing');
+const { BILLING_SOURCE } = require('../constants/entitlementEnums');
 
 // A definitive CEIR answer is what the customer paid for — mirrors the billing
 // rule in ivs.controller so history rows show the correct "Paid" state.
@@ -58,7 +59,12 @@ const buildSearchFilter = (search) => {
  * The verification result is always returned to the caller even if writing
  * the audit log fails — losing the log entry shouldn't block a checkout.
  */
-const verifyImei = async (userId, { imei1, imei2, deviceModel, customerName }, cost = null) => {
+const verifyImei = async (
+  userId,
+  { imei1, imei2, deviceModel, customerName },
+  cost = null,
+  billingSource = null
+) => {
   const result = await ivsProvider.verifyImei({ imei1, imei2, deviceModel });
 
   try {
@@ -68,6 +74,9 @@ const verifyImei = async (userId, { imei1, imei2, deviceModel, customerName }, c
       // editable: without it, history would re-price old checks at today's
       // rate and tell a user they paid something they did not.
       cost,
+      // Which system paid, so history never re-prices a credit-billed check in
+      // tokens (or a legacy token check in credits).
+      billingSource,
       billable: result.upstreamAnswered === true,
       imei1,
       imei2: imei2 || null,
@@ -117,6 +126,7 @@ const getHistory = async (userId, { page = 1, limit = 20, search } = {}) => {
 
   const items = logs.map((log) => {
     const charged = wasCharged(log);
+    const billedInCredits = log.billingSource === BILLING_SOURCE.ENTITLEMENT;
     return {
       id: log.referenceId,
       referenceId: log.referenceId,
@@ -128,9 +138,13 @@ const getHistory = async (userId, { page = 1, limit = 20, search } = {}) => {
       imei2Status: log.imei2Status || null,
       allowTransaction: log.allowTransaction,
       charged,
+      billingSource: log.billingSource || null,
       // Legacy rows predate the stored cost, so fall back to the default price
-      // they would have been charged at the time.
-      cost: charged ? log.cost ?? PRICING.FEATURES.IVS_CHECK : 0,
+      // they would have been charged at the time. A credit-billed check has no
+      // token price at all — reporting one would invent a charge that never
+      // happened.
+      cost: charged && !billedInCredits ? log.cost ?? PRICING.FEATURES.IVS_CHECK : 0,
+      creditsUsed: charged && billedInCredits ? 1 : 0,
       verifiedAt: log.verifiedAt,
       createdAt: log.createdAt,
     };

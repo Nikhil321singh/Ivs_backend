@@ -9,6 +9,10 @@ const {
   userIdParamValidator,
   sendNotificationValidator,
   campaignIdParamValidator,
+  planIdParamValidator,
+  createPlanValidator,
+  updatePlanValidator,
+  adjustCreditsValidator,
 } = require('../validators/admin.validator');
 const {
   upsertAppVersionValidator,
@@ -448,5 +452,181 @@ router.post(
   validateRequest,
   adminController.notifyAppUpdate
 );
+
+/* ------------------------------------------------------------------ *
+ * Credit packs. See SUBSCRIPTION_DESIGN.md §8 — plans, quantities and
+ * prices are data edited from here, never constants in the codebase.
+ * ------------------------------------------------------------------ */
+
+/**
+ * @openapi
+ * /admin/plans:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Every credit pack, active or not
+ *     description: Each plan is returned with the same computed maths the app sees — effective per-check rate, discount and derived MRP — plus the custom tier's current rules.
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Plans fetched successfully }
+ *   post:
+ *     tags: [Admin]
+ *     summary: Create a credit pack
+ *     description: >
+ *       Rejected with 422 if the price would make this pack cheaper per check
+ *       than the custom tier — that inverts the pricing ladder, making a small
+ *       pack better value than buying in volume. A merely flat ladder succeeds
+ *       and returns `warnings`.
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [code, name, tier, quotas, pricePaise]
+ *             properties:
+ *               code: { type: string, example: "PRO_MAX" }
+ *               name: { type: string, example: "Pro Max" }
+ *               tier: { type: string, enum: [BASIC, PRO, PRO_MAX, CUSTOM] }
+ *               quotas: { type: object, example: { IVS_CHECK: 40, DIAGNOSE: 30 } }
+ *               pricePaise: { type: integer, example: 169900 }
+ *               mrpPaise: { type: integer, description: "Strikethrough anchor. Omit to derive it from the list unit prices." }
+ *               badge: { type: string, example: "Most popular" }
+ *               highlight: { type: boolean }
+ *               sortOrder: { type: integer }
+ *               audience: { type: string, enum: [individual, vendor, all] }
+ *               isActive: { type: boolean }
+ *     responses:
+ *       201: { description: Plan created successfully }
+ *       409: { description: A plan with this code already exists }
+ *       422: { description: The price breaks the pricing ladder }
+ */
+router.get('/plans', adminAuth, adminController.listPlans);
+router.post('/plans', adminAuth, createPlanValidator, validateRequest, adminController.createPlan);
+
+/**
+ * @openapi
+ * /admin/plans/{planId}:
+ *   patch:
+ *     tags: [Admin]
+ *     summary: Edit a credit pack (quantities, price, badge, ordering, active)
+ *     description: >
+ *       Any subset of fields. `code` is not editable — it is the identity seed
+ *       scripts and reports address the plan by. Deactivate with
+ *       `isActive: false` rather than deleting: purchases keep their own
+ *       snapshot, but history views still need the plan to resolve.
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: planId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Plan updated successfully }
+ *       404: { description: Plan not found }
+ *       422: { description: The price breaks the pricing ladder }
+ */
+router.patch(
+  '/plans/:planId',
+  adminAuth,
+  planIdParamValidator,
+  updatePlanValidator,
+  validateRequest,
+  adminController.updatePlan
+);
+
+/**
+ * @openapi
+ * /admin/entitlements/{userId}:
+ *   get:
+ *     tags: [Admin]
+ *     summary: A customer's remaining credits, lifetime stats and recent movements
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Credits fetched successfully }
+ *       404: { description: User not found }
+ */
+router.get(
+  '/entitlements/:userId',
+  adminAuth,
+  userIdParamValidator,
+  validateRequest,
+  adminController.getUserEntitlement
+);
+
+/**
+ * @openapi
+ * /admin/entitlements/{userId}/adjust:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Grant or deduct credits manually
+ *     description: >
+ *       For refunds, goodwill and disputed checks. Never writes the counter
+ *       directly — it goes through the same path as a purchase, writing an
+ *       ADMIN_ADJUSTMENT ledger row stamped with the acting admin and the note.
+ *       The note is required: there is no role separation on admin accounts, so
+ *       this trail is the only control on an operator minting free credits.
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [feature, delta, note]
+ *             properties:
+ *               feature: { type: string, example: "IVS_CHECK" }
+ *               delta: { type: integer, example: 5, description: "Positive grants, negative deducts. Never zero." }
+ *               note: { type: string, example: "Refund for failed check REF-123" }
+ *     responses:
+ *       200: { description: Credits adjusted successfully }
+ *       402: { description: Deduction exceeds the customer's remaining credits }
+ *       404: { description: User not found }
+ */
+router.post(
+  '/entitlements/:userId/adjust',
+  adminAuth,
+  adjustCreditsValidator,
+  validateRequest,
+  adminController.adjustCredits
+);
+
+/**
+ * @openapi
+ * /admin/subscriptions:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Credit pack purchases, with captured revenue over the same filter
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 20, maximum: 100 }
+ *       - in: query
+ *         name: status
+ *         schema: { type: string, enum: [CREATED, PAID, FAILED, REFUNDED] }
+ *       - in: query
+ *         name: planCode
+ *         schema: { type: string, example: "PRO_MAX" }
+ *       - in: query
+ *         name: userId
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Purchases fetched successfully }
+ */
+router.get('/subscriptions', adminAuth, adminController.listPlanPayments);
 
 module.exports = router;

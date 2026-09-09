@@ -6,6 +6,7 @@ const {
   DEVICE_PLATFORM,
 } = require('../../constants/notification');
 const USER_TYPE = require('../../constants/userType');
+const { PLAN_TIER, PLAN_AUDIENCE } = require('../../constants/entitlementEnums');
 
 const loginValidator = [
   body('email')
@@ -173,10 +174,80 @@ const campaignIdParamValidator = [
   param('campaignId').isMongoId().withMessage('A valid campaign id is required.'),
 ];
 
+const planIdParamValidator = [
+  param('planId').isMongoId().withMessage('A valid plan id is required.'),
+];
+
+const createPlanValidator = [
+  body('code').trim().notEmpty().withMessage('code is required.'),
+  body('name').trim().notEmpty().withMessage('name is required.'),
+  body('tier')
+    .isIn(Object.values(PLAN_TIER))
+    .withMessage(`tier must be one of: ${Object.values(PLAN_TIER).join(', ')}.`),
+  body('quotas').isObject().withMessage('quotas must be an object, e.g. { "IVS_CHECK": 20 }.'),
+  body('quotas.*').isInt({ min: 0 }).withMessage('Each quota must be a whole number.').toInt(),
+  body('pricePaise')
+    .isInt({ min: 0 })
+    .withMessage('pricePaise must be a whole number of paise.')
+    .toInt(),
+  body('mrpPaise').optional({ nullable: true }).isInt({ min: 0 }).toInt(),
+  body('badge').optional({ nullable: true }).isString().trim(),
+  body('highlight').optional().isBoolean().toBoolean(),
+  body('sortOrder').optional().isInt().toInt(),
+  body('audience').optional().isIn(Object.values(PLAN_AUDIENCE)),
+  body('validityDays').optional({ nullable: true }).isInt({ min: 1 }).toInt(),
+  body('isActive').optional().isBoolean().toBoolean(),
+];
+
+// Same rules, all optional — a PATCH may carry any subset. `code` is not
+// editable: it is the identity seed scripts and reports address a plan by.
+const updatePlanValidator = [
+  body('name').optional().trim().notEmpty(),
+  body('tier').optional().isIn(Object.values(PLAN_TIER)),
+  body('quotas').optional().isObject(),
+  body('quotas.*').optional().isInt({ min: 0 }).toInt(),
+  body('pricePaise').optional().isInt({ min: 0 }).toInt(),
+  body('mrpPaise').optional({ nullable: true }).isInt({ min: 0 }).toInt(),
+  body('badge').optional({ nullable: true }).isString().trim(),
+  body('highlight').optional().isBoolean().toBoolean(),
+  body('sortOrder').optional().isInt().toInt(),
+  body('audience').optional().isIn(Object.values(PLAN_AUDIENCE)),
+  body('validityDays').optional({ nullable: true }).isInt({ min: 1 }).toInt(),
+  body('isActive').optional().isBoolean().toBoolean(),
+];
+
+/**
+ * `note` is required, not optional politeness. Admin has no role separation, so
+ * the note plus the recorded adminId is the entire audit story for why a
+ * customer's credits changed.
+ */
+const adjustCreditsValidator = [
+  param('userId').isMongoId().withMessage('A valid user id is required.'),
+  body('feature').trim().notEmpty().withMessage('feature is required.'),
+  body('delta')
+    .isInt()
+    .withMessage('delta must be a whole number — positive to grant, negative to deduct.')
+    .toInt()
+    .custom((value) => {
+      if (value === 0) throw new Error('delta cannot be zero.');
+      return true;
+    }),
+  body('note')
+    .trim()
+    .notEmpty()
+    .withMessage('A note is required so the adjustment is explainable later.')
+    .isLength({ max: 500 })
+    .withMessage('note must be 500 characters or fewer.'),
+];
+
 module.exports = {
   loginValidator,
   updateSettingsValidator,
   userIdParamValidator,
   sendNotificationValidator,
   campaignIdParamValidator,
+  planIdParamValidator,
+  createPlanValidator,
+  updatePlanValidator,
+  adjustCreditsValidator,
 };

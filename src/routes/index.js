@@ -3,6 +3,9 @@ const authRoutes = require('./auth.routes');
 const userRoutes = require('./user.routes');
 const ivsRoutes = require('./ivs.routes');
 const walletRoutes = require('./wallet.routes');
+const planRoutes = require('./plan.routes');
+const entitlementRoutes = require('./entitlement.routes');
+const subscriptionRoutes = require('./subscription.routes');
 const referralRoutes = require('./referral.routes');
 const diagnoseRoutes = require('./diagnose.routes');
 const notificationRoutes = require('./notification.routes');
@@ -86,6 +89,11 @@ router.use('/auth', authRoutes);
 router.use('/user', userRoutes);
 router.use('/ivs', ivsRoutes);
 router.use('/wallet', walletRoutes);
+// Credit packs — the catalogue, the customer's credit balance and ledger, and
+// buying. See SUBSCRIPTION_DESIGN.md.
+router.use('/plans', planRoutes);
+router.use('/entitlements', entitlementRoutes);
+router.use('/subscription', subscriptionRoutes);
 router.use('/referral', referralRoutes);
 router.use('/diagnose', diagnoseRoutes);
 router.use('/notifications', notificationRoutes);

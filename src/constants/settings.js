@@ -10,12 +10,19 @@
  * Only mark a key public if leaking its value to any caller is harmless.
  */
 const PRICING = require('./pricing');
+const { BILLING_MODE } = require('./entitlementEnums');
 
 const SETTING_KEYS = Object.freeze({
   AADHAAR_VERIFICATION_ENABLED: 'aadhaarVerificationEnabled',
   KYC_REQUIRED: 'kycRequired',
   IVS_CHECK_COST: 'ivsCheckCost',
   DIAGNOSE_COST: 'diagnoseCost',
+  BILLING_MODE: 'billingMode',
+  IVS_LIST_PRICE_PAISE: 'ivsListPricePaise',
+  DIAGNOSE_LIST_PRICE_PAISE: 'diagnoseListPricePaise',
+  CUSTOM_MIN_IVS_CHECK: 'customMinIvsCheck',
+  CUSTOM_MIN_DIAGNOSE: 'customMinDiagnose',
+  CUSTOM_DISCOUNT_PERCENT: 'customDiscountPercent',
 });
 
 const SETTING_DEFINITIONS = Object.freeze({
@@ -57,6 +64,65 @@ const SETTING_DEFINITIONS = Object.freeze({
     label: 'Device diagnosis price (tokens)',
     description:
       'What one device diagnosis costs. Applies to the next diagnosis run. Set 0 to make the feature free.',
+  },
+  // ---- Credit packs (see SUBSCRIPTION_DESIGN.md) --------------------------
+  [SETTING_KEYS.BILLING_MODE]: {
+    type: 'string',
+    enum: Object.values(BILLING_MODE),
+    default: BILLING_MODE.SUBSCRIPTION,
+    public: true,
+    label: 'Billing mode',
+    description:
+      'SUBSCRIPTION charges paid features against credit packs. WALLET restores the old pay-per-use token wallet. BOTH tries credits first and falls back to tokens — use it during cutover so existing token balances drain instead of stranding.',
+  },
+  [SETTING_KEYS.IVS_LIST_PRICE_PAISE]: {
+    type: 'integer',
+    default: PRICING.FEATURES.IVS_CHECK * 100,
+    min: 0,
+    max: 10000000,
+    public: true,
+    label: 'IMEI check list price (paise)',
+    description:
+      'The a-la-carte price of one IMEI check. Not charged to anyone directly: it is the anchor every pack is measured against, so it sets the strikethrough MRP and the per-check saving shown on each plan card.',
+  },
+  [SETTING_KEYS.DIAGNOSE_LIST_PRICE_PAISE]: {
+    type: 'integer',
+    default: PRICING.FEATURES.DIAGNOSE * 100,
+    min: 0,
+    max: 10000000,
+    public: true,
+    label: 'Device diagnosis list price (paise)',
+    description:
+      'The a-la-carte price of one device diagnosis. Anchor only — see the IMEI list price.',
+  },
+  [SETTING_KEYS.CUSTOM_MIN_IVS_CHECK]: {
+    type: 'integer',
+    default: 100,
+    min: 1,
+    max: 100000,
+    public: true,
+    label: 'Custom plan minimum — IMEI checks',
+    description:
+      'Fewest IMEI checks a customer may buy on the custom tier. Below this the order is refused and the app is told the minimum.',
+  },
+  [SETTING_KEYS.CUSTOM_MIN_DIAGNOSE]: {
+    type: 'integer',
+    default: 50,
+    min: 1,
+    max: 100000,
+    public: true,
+    label: 'Custom plan minimum — diagnoses',
+    description: 'Fewest device diagnoses a customer may buy on the custom tier.',
+  },
+  [SETTING_KEYS.CUSTOM_DISCOUNT_PERCENT]: {
+    type: 'integer',
+    default: 5,
+    min: 0,
+    max: 90,
+    public: true,
+    label: 'Custom plan discount (%)',
+    description:
+      'Taken off the Pro Max per-check rate, NOT off the list price — that is what keeps the custom tier structurally the cheapest per check however the packs are repriced.',
   },
 });
 
