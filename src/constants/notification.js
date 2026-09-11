@@ -23,6 +23,9 @@ const NOTIFICATION_TYPE = Object.freeze({
   WALLET: 'WALLET',
   KYC: 'KYC',
   IVS: 'IVS',
+  // Bidding: outbid, auction won, auction lost, your listing sold. `data`
+  // carries auctionId so the app can deep-link straight to the listing.
+  AUCTION: 'AUCTION',
   // Operational notices: maintenance windows, policy changes.
   SYSTEM: 'SYSTEM',
 });

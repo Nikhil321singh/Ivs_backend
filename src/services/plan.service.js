@@ -33,6 +33,7 @@ const MESSAGES = require('../constants/messages');
 const LIST_PRICE_KEYS = Object.freeze({
   IVS_CHECK: SETTING_KEYS.IVS_LIST_PRICE_PAISE,
   DIAGNOSE: SETTING_KEYS.DIAGNOSE_LIST_PRICE_PAISE,
+  AUCTION_LISTING: SETTING_KEYS.AUCTION_LISTING_LIST_PRICE_PAISE,
 });
 
 /** Mongoose Map | plain object → plain object of positive integers. */
@@ -197,11 +198,16 @@ const quoteCustom = async (quantities) => {
   const pricePaise = quotePaise(requested, ratio, settings);
   const mrpPaise = listTotalPaise(requested, settings);
 
+  // Drop the features the customer asked for none of, so a quote (and the
+  // snapshot built from it) never carries a zero-quantity line that a receipt
+  // would render as "0 auction listings".
+  const quotas = Object.fromEntries(Object.entries(requested).filter(([, qty]) => qty > 0));
+
   return {
     tier: PLAN_TIER.CUSTOM,
     code: PLAN_TIER.CUSTOM,
     name: 'Custom plan',
-    quotas: requested,
+    quotas,
     pricePaise,
     priceInr: pricePaise / 100,
     mrpPaise,
@@ -209,7 +215,7 @@ const quoteCustom = async (quantities) => {
     savingPaise: Math.max(0, mrpPaise - pricePaise),
     discountPercent: Math.round((1 - ratio) * 100),
     rates: Object.fromEntries(
-      Object.keys(requested).map((feature) => [
+      Object.keys(quotas).map((feature) => [
         feature,
         Math.round(listPriceFor(feature, settings) * ratio),
       ])

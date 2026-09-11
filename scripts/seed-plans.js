@@ -30,8 +30,8 @@ const PLANS = [
     code: 'BASIC',
     name: 'Basic',
     tier: PLAN_TIER.BASIC,
-    quotas: { IVS_CHECK: 20, DIAGNOSE: 10 },
-    pricePaise: 79900, // ₹799  (list ₹880  → ~9% off)
+    quotas: { IVS_CHECK: 20, DIAGNOSE: 10, AUCTION_LISTING: 5 },
+    pricePaise: 79900, // ₹799
     sortOrder: 1,
     audience: PLAN_AUDIENCE.ALL,
   },
@@ -39,8 +39,8 @@ const PLANS = [
     code: 'PRO',
     name: 'Pro',
     tier: PLAN_TIER.PRO,
-    quotas: { IVS_CHECK: 30, DIAGNOSE: 20 },
-    pricePaise: 129900, // ₹1,299 (list ₹1,570 → ~17% off)
+    quotas: { IVS_CHECK: 30, DIAGNOSE: 20, AUCTION_LISTING: 15 },
+    pricePaise: 129900, // ₹1,299
     badge: 'Most popular',
     highlight: true,
     sortOrder: 2,
@@ -50,8 +50,8 @@ const PLANS = [
     code: 'PRO_MAX',
     name: 'Pro Max',
     tier: PLAN_TIER.PRO_MAX,
-    quotas: { IVS_CHECK: 40, DIAGNOSE: 30 },
-    pricePaise: 169900, // ₹1,699 (list ₹2,260 → ~25% off) — the custom anchor
+    quotas: { IVS_CHECK: 40, DIAGNOSE: 30, AUCTION_LISTING: 30 },
+    pricePaise: 169900, // ₹1,699 — the anchor the custom tier is priced from
     badge: 'Best value',
     sortOrder: 3,
     audience: PLAN_AUDIENCE.ALL,

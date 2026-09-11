@@ -4,6 +4,7 @@ const httpStatus = require('../../constants/httpStatus');
 const MESSAGES = require('../../constants/messages');
 const adminService = require('../services/admin.service');
 const subscriptionAdminService = require('../services/subscription.admin.service');
+const auctionAdminService = require('../services/auction.admin.service');
 const settingsService = require('../../services/settings.service');
 const notificationService = require('../../services/notification.service');
 const appVersionService = require('../../services/appVersion.service');
@@ -250,6 +251,45 @@ const listPlanPayments = asyncHandler(async (req, res) => {
   successResponse(res, httpStatus.OK, MESSAGES.SUBSCRIPTION.PURCHASES_FETCHED, data);
 });
 
+/* ---------------------------------------------------------------- *
+ * Auctions. Read-only visibility, plus the one write an operator
+ * genuinely needs: taking a listing down.
+ * ---------------------------------------------------------------- */
+
+const listAuctions = asyncHandler(async (req, res) => {
+  const data = await auctionAdminService.listAuctions(req.query);
+
+  successResponse(res, httpStatus.OK, MESSAGES.AUCTION.LIST_FETCHED, data);
+});
+
+const getAuctionDetail = asyncHandler(async (req, res) => {
+  const data = await auctionAdminService.getAuction(req.params.auctionId);
+
+  successResponse(res, httpStatus.OK, MESSAGES.AUCTION.FETCHED, data);
+});
+
+const getAuctionBids = asyncHandler(async (req, res) => {
+  const data = await auctionAdminService.getBids(req.params.auctionId, req.query);
+
+  successResponse(res, httpStatus.OK, MESSAGES.BID.HISTORY_FETCHED, data);
+});
+
+const takeDownAuction = asyncHandler(async (req, res) => {
+  const auction = await auctionAdminService.takeDown(
+    req.params.auctionId,
+    { reason: req.body.reason },
+    req.admin._id
+  );
+
+  successResponse(res, httpStatus.OK, MESSAGES.AUCTION.CANCELLED, { auction });
+});
+
+const getAuctionStats = asyncHandler(async (req, res) => {
+  const stats = await auctionAdminService.getStats();
+
+  successResponse(res, httpStatus.OK, MESSAGES.ADMIN.STATS_FETCHED, stats);
+});
+
 module.exports = {
   login,
   me,
@@ -272,4 +312,9 @@ module.exports = {
   getUserEntitlement,
   adjustCredits,
   listPlanPayments,
+  listAuctions,
+  getAuctionDetail,
+  getAuctionBids,
+  takeDownAuction,
+  getAuctionStats,
 };

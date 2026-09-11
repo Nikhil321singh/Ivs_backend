@@ -240,6 +240,25 @@ const adjustCreditsValidator = [
     .withMessage('note must be 500 characters or fewer.'),
 ];
 
+const adminAuctionIdParamValidator = [
+  param('auctionId').isMongoId().withMessage('A valid auction id is required.'),
+];
+
+/**
+ * `reason` is required. Taking a seller's listing down — possibly mid-auction,
+ * with bidders committed — is not something an operator should be able to do
+ * without leaving a record of why.
+ */
+const takeDownAuctionValidator = [
+  ...adminAuctionIdParamValidator,
+  body('reason')
+    .trim()
+    .notEmpty()
+    .withMessage('A reason is required to take a listing down.')
+    .isLength({ max: 500 })
+    .withMessage('reason must be 500 characters or fewer.'),
+];
+
 module.exports = {
   loginValidator,
   updateSettingsValidator,
@@ -250,4 +269,6 @@ module.exports = {
   createPlanValidator,
   updatePlanValidator,
   adjustCreditsValidator,
+  adminAuctionIdParamValidator,
+  takeDownAuctionValidator,
 };

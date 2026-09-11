@@ -62,6 +62,13 @@ const paymentSchema = new Schema(
       ref: 'Plan',
       default: null,
     },
+    // The auction being paid for. Only set when purpose is AUCTION — this is a
+    // winning bidder paying the seller's price, not a purchase from us.
+    auctionId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Auction',
+      default: null,
+    },
     /**
      * What was actually sold, frozen at purchase time — this, never the live
      * Plan document, is what gets credited on PAID.

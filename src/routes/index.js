@@ -6,6 +6,7 @@ const walletRoutes = require('./wallet.routes');
 const planRoutes = require('./plan.routes');
 const entitlementRoutes = require('./entitlement.routes');
 const subscriptionRoutes = require('./subscription.routes');
+const auctionRoutes = require('./auction.routes');
 const referralRoutes = require('./referral.routes');
 const diagnoseRoutes = require('./diagnose.routes');
 const notificationRoutes = require('./notification.routes');
@@ -94,6 +95,9 @@ router.use('/wallet', walletRoutes);
 router.use('/plans', planRoutes);
 router.use('/entitlements', entitlementRoutes);
 router.use('/subscription', subscriptionRoutes);
+// Device bidding. Listing and bidding require KYC; winner payments run through
+// the shared wallet webhook. See AUCTION_DESIGN.md.
+router.use('/auctions', auctionRoutes);
 router.use('/referral', referralRoutes);
 router.use('/diagnose', diagnoseRoutes);
 router.use('/notifications', notificationRoutes);

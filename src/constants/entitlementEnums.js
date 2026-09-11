@@ -19,6 +19,7 @@ const ENTITLEMENT_REF_TYPE = Object.freeze({
   PAYMENT: 'PAYMENT',
   IVS_CHECK: 'IVS_CHECK',
   DIAGNOSE: 'DIAGNOSE',
+  AUCTION_LISTING: 'AUCTION_LISTING',
 });
 
 const PLAN_TIER = Object.freeze({
@@ -43,6 +44,7 @@ const PLAN_AUDIENCE = Object.freeze({
 const PAYMENT_PURPOSE = Object.freeze({
   TOPUP: 'TOPUP', // money into the token wallet (the legacy model)
   PLAN: 'PLAN', // a credit pack purchase
+  AUCTION: 'AUCTION', // a winning bidder paying for the device they won
 });
 
 /**

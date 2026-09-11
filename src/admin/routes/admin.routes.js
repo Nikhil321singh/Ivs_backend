@@ -13,6 +13,8 @@ const {
   createPlanValidator,
   updatePlanValidator,
   adjustCreditsValidator,
+  adminAuctionIdParamValidator,
+  takeDownAuctionValidator,
 } = require('../validators/admin.validator');
 const {
   upsertAppVersionValidator,
@@ -628,5 +630,127 @@ router.post(
  *       200: { description: Purchases fetched successfully }
  */
 router.get('/subscriptions', adminAuth, adminController.listPlanPayments);
+
+/* ------------------------------------------------------------------ *
+ * Auctions. Read-only, except taking a listing down — an admin cannot
+ * bid, reprice, or choose a winner. See AUCTION_DESIGN.md.
+ * ------------------------------------------------------------------ */
+
+/**
+ * @openapi
+ * /admin/auctions:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Every auction, including drafts customers never see
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema: { type: string, example: "LIVE,PAYMENT_PENDING" }
+ *       - in: query
+ *         name: sellerId
+ *         schema: { type: string }
+ *       - in: query
+ *         name: search
+ *         schema: { type: string }
+ *         description: Matches brand, model or IMEI.
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 20, maximum: 100 }
+ *     responses:
+ *       200: { description: Auctions fetched successfully }
+ */
+router.get('/auctions', adminAuth, adminController.listAuctions);
+
+/**
+ * @openapi
+ * /admin/auctions/stats:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Auction dashboard counters
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Stats fetched successfully }
+ */
+router.get('/auctions/stats', adminAuth, adminController.getAuctionStats);
+
+/**
+ * @openapi
+ * /admin/auctions/{auctionId}:
+ *   get:
+ *     tags: [Admin]
+ *     summary: One auction with its seller, winner and recent bids
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: auctionId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Auction fetched successfully }
+ *       404: { description: Auction not found }
+ */
+router.get(
+  '/auctions/:auctionId',
+  adminAuth,
+  adminAuctionIdParamValidator,
+  validateRequest,
+  adminController.getAuctionDetail
+);
+
+/**
+ * @openapi
+ * /admin/auctions/{auctionId}/bids:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Full bid history with bidders identified
+ *     description: Unlike the customer-facing history, which shows first names only, this identifies every bidder — it is the view for investigating shill bidding.
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Bid history fetched successfully }
+ */
+router.get(
+  '/auctions/:auctionId/bids',
+  adminAuth,
+  adminAuctionIdParamValidator,
+  validateRequest,
+  adminController.getAuctionBids
+);
+
+/**
+ * @openapi
+ * /admin/auctions/{auctionId}/takedown:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Remove a listing, even one with live bids
+ *     description: >
+ *       For a stolen handset, a fraudulent listing or an abusive description.
+ *       Unlike the seller's own cancel this works mid-auction, which is the
+ *       point — but everyone who bid is notified, and the reason is recorded.
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [reason]
+ *             properties:
+ *               reason: { type: string, example: "IMEI reported stolen by CEIR" }
+ *     responses:
+ *       200: { description: Auction removed successfully }
+ *       409: { description: Auction is already closed }
+ *       422: { description: A reason is required }
+ */
+router.post(
+  '/auctions/:auctionId/takedown',
+  adminAuth,
+  takeDownAuctionValidator,
+  validateRequest,
+  adminController.takeDownAuction
+);
 
 module.exports = router;

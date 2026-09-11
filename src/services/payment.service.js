@@ -1,7 +1,9 @@
 const Payment = require('../models/Payment.model');
+const Auction = require('../models/Auction.model');
 const razorpay = require('./providers/razorpayProvider');
 const walletService = require('./wallet.service');
 const entitlementService = require('./entitlement.service');
+const auctionSale = require('./auctionSale.service');
 const referralService = require('./referral.service');
 const PRICING = require('../constants/pricing');
 const settingsService = require('./settings.service');
@@ -89,9 +91,12 @@ const createTopupOrder = async (userId, amountInr) => {
  * whichever arrives first does the work and the other is a no-op.
  *
  * What "fulfil" means depends on what was bought: a PLAN grants credits from
- * the snapshot frozen at order time, a TOPUP credits tokens to the wallet.
- * Everything after that — the referral payout — is common to both, because
- * either one is a real paid purchase.
+ * the snapshot frozen at order time, a TOPUP credits tokens to the wallet, and
+ * an AUCTION completes a sale between two users.
+ *
+ * The referral payout that follows applies to PLAN and TOPUP only. An auction
+ * payment is a buyer paying a seller, not a purchase from us, so it must not
+ * trigger a reward — and it must not credit anything to the payer's wallet.
  */
 const creditForPayment = async (payment, { paymentId, signature }) => {
   const claimed = await Payment.findOneAndUpdate(
@@ -107,6 +112,13 @@ const creditForPayment = async (payment, { paymentId, signature }) => {
   if (!claimed) {
     // Already processed by the other path — return current state.
     return Payment.findById(payment._id);
+  }
+
+  if (claimed.purpose === PAYMENT_PURPOSE.AUCTION) {
+    // A sale between two users. Nothing is credited to anyone's balance — the
+    // auction simply becomes SOLD, and both sides are told.
+    await auctionSale.completeSale(claimed);
+    return claimed;
   }
 
   if (claimed.purpose === PAYMENT_PURPOSE.PLAN) {
@@ -207,6 +219,15 @@ const verifyPayment = async (userId, { orderId, paymentId, signature }) => {
   if (updated.purpose === PAYMENT_PURPOSE.PLAN) {
     const { credits } = await entitlementService.getSummary(userId);
     return { payment: updated, credits };
+  }
+
+  if (updated.purpose === PAYMENT_PURPOSE.AUCTION) {
+    // Nothing was credited to a balance — the useful answer is the sale itself.
+    const auction = await Auction.findById(updated.auctionId).lean();
+    return {
+      payment: updated,
+      auction: auction ? { id: String(auction._id), status: auction.status } : null,
+    };
   }
 
   return { payment: updated, balance: await walletService.getBalance(userId) };

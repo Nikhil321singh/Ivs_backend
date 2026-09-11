@@ -1,4 +1,5 @@
 const { getStorageProvider } = require('./providers/storageProvider');
+const env = require('../config/env');
 
 /**
  * Storage-agnostic profile-image operations. Delegates to whichever backend
@@ -28,12 +29,34 @@ const uploadBusinessProofImage = async (buffer, userId, contentType) => {
 };
 
 /**
- * Deletes a previously uploaded image (profile or business proof) by its stored
- * public_id. No-op for a falsy id.
+ * Uploads one auction device photo.
+ *
+ * Unlike the two above, the publicId is NOT deterministic: a listing carries
+ * several photos and the seller adds and removes them independently, so each
+ * needs its own object. The caller supplies a unique id and stores the returned
+ * publicId on the photo, which is what makes deleting that one photo possible.
+ */
+const uploadAuctionPhoto = async (buffer, publicId, contentType) => {
+  const storage = getStorageProvider();
+  return storage.uploadImage(buffer, {
+    folder: env.storage.auctionFolder,
+    publicId,
+    contentType,
+  });
+};
+
+/**
+ * Deletes a previously uploaded image (profile, business proof or auction
+ * photo) by its stored public_id. No-op for a falsy id.
  */
 const deleteProfileImage = async (publicId) => {
   const storage = getStorageProvider();
   await storage.deleteImage(publicId);
 };
 
-module.exports = { uploadProfileImage, uploadBusinessProofImage, deleteProfileImage };
+module.exports = {
+  uploadProfileImage,
+  uploadBusinessProofImage,
+  uploadAuctionPhoto,
+  deleteProfileImage,
+};
