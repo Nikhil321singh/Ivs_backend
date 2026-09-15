@@ -29,6 +29,28 @@ describe('public endpoints', () => {
       kycRequired: true,
       ivsCheckCost: PRICING.FEATURES.IVS_CHECK,
       diagnoseCost: PRICING.FEATURES.DIAGNOSE,
+      // Credit packs. The client needs billingMode to know whether to offer
+      // plans or a wallet top-up, and the custom rules to render the fourth
+      // plan card without a round trip.
+      billingMode: 'SUBSCRIPTION',
+      ivsListPricePaise: PRICING.FEATURES.IVS_CHECK * 100,
+      diagnoseListPricePaise: PRICING.FEATURES.DIAGNOSE * 100,
+      customMinIvsCheck: 100,
+      customMinDiagnose: 50,
+      customDiscountPercent: 5,
+      // Auctions. The client needs the listing price, the duration and photo
+      // limits to validate a draft before submitting it, and the anti-sniping
+      // rules to explain why an end time moved.
+      auctionListingCost: PRICING.FEATURES.AUCTION_LISTING,
+      auctionListingListPricePaise: PRICING.FEATURES.AUCTION_LISTING * 100,
+      auctionMinDurationMinutes: 15,
+      auctionMaxDurationDays: 14,
+      auctionMaxPhotos: 8,
+      auctionAntiSnipeEnabled: true,
+      auctionAntiSnipeWindowSeconds: 120,
+      auctionAntiSnipeExtendSeconds: 120,
+      auctionPaymentWindowHours: 48,
+      auctionRequireDiagnosis: false,
     });
   });
 

@@ -327,9 +327,20 @@ const env = {
   // today); swap it and add the matching credentials block to change backends
   // with no code changes. See services/providers/storageProvider.js for the
   // driver contract.
+  // Auctions. The sweep closes finished auctions and lapses unpaid sales; how
+  // often it runs only affects how promptly a winner is told, never whether a
+  // bid can land on a closed auction (that is enforced per request).
+  auction: {
+    sweepIntervalMs: parseInt(process.env.AUCTION_SWEEP_INTERVAL_MS || '30000', 10),
+  },
+
   storage: {
     driver: process.env.STORAGE_DRIVER || 's3',
     imageFolder: process.env.STORAGE_IMAGE_FOLDER || 'ivs/profile',
+    // Auction device photos live under their own prefix: they are public
+    // listing images with a different lifecycle to profile/KYC pictures, and
+    // keeping them apart means a bucket policy can treat them differently.
+    auctionFolder: process.env.STORAGE_AUCTION_FOLDER || 'ivs/auctions',
   },
 
   // AWS S3 (used when STORAGE_DRIVER=s3 — the default). No static access keys:

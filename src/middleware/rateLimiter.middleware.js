@@ -166,6 +166,18 @@ const imeiVerificationLimiter = buildLimiter({
   skip: skipUnidentified,
 });
 
+// Bidding is cheap for us to serve but easy to abuse: a script placing the
+// minimum increment hundreds of times is how an auction gets walked up without
+// anyone intending to pay. Generous enough for a real bidding war, tight enough
+// that a bot is throttled. Mounted after authenticate, so it is keyed per user.
+const bidLimiter = buildLimiter({
+  windowMs: intFromEnv('RATE_LIMIT_BID_WINDOW_MIN', 1) * MINUTE,
+  max: intFromEnv('RATE_LIMIT_BID_MAX', 20),
+  message: 'Too many bids in a short time. Please slow down and try again.',
+  keyGenerator: identityKeyOnly,
+  skip: skipUnidentified,
+});
+
 // Admin login is a password endpoint, so it's the one place brute force is
 // worth paying for. Keyed on the email being attempted, so guessing one
 // account's password is capped no matter where the attempts come from.
@@ -182,6 +194,7 @@ module.exports = {
   otpSendLimiter,
   otpVerifyLimiter,
   imeiVerificationLimiter,
+  bidLimiter,
   adminLoginLimiter,
   limitsDisabled,
   // Exported for tests — these carry the logic worth asserting on.

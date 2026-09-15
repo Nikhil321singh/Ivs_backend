@@ -95,6 +95,9 @@ describe('admin data views', () => {
   });
 
   it('lists IMEI checks made by users', async () => {
+    // The check only has to happen; how it was billed is beside the point here,
+    // so use the wallet path this fixture already funds.
+    await settings.update({ billingMode: 'WALLET' });
     const { token: userToken } = await createFundedUser(500);
     stubCdot('355301083783251', 'non-blocked');
     await asUser(userToken).post('/api/v1/ivs/verify').send({ imei1: '355301083783251' });

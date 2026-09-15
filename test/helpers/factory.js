@@ -7,7 +7,11 @@ const request = require('supertest');
 const app = require('../../src/app');
 const User = require('../../src/models/User.model');
 const Wallet = require('../../src/models/Wallet.model');
+const Entitlement = require('../../src/models/Entitlement.model');
+const Plan = require('../../src/models/Plan.model');
+const Auction = require('../../src/models/Auction.model');
 const Admin = require('../../src/admin/models/Admin.model');
+const { AUCTION_STATUS } = require('../../src/constants/auctionEnums');
 const { generateAccessToken } = require('../../src/utils/jwt.util');
 const { hashPassword } = require('../../src/admin/utils/password.util');
 
@@ -40,6 +44,91 @@ const createFundedUser = async (balance = 500, overrides = {}) => {
   return created;
 };
 
+/**
+ * A user holding credits, for the credit-pack billing path. Writes the counters
+ * directly rather than going through a purchase — the purchase flow has its own
+ * specs, and a fixture that depended on it would fail twice for one bug.
+ */
+const createCreditedUser = async (credits = { IVS_CHECK: 5, DIAGNOSE: 5 }, overrides = {}) => {
+  const created = await createUser(overrides);
+  await Entitlement.findOneAndUpdate(
+    { userId: created.user._id },
+    { userId: created.user._id, credits },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
+  return created;
+};
+
+/** The three catalogue packs, priced so the ladder validates. */
+const seedPlans = async () => {
+  await Plan.create([
+    {
+      code: 'BASIC',
+      name: 'Basic',
+      tier: 'BASIC',
+      quotas: { IVS_CHECK: 20, DIAGNOSE: 10 },
+      pricePaise: 79900,
+      sortOrder: 1,
+    },
+    {
+      code: 'PRO',
+      name: 'Pro',
+      tier: 'PRO',
+      quotas: { IVS_CHECK: 30, DIAGNOSE: 20 },
+      pricePaise: 129900,
+      badge: 'Most popular',
+      highlight: true,
+      sortOrder: 2,
+    },
+    {
+      code: 'PRO_MAX',
+      name: 'Pro Max',
+      tier: 'PRO_MAX',
+      quotas: { IVS_CHECK: 40, DIAGNOSE: 30 },
+      pricePaise: 169900,
+      sortOrder: 3,
+    },
+  ]);
+};
+
+/**
+ * A seller or bidder: KYC complete (auctions require it) and holding listing
+ * credits. Overrides are merged onto the user, so `{ kycCompleted: false }`
+ * makes one that should be refused.
+ */
+const createAuctionUser = async (overrides = {}, credits = { AUCTION_LISTING: 5 }) => {
+  const created = await createUser({ name: 'Test Seller', kycCompleted: true, ...overrides });
+  await Entitlement.findOneAndUpdate(
+    { userId: created.user._id },
+    { userId: created.user._id, credits },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
+  return created;
+};
+
+/**
+ * An auction inserted straight into the collection, bypassing the draft →
+ * photos → publish flow. Bidding specs are about the bid rules, and routing
+ * every one of them through an S3 photo upload would test the wrong thing.
+ */
+const createLiveAuction = async (sellerId, overrides = {}) => {
+  const now = Date.now();
+
+  return Auction.create({
+    sellerId,
+    status: AUCTION_STATUS.LIVE,
+    device: { brand: 'Apple', model: 'iPhone 13', storageGb: 128, color: 'Midnight' },
+    condition: 'GOOD',
+    photos: [{ url: 'https://example.test/p.jpg', publicId: 'auctions/p.jpg' }],
+    startPricePaise: 1000000, // ₹10,000
+    bidIncrementPaise: 50000, // ₹500
+    startAt: new Date(now - 60 * 1000),
+    endAt: new Date(now + 60 * 60 * 1000),
+    originalEndAt: new Date(now + 60 * 60 * 1000),
+    ...overrides,
+  });
+};
+
 const createAdmin = async (password = 'admin-test-password') => {
   const admin = await Admin.create({
     email: `admin${(counter += 1)}@test.local`,
@@ -63,6 +152,11 @@ const asUser = (token) => ({
   delete: (path) => request(app).delete(path).set('Authorization', `Bearer ${token}`),
 });
 
+const creditsOf = async (userId, feature) => {
+  const entitlement = await Entitlement.findOne({ userId });
+  return entitlement?.credits?.get(feature) ?? 0;
+};
+
 const balanceOf = async (userId) => {
   const wallet = await Wallet.findOne({ userId });
   return wallet ? wallet.balance : 0;
@@ -74,7 +168,12 @@ module.exports = {
   uniqueMobile,
   createUser,
   createFundedUser,
+  createCreditedUser,
+  createAuctionUser,
+  createLiveAuction,
+  seedPlans,
   createAdmin,
   asUser,
   balanceOf,
+  creditsOf,
 };
