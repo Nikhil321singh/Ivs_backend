@@ -19,7 +19,12 @@ const updateAuction = asyncHandler(async (req, res) => {
 });
 
 const addPhotos = asyncHandler(async (req, res) => {
-  const auction = await auctionService.addPhotos(req.user.id, req.params.auctionId, req.files);
+  // Two ways in: a multipart upload (server uploads to S3), or a JSON list of
+  // photos the client already uploaded straight to S3 (see api/media.js).
+  // Prefer the JSON path when a photos array is present.
+  const auction = Array.isArray(req.body?.photos)
+    ? await auctionService.attachUploadedPhotos(req.user.id, req.params.auctionId, req.body.photos)
+    : await auctionService.addPhotos(req.user.id, req.params.auctionId, req.files);
 
   successResponse(res, httpStatus.CREATED, MESSAGES.AUCTION.PHOTOS_ADDED, { auction });
 });

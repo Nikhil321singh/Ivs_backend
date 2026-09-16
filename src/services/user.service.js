@@ -134,7 +134,7 @@ const assertFieldNotTaken = async (field, value, excludeUserId, conflictMessage)
  */
 const completeKyc = async (
   userId,
-  { userType, name, phone, companyName, email, panNumber, gstNumber, aadhaarNumber, businessProofType },
+  { userType, name, phone, companyName, address, email, panNumber, gstNumber, aadhaarNumber, businessProofType },
   { profileImage, businessProofImage } = {}
 ) => {
   const user = await getUserById(userId);
@@ -166,6 +166,7 @@ const completeKyc = async (
   set('phone', phone);
   set('email', email);
   set('panNumber', panNumber);
+  set('address', address);
 
   // Profile photo applies to BOTH types — a vendor's owner photo and an
   // individual's profile photo are the same field. Persist it in the common
@@ -248,7 +249,7 @@ const skipKyc = async (userId) => {
   return user;
 };
 
-const updateProfile = async (userId, { name, companyName, email }, profileImage) => {
+const updateProfile = async (userId, { name, companyName, email, address }, profileImage) => {
   const user = await getUserById(userId);
 
   await assertFieldNotTaken('email', email, userId, MESSAGES.USER.EMAIL_ALREADY_EXISTS);
@@ -256,6 +257,7 @@ const updateProfile = async (userId, { name, companyName, email }, profileImage)
   if (name !== undefined) user.name = name;
   if (companyName !== undefined) user.companyName = companyName;
   if (email !== undefined) user.email = email;
+  if (address !== undefined) user.address = address;
   if (profileImage) {
     user.profileImage = profileImage.url;
     user.profileImagePublicId = profileImage.publicId;

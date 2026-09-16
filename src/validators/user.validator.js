@@ -100,6 +100,11 @@ const strictKycChain = [
     .trim()
     .isLength({ min: 2, max: 150 })
     .withMessage('Business name must be between 2 and 150 characters.'),
+  body('address')
+    .optional({ checkFalsy: true })
+    .trim()
+    .isLength({ min: 5, max: 250 })
+    .withMessage('Address must be between 5 and 250 characters.'),
   body('gstNumber')
     .optional({ checkFalsy: true })
     .trim()
@@ -141,6 +146,11 @@ const relaxedKycChain = [
     .trim()
     .isLength({ min: 2, max: 150 })
     .withMessage('Company name must be between 2 and 150 characters.'),
+  body('address')
+    .optional({ checkFalsy: true })
+    .trim()
+    .isLength({ min: 5, max: 250 })
+    .withMessage('Address must be between 5 and 250 characters.'),
   body('phone')
     .optional({ checkFalsy: true })
     .trim()
@@ -216,6 +226,11 @@ const updateProfileValidator = [
     .isEmail()
     .withMessage('Please provide a valid email address.')
     .normalizeEmail(),
+  body('address')
+    .optional({ checkFalsy: true })
+    .trim()
+    .isLength({ min: 5, max: 250 })
+    .withMessage('Address must be between 5 and 250 characters.'),
 ];
 
 // Same reasoning as the customer/IVS pair in ivs.validator.js: while the

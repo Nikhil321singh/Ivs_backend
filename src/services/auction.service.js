@@ -261,6 +261,48 @@ const addPhotos = async (userId, auctionId, files) => {
   return decorate(auction, { viewerId: userId });
 };
 
+/**
+ * Attach photos the client already uploaded straight to S3 (the same
+ * browser→S3 path the app uses for profile and device photos — see the web
+ * app's api/media.js). The client sends the resulting public URLs; the server
+ * stays the source of truth for which photos belong to the listing, and the
+ * same DRAFT-only + max-count rules as the multipart path apply.
+ */
+const attachUploadedPhotos = async (userId, auctionId, photos) => {
+  const auction = await loadOwned(userId, auctionId);
+
+  if (auction.status !== AUCTION_STATUS.DRAFT) {
+    throw new ApiError(httpStatus.CONFLICT, MESSAGES.AUCTION.NOT_EDITABLE);
+  }
+  if (!Array.isArray(photos) || photos.length === 0) {
+    throw new ApiError(httpStatus.UNPROCESSABLE_ENTITY, MESSAGES.AUCTION.NO_FILES);
+  }
+  if (!photos.every((p) => p && typeof p.url === 'string' && /^https?:\/\//.test(p.url))) {
+    throw new ApiError(httpStatus.UNPROCESSABLE_ENTITY, MESSAGES.AUCTION.NO_FILES, [
+      { field: 'photos', message: 'Each photo needs a valid url.' },
+    ]);
+  }
+
+  const maxPhotos = await settingsService.get(SETTING_KEYS.AUCTION_MAX_PHOTOS);
+  if (auction.photos.length + photos.length > maxPhotos) {
+    throw new ApiError(httpStatus.BAD_REQUEST, MESSAGES.AUCTION.TOO_MANY_PHOTOS, [
+      { field: 'photos', message: `A listing may carry at most ${maxPhotos} photos.`, current: auction.photos.length, max: maxPhotos },
+    ]);
+  }
+
+  const toAttach = photos.map((p) => ({
+    url: p.url,
+    // The S3 object key, kept so the file can be deleted later. Falls back to a
+    // generated id if the client didn't send one.
+    publicId: p.key || p.publicId || `${auction._id}-${crypto.randomBytes(6).toString('hex')}`,
+  }));
+
+  auction.photos.push(...toAttach);
+  await auction.save();
+
+  return decorate(auction, { viewerId: userId });
+};
+
 const removePhoto = async (userId, auctionId, photoId) => {
   const auction = await loadOwned(userId, auctionId);
 
@@ -613,6 +655,7 @@ module.exports = {
   create,
   update,
   addPhotos,
+  attachUploadedPhotos,
   removePhoto,
   publish,
   cancel,
