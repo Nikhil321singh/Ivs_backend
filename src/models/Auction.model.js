@@ -73,6 +73,33 @@ const auctionSchema = new Schema(
     conditionNotes: { type: String, default: null, trim: true },
     photos: { type: [photoSchema], default: [] },
 
+    // Snapshot of the Grest diagnostic report as run through the external c2b
+    // flow during the Sell wizard. Unlike the DiagnoseSession reference below,
+    // that diagnosis lives in a separate vendor system with no row here to point
+    // at — so the grade + per-test results are copied onto the listing so buyers
+    // can see "Diagnosed by Grest" with the full report on the bid-detail screen.
+    diagnosisReport: {
+      type: new Schema(
+        {
+          grade: { type: String, default: null },
+          estimatedValueInr: { type: Number, default: null },
+          imei: { type: String, default: null },
+          // Blancco device "properties" — modelName / storage / serial /
+          // osVersion. Mixed so a new property key never breaks the write.
+          properties: { type: Schema.Types.Mixed, default: null },
+          passed: { type: Number, default: 0 },
+          failed: { type: Number, default: 0 },
+          total: { type: Number, default: 0 },
+          tests: {
+            type: [new Schema({ name: String, result: String }, { _id: false })],
+            default: [],
+          },
+        },
+        { _id: false }
+      ),
+      default: null,
+    },
+
     /* ---- provenance: references to the systems that already exist ------- */
     diagnoseSessionId: {
       type: Schema.Types.ObjectId,

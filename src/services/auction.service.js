@@ -44,6 +44,7 @@ const EDITABLE_FIELDS = [
   'device',
   'condition',
   'conditionNotes',
+  'diagnosisReport',
   'diagnoseSessionId',
   'imeiVerificationId',
   'startPricePaise',
@@ -85,7 +86,10 @@ const decorate = (auction, { viewerId = null, diagnosis = null, verification = n
 
     diagnosticStatus: auction.diagnosticStatus,
     imeiStatus: auction.imeiStatus,
-    hasDiagnosis: !!auction.diagnoseSessionId,
+    // The Grest c2b report snapshot, shown on the bid-detail screen. Plain
+    // object (Mixed) so the client gets grade + per-test rows as stored.
+    diagnosisReport: auction.diagnosisReport || null,
+    hasDiagnosis: !!auction.diagnoseSessionId || !!auction.diagnosisReport,
     hasImeiCheck: !!auction.imeiVerificationId,
 
     startPricePaise: auction.startPricePaise,
@@ -188,6 +192,7 @@ const create = async (userId, payload) => {
     device: payload.device,
     condition: payload.condition,
     conditionNotes: payload.conditionNotes || null,
+    diagnosisReport: payload.diagnosisReport || null,
     diagnoseSessionId: payload.diagnoseSessionId || null,
     imeiVerificationId: payload.imeiVerificationId || null,
     startPricePaise: payload.startPricePaise,

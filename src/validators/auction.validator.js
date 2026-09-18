@@ -57,6 +57,19 @@ const termRules = (optional) => {
         .withMessage(`condition must be one of: ${Object.values(DEVICE_CONDITION).join(', ')}.`)
     ),
     body('conditionNotes').optional({ nullable: true }).trim().isLength({ max: 2000 }),
+    // Grest c2b diagnostic snapshot (see Auction.model diagnosisReport). Whole
+    // object optional; when present its shape is lightly checked.
+    body('diagnosisReport').optional({ nullable: true }).isObject(),
+    body('diagnosisReport.grade').optional({ nullable: true }).trim().isLength({ max: 8 }),
+    body('diagnosisReport.estimatedValueInr').optional({ nullable: true }).isInt({ min: 0 }).toInt(),
+    body('diagnosisReport.imei').optional({ nullable: true }).trim().isLength({ max: 20 }),
+    body('diagnosisReport.properties').optional({ nullable: true }).isObject(),
+    body('diagnosisReport.passed').optional({ nullable: true }).isInt({ min: 0 }).toInt(),
+    body('diagnosisReport.failed').optional({ nullable: true }).isInt({ min: 0 }).toInt(),
+    body('diagnosisReport.total').optional({ nullable: true }).isInt({ min: 0 }).toInt(),
+    body('diagnosisReport.tests').optional({ nullable: true }).isArray({ max: 100 }),
+    body('diagnosisReport.tests.*.name').optional({ nullable: true }).trim().isLength({ max: 120 }),
+    body('diagnosisReport.tests.*.result').optional({ nullable: true }).trim().isLength({ max: 40 }),
     body('diagnoseSessionId').optional({ nullable: true }).isMongoId(),
     body('imeiVerificationId').optional({ nullable: true }).isMongoId(),
     maybe(
