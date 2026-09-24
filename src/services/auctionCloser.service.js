@@ -136,6 +136,11 @@ const closeAuction = async (auctionId) => {
         status: AUCTION_STATUS.PAYMENT_PENDING,
         winnerId: current.currentBidderId,
         winningBidId: current.currentBidId,
+        // The price is pinned here rather than read from `currentBidPaise` at
+        // payment time. They are equal now, but a second-chance offer moves the
+        // winner down the book without moving the top of it — and billing a
+        // lower bidder for the top bid would charge them somebody else's bid.
+        salePricePaise: current.currentBidPaise,
         closedAt: now,
         paymentDueAt: new Date(now.getTime() + paymentWindowHours * 60 * 60 * 1000),
       }
@@ -206,9 +211,140 @@ const closeExpired = async (limit = BATCH_LIMIT) => {
   return closed;
 };
 
-/** Lapses sales the winner never paid for, freeing the seller to relist. */
+/**
+ * Finds the next bidder who should be offered a device the current holder did
+ * not pay for.
+ *
+ * Works down the book by BIDDER, not by bid: someone who raised their own bid
+ * four times is one candidate, considered at their best price. Anyone already
+ * offered and passed over is skipped, so nobody gets two bites at the same
+ * auction. The seller is excluded for the same reason they cannot bid.
+ */
+const nextOfferableBid = async (auction) => {
+  const excluded = [...(auction.passedBidderIds || []), auction.sellerId].filter(Boolean);
+
+  const [best] = await Bid.aggregate([
+    { $match: { auctionId: auction._id, bidderId: { $nin: excluded } } },
+    { $sort: { amountPaise: -1, createdAt: 1 } },
+    { $group: { _id: '$bidderId', bid: { $first: '$$ROOT' } } },
+    { $replaceRoot: { newRoot: '$bid' } },
+    // Highest remaining bidder wins the offer; earliest bid breaks a tie, which
+    // is the same rule that decided the original auction.
+    { $sort: { amountPaise: -1, createdAt: 1 } },
+    { $limit: 1 },
+  ]);
+
+  return best || null;
+};
+
+/**
+ * Lapses the current holder's claim and passes the device down the book.
+ *
+ * THE PRICE MOVES WITH THE OFFER. The next bidder pays THEIR OWN bid, not the
+ * one above them — they never agreed to that number, and charging it would be
+ * billing them for somebody else's bid. That is why `salePricePaise` is a
+ * stored field rather than read from the top of the book at payment time.
+ *
+ * When the bidders run out (or second chances are switched off) the auction
+ * ends PAYMENT_EXPIRED and the seller is free to relist.
+ */
+const passOfferDown = async (auction, { now, windowHours, secondChance }) => {
+  const label = deviceLabel(auction) || 'the device';
+  const failedBidderId = auction.winnerId;
+
+  // The claim that makes this idempotent: only the caller that flips the
+  // current holder's window does any of the work below.
+  const claimed = await Auction.findOneAndUpdate(
+    {
+      _id: auction._id,
+      status: AUCTION_STATUS.PAYMENT_PENDING,
+      paymentDueAt: { $lte: now },
+      winnerId: auction.winnerId,
+    },
+    {
+      $set: { winnerId: null, winningBidId: null, salePricePaise: null, paymentDueAt: null },
+      $addToSet: { passedBidderIds: failedBidderId },
+    },
+    { new: true }
+  );
+
+  if (!claimed) return null;
+
+  if (auction.winningBidId) {
+    await Bid.updateOne({ _id: auction.winningBidId }, { status: BID_STATUS.EXPIRED });
+  }
+
+  await notifySafely(failedBidderId, {
+    title: 'Payment window closed',
+    body: `You did not pay for ${label} in time, so it has been offered to another bidder.`,
+    data: { auctionId: String(claimed._id), outcome: BID_STATUS.EXPIRED },
+  });
+
+  const next = secondChance ? await nextOfferableBid(claimed) : null;
+
+  if (!next) {
+    const ended = await Auction.findOneAndUpdate(
+      { _id: claimed._id, status: AUCTION_STATUS.PAYMENT_PENDING },
+      { status: AUCTION_STATUS.PAYMENT_EXPIRED },
+      { new: true }
+    );
+
+    await notifySafely(claimed.sellerId, {
+      title: 'Device went unsold',
+      body: `Nobody completed payment for ${label}. You can relist it now.`,
+      data: { auctionId: String(claimed._id), outcome: AUCTION_STATUS.PAYMENT_EXPIRED },
+    });
+
+    return ended || claimed;
+  }
+
+  const offered = await Auction.findOneAndUpdate(
+    { _id: claimed._id, status: AUCTION_STATUS.PAYMENT_PENDING, winnerId: null },
+    {
+      winnerId: next.bidderId,
+      winningBidId: next._id,
+      salePricePaise: next.amountPaise,
+      paymentDueAt: new Date(now.getTime() + windowHours * 60 * 60 * 1000),
+    },
+    { new: true }
+  );
+
+  if (!offered) return claimed;
+
+  await Bid.updateOne({ _id: next._id }, { status: BID_STATUS.WON });
+
+  await notifySafely(next.bidderId, {
+    title: 'The device is yours if you want it',
+    body: `The winning bidder for ${label} did not pay, so it is offered to you at your bid of ${rupees(next.amountPaise)}. Pay within ${windowHours} hours to claim it.`,
+    data: {
+      auctionId: String(offered._id),
+      outcome: BID_STATUS.WON,
+      secondChance: 'true',
+      amountPaise: String(next.amountPaise),
+      paymentDueAt: offered.paymentDueAt.toISOString(),
+    },
+  });
+
+  await notifySafely(offered.sellerId, {
+    title: 'Buyer did not pay',
+    body: `The winner of ${label} did not pay, so it has been offered to the next bidder at ${rupees(next.amountPaise)}.`,
+    data: { auctionId: String(offered._id), outcome: AUCTION_STATUS.PAYMENT_PENDING },
+  });
+
+  return offered;
+};
+
+/**
+ * Processes every payment window that has run out: each one either cascades to
+ * the next bidder or ends the auction unsold.
+ */
 const expireUnpaid = async (limit = BATCH_LIMIT) => {
   const now = new Date();
+
+  const [windowHours, secondChance] = await Promise.all([
+    settingsService.get(SETTING_KEYS.AUCTION_PAYMENT_WINDOW_HOURS),
+    settingsService.get(SETTING_KEYS.AUCTION_SECOND_CHANCE_ENABLED),
+  ]);
 
   const due = await Auction.find({
     status: AUCTION_STATUS.PAYMENT_PENDING,
@@ -220,31 +356,11 @@ const expireUnpaid = async (limit = BATCH_LIMIT) => {
   let expired = 0;
 
   for (const auction of due) {
+    // Sequential for the same reason closeExpired is: each pass writes several
+    // documents and sends pushes.
     // eslint-disable-next-line no-await-in-loop
-    const claimed = await Auction.findOneAndUpdate(
-      { _id: auction._id, status: AUCTION_STATUS.PAYMENT_PENDING, paymentDueAt: { $lte: now } },
-      { status: AUCTION_STATUS.PAYMENT_EXPIRED },
-      { new: true }
-    );
-
-    if (!claimed) continue;
-    expired += 1;
-
-    const label = deviceLabel(claimed) || 'the device';
-
-    // eslint-disable-next-line no-await-in-loop
-    await Promise.all([
-      notifySafely(claimed.sellerId, {
-        title: 'Buyer did not pay',
-        body: `The winning bidder for ${label} did not pay in time. You can relist it now.`,
-        data: { auctionId: String(claimed._id), outcome: AUCTION_STATUS.PAYMENT_EXPIRED },
-      }),
-      notifySafely(claimed.winnerId, {
-        title: 'Payment window closed',
-        body: `You did not pay for ${label} in time, so the sale has lapsed.`,
-        data: { auctionId: String(claimed._id), outcome: AUCTION_STATUS.PAYMENT_EXPIRED },
-      }),
-    ]);
+    const result = await passOfferDown(auction, { now, windowHours, secondChance: secondChance === true });
+    if (result) expired += 1;
   }
 
   return expired;

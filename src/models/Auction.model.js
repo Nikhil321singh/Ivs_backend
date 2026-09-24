@@ -3,6 +3,7 @@ const {
   AUCTION_STATUS,
   DEVICE_CONDITION,
   DIAGNOSTIC_STATUS,
+  SELLER_TYPE,
 } = require('../constants/auctionEnums');
 
 const { Schema } = mongoose;
@@ -44,6 +45,20 @@ const auctionSchema = new Schema(
       ref: 'User',
       required: true,
     },
+    /**
+     * PLATFORM for Grest's own refurbished stock, listed from the admin portal;
+     * VENDOR for a device a user listed through the app.
+     *
+     * `sellerId` is set either way — platform listings are owned by the Grest
+     * system account — so every existing query, populate and index keeps
+     * working unchanged. This field is what decides whether a listing credit is
+     * charged and who Grest owes after the sale.
+     */
+    sellerType: {
+      type: String,
+      enum: Object.values(SELLER_TYPE),
+      default: SELLER_TYPE.VENDOR,
+    },
     status: {
       type: String,
       enum: Object.values(AUCTION_STATUS),
@@ -84,6 +99,29 @@ const auctionSchema = new Schema(
           grade: { type: String, default: null },
           estimatedValueInr: { type: Number, default: null },
           imei: { type: String, default: null },
+          // Blancco's own report id and when the handset was actually tested,
+          // so a listing can be traced back to the run that produced it.
+          reportId: { type: String, default: null },
+          diagnosedAt: { type: String, default: null },
+          source: { type: String, default: null },
+          /**
+           * The two things that decide whether a handset is resaleable at all.
+           * A device still tied to an iCloud account or an MDM enrolment is
+           * useless to whoever buys it, so this is surfaced rather than buried
+           * in the test list.
+           */
+          locks: {
+            findMyIphone: { type: String, default: null },
+            mdmStatus: { type: String, default: null },
+            componentsAuthentic: { type: Boolean, default: null },
+          },
+          battery: {
+            healthPercent: { type: Number, default: null },
+            cycles: { type: Number, default: null },
+            designCapacityMah: { type: Number, default: null },
+            currentCapacityMah: { type: Number, default: null },
+          },
+          skipped: { type: Number, default: 0 },
           // Blancco device "properties" — modelName / storage / serial /
           // osVersion. Mixed so a new property key never breaks the write.
           properties: { type: Schema.Types.Mixed, default: null },
@@ -128,6 +166,15 @@ const auctionSchema = new Schema(
     /* ---- auction terms, in paise (matching Payment.amountPaise) --------- */
     startPricePaise: { type: Number, required: true, min: 0 },
     bidIncrementPaise: { type: Number, required: true, min: 1 },
+    /**
+     * Instant purchase price. Null means the device can only be won by bidding.
+     *
+     * Clicking Buy Now ends the auction there and then — the buyer does not
+     * wait for it to close — and they pay inside their own window, like any
+     * winner. Offered only while the current bid is still below it: once
+     * bidding passes this number, selling at it would be selling below the book.
+     */
+    buyNowPricePaise: { type: Number, default: null, min: 0 },
     startAt: { type: Date, required: true },
     endAt: { type: Date, required: true },
     // What endAt was when the auction was published. Anti-sniping moves endAt;
@@ -142,10 +189,30 @@ const auctionSchema = new Schema(
     bidCount: { type: Number, default: 0 },
 
     /* ---- outcome ------------------------------------------------------- */
+    // Whoever currently holds the right to buy: the top bidder, the next bidder
+    // down after a second-chance offer, or the person who hit Buy Now.
     winnerId: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    // The bid being honoured. THE SALE PRICE IS THIS BID'S AMOUNT, not
+    // `currentBidPaise` — after a second-chance offer those differ, and
+    // charging the top bid to a lower bidder would be charging them for
+    // somebody else's bid.
     winningBidId: { type: Schema.Types.ObjectId, ref: 'Bid', default: null },
+    // What the current holder owes. Set from the winning bid, or from
+    // buyNowPricePaise on an instant purchase.
+    salePricePaise: { type: Number, default: null },
+    /**
+     * Bidders who were offered the device and did not pay. They are skipped
+     * when the offer cascades further down, so a bidder never gets a second
+     * bite at the same auction.
+     */
+    passedBidderIds: {
+      type: [{ type: Schema.Types.ObjectId, ref: 'User' }],
+      default: [],
+    },
     closedAt: { type: Date, default: null },
-    // Set when the auction closes with a winner. After this the sale lapses.
+    // When the current holder's window runs out. On expiry the offer passes to
+    // the next bidder down rather than ending the auction — see
+    // auctionCloser.service.js.
     paymentDueAt: { type: Date, default: null },
     // The winner's Razorpay payment for the device (purpose AUCTION).
     paymentId: { type: Schema.Types.ObjectId, ref: 'Payment', default: null },

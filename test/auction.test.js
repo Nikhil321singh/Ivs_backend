@@ -19,7 +19,19 @@ const { AUCTION_STATUS, BID_STATUS } = require('../src/constants/auctionEnums');
 const asAdmin = (token) => ({
   get: (path) => request(app).get(path).set('Authorization', `Bearer ${token}`),
   post: (path) => request(app).post(path).set('Authorization', `Bearer ${token}`),
+  patch: (path) => request(app).patch(path).set('Authorization', `Bearer ${token}`),
 });
+
+// A valid delivery address. Required before any payment — an order with
+// nowhere to send the device cannot be dispatched.
+const ADDRESS = {
+  name: 'Priya Sharma',
+  phone: '9876543210',
+  line1: '12 MG Road',
+  city: 'Pune',
+  state: 'Maharashtra',
+  pincode: '411001',
+};
 
 const draftBody = (overrides = {}) => ({
   device: { brand: 'Apple', model: 'iPhone 13', storageGb: 128 },
@@ -551,7 +563,7 @@ describe('the winner paying', () => {
     const { winner, auction } = await closeWithWinner();
     stubCreateOrder('order_auction_1');
 
-    const order = await asUser(winner.token).post(`/api/v1/auctions/${auction._id}/pay`);
+    const order = await asUser(winner.token).post(`/api/v1/auctions/${auction._id}/pay`).send({ shippingAddress: ADDRESS });
 
     expect(order.status).toBe(201);
     expect(order.body.data.amount).toBe(1000000);
@@ -571,7 +583,7 @@ describe('the winner paying', () => {
   it('credits nothing to the payer — this is a sale, not a purchase from us', async () => {
     const { winner, auction } = await closeWithWinner();
     stubCreateOrder('order_auction_2');
-    await asUser(winner.token).post(`/api/v1/auctions/${auction._id}/pay`);
+    await asUser(winner.token).post(`/api/v1/auctions/${auction._id}/pay`).send({ shippingAddress: ADDRESS });
 
     const { body, signature } = buildWebhook('payment.captured', 'order_auction_2', 'pay_auc_2');
     await request(app)
@@ -588,7 +600,7 @@ describe('the winner paying', () => {
     const { auction } = await closeWithWinner();
     const stranger = await createAuctionUser();
 
-    const res = await asUser(stranger.token).post(`/api/v1/auctions/${auction._id}/pay`);
+    const res = await asUser(stranger.token).post(`/api/v1/auctions/${auction._id}/pay`).send({ shippingAddress: ADDRESS });
 
     expect(res.status).toBe(403);
   });
@@ -597,8 +609,8 @@ describe('the winner paying', () => {
     const { winner, auction } = await closeWithWinner();
     stubCreateOrder('order_auction_3');
 
-    const first = await asUser(winner.token).post(`/api/v1/auctions/${auction._id}/pay`);
-    const second = await asUser(winner.token).post(`/api/v1/auctions/${auction._id}/pay`);
+    const first = await asUser(winner.token).post(`/api/v1/auctions/${auction._id}/pay`).send({ shippingAddress: ADDRESS });
+    const second = await asUser(winner.token).post(`/api/v1/auctions/${auction._id}/pay`).send({ shippingAddress: ADDRESS });
 
     expect(second.body.data.orderId).toBe(first.body.data.orderId);
     expect(second.body.data.reused).toBe(true);
@@ -612,6 +624,271 @@ describe('the winner paying', () => {
 
     expect(expired).toBe(1);
     expect((await Auction.findById(auction._id)).status).toBe(AUCTION_STATUS.PAYMENT_EXPIRED);
+  });
+});
+
+describe('second chance when the winner does not pay', () => {
+  const closeWithTwoBidders = async () => {
+    const seller = await createAuctionUser();
+    const top = await createAuctionUser();
+    const second = await createAuctionUser();
+    const auction = await createLiveAuction(seller.user._id);
+
+    await asUser(second.token)
+      .post(`/api/v1/auctions/${auction._id}/bids`)
+      .send({ amountPaise: 1000000 });
+    await asUser(top.token)
+      .post(`/api/v1/auctions/${auction._id}/bids`)
+      .send({ amountPaise: 1050000 });
+
+    await Auction.updateOne({ _id: auction._id }, { endAt: new Date(Date.now() - 1000) });
+    await auctionCloser.closeAuction(auction._id);
+    await Auction.updateOne({ _id: auction._id }, { paymentDueAt: new Date(Date.now() - 1000) });
+
+    return { seller, top, second, auction };
+  };
+
+  it('offers the device to the next bidder at THEIR bid, not the top bid', async () => {
+    const { top, second, auction } = await closeWithTwoBidders();
+
+    await auctionCloser.expireUnpaid();
+
+    const fresh = await Auction.findById(auction._id);
+    expect(fresh.status).toBe(AUCTION_STATUS.PAYMENT_PENDING);
+    expect(String(fresh.winnerId)).toBe(String(second.user._id));
+    // The crux: the second bidder pays what they bid, not what the defaulter
+    // bid. Charging them 1050000 would bill them for someone else's bid.
+    expect(fresh.salePricePaise).toBe(1000000);
+    expect(fresh.currentBidPaise).toBe(1050000);
+    expect(String(fresh.passedBidderIds[0])).toBe(String(top.user._id));
+  });
+
+  it('charges the second bidder their own price at checkout', async () => {
+    const { second, auction } = await closeWithTwoBidders();
+    await auctionCloser.expireUnpaid();
+    stubCreateOrder('order_second_chance');
+
+    const res = await asUser(second.token)
+      .post(`/api/v1/auctions/${auction._id}/pay`)
+      .send({ shippingAddress: ADDRESS });
+
+    expect(res.status).toBe(201);
+    expect(res.body.data.amount).toBe(1000000);
+  });
+
+  it('marks the defaulting bid EXPIRED and the new holder WON', async () => {
+    const { top, second, auction } = await closeWithTwoBidders();
+
+    await auctionCloser.expireUnpaid();
+
+    const topBid = await Bid.findOne({ auctionId: auction._id, bidderId: top.user._id });
+    const secondBid = await Bid.findOne({ auctionId: auction._id, bidderId: second.user._id });
+    expect(topBid.status).toBe(BID_STATUS.EXPIRED);
+    expect(secondBid.status).toBe(BID_STATUS.WON);
+  });
+
+  it('never offers the same bidder twice', async () => {
+    const { auction } = await closeWithTwoBidders();
+
+    await auctionCloser.expireUnpaid();
+    await Auction.updateOne({ _id: auction._id }, { paymentDueAt: new Date(Date.now() - 1000) });
+    await auctionCloser.expireUnpaid();
+
+    // Both bidders have now passed, so the device is unsold rather than being
+    // offered back to the first defaulter.
+    const fresh = await Auction.findById(auction._id);
+    expect(fresh.status).toBe(AUCTION_STATUS.PAYMENT_EXPIRED);
+    expect(fresh.passedBidderIds).toHaveLength(2);
+  });
+
+  it('ends unsold when second chances are switched off', async () => {
+    await settings.update({ auctionSecondChanceEnabled: false });
+    const { auction } = await closeWithTwoBidders();
+
+    await auctionCloser.expireUnpaid();
+
+    expect((await Auction.findById(auction._id)).status).toBe(AUCTION_STATUS.PAYMENT_EXPIRED);
+  });
+});
+
+describe('buy now', () => {
+  const liveWithBuyNow = async (overrides = {}) => {
+    const seller = await createAuctionUser();
+    const auction = await createLiveAuction(seller.user._id, {
+      buyNowPricePaise: 2000000,
+      ...overrides,
+    });
+    return { seller, auction };
+  };
+
+  it('ends the auction immediately and opens checkout at the instant price', async () => {
+    const { auction } = await liveWithBuyNow();
+    const buyer = await createAuctionUser();
+    stubCreateOrder('order_buy_now_1');
+
+    const res = await asUser(buyer.token)
+      .post(`/api/v1/auctions/${auction._id}/buy-now`)
+      .send({ shippingAddress: ADDRESS });
+
+    expect(res.status).toBe(201);
+    expect(res.body.data.amount).toBe(2000000);
+
+    const fresh = await Auction.findById(auction._id);
+    expect(fresh.status).toBe(AUCTION_STATUS.PAYMENT_PENDING);
+    expect(String(fresh.winnerId)).toBe(String(buyer.user._id));
+    expect(fresh.salePricePaise).toBe(2000000);
+    // No bid backs a Buy Now — the price came from the listing.
+    expect(fresh.winningBidId).toBeNull();
+  });
+
+  it('marks existing bidders LOST', async () => {
+    const { auction } = await liveWithBuyNow();
+    const bidder = await createAuctionUser();
+    const buyer = await createAuctionUser();
+    await asUser(bidder.token)
+      .post(`/api/v1/auctions/${auction._id}/bids`)
+      .send({ amountPaise: 1000000 });
+    stubCreateOrder('order_buy_now_2');
+
+    await asUser(buyer.token)
+      .post(`/api/v1/auctions/${auction._id}/buy-now`)
+      .send({ shippingAddress: ADDRESS });
+
+    const bid = await Bid.findOne({ auctionId: auction._id, bidderId: bidder.user._id });
+    expect(bid.status).toBe(BID_STATUS.LOST);
+  });
+
+  it('refuses once bidding has passed the instant price', async () => {
+    const { auction } = await liveWithBuyNow();
+    const bidder = await createAuctionUser();
+    const buyer = await createAuctionUser();
+    await asUser(bidder.token)
+      .post(`/api/v1/auctions/${auction._id}/bids`)
+      .send({ amountPaise: 2000000 });
+
+    const res = await asUser(buyer.token)
+      .post(`/api/v1/auctions/${auction._id}/buy-now`)
+      .send({ shippingAddress: ADDRESS });
+
+    expect(res.status).toBe(409);
+    expect((await Auction.findById(auction._id)).status).toBe(AUCTION_STATUS.LIVE);
+  });
+
+  it('lets only one of two simultaneous instant buyers win', async () => {
+    const { auction } = await liveWithBuyNow();
+    const a = await createAuctionUser();
+    const b = await createAuctionUser();
+    stubCreateOrder('order_bn_race_a');
+    stubCreateOrder('order_bn_race_b');
+
+    const [one, two] = await Promise.all([
+      asUser(a.token)
+        .post(`/api/v1/auctions/${auction._id}/buy-now`)
+        .send({ shippingAddress: ADDRESS }),
+      asUser(b.token)
+        .post(`/api/v1/auctions/${auction._id}/buy-now`)
+        .send({ shippingAddress: ADDRESS }),
+    ]);
+
+    expect([one.status, two.status].sort()).toEqual([201, 409]);
+  });
+
+  it('refuses a listing with no instant price', async () => {
+    const seller = await createAuctionUser();
+    const auction = await createLiveAuction(seller.user._id);
+    const buyer = await createAuctionUser();
+
+    const res = await asUser(buyer.token)
+      .post(`/api/v1/auctions/${auction._id}/buy-now`)
+      .send({ shippingAddress: ADDRESS });
+
+    expect(res.status).toBe(409);
+  });
+
+  it('stops the seller buying their own listing', async () => {
+    const { seller, auction } = await liveWithBuyNow();
+
+    const res = await asUser(seller.token)
+      .post(`/api/v1/auctions/${auction._id}/buy-now`)
+      .send({ shippingAddress: ADDRESS });
+
+    expect(res.status).toBe(403);
+  });
+
+  it('requires a delivery address', async () => {
+    const { auction } = await liveWithBuyNow();
+    const buyer = await createAuctionUser();
+
+    const res = await asUser(buyer.token)
+      .post(`/api/v1/auctions/${auction._id}/buy-now`)
+      .send({});
+
+    expect(res.status).toBe(422);
+    expect((await Auction.findById(auction._id)).status).toBe(AUCTION_STATUS.LIVE);
+  });
+
+  it('rejects a malformed pincode', async () => {
+    const { auction } = await liveWithBuyNow();
+    const buyer = await createAuctionUser();
+
+    const res = await asUser(buyer.token)
+      .post(`/api/v1/auctions/${auction._id}/buy-now`)
+      .send({ shippingAddress: { ...ADDRESS, pincode: '11' } });
+
+    expect(res.status).toBe(422);
+  });
+});
+
+describe('orders', () => {
+  const buyNow = async () => {
+    const seller = await createAuctionUser();
+    const buyer = await createAuctionUser();
+    const auction = await createLiveAuction(seller.user._id, { buyNowPricePaise: 2000000 });
+    stubCreateOrder('order_orders_1');
+    await asUser(buyer.token)
+      .post(`/api/v1/auctions/${auction._id}/buy-now`)
+      .send({ shippingAddress: ADDRESS });
+    return { seller, buyer, auction };
+  };
+
+  it('records the order with its delivery address before payment', async () => {
+    const { buyer } = await buyNow();
+
+    const res = await asUser(buyer.token).get('/api/v1/orders');
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.items).toHaveLength(1);
+    expect(res.body.data.items[0].shippingAddress.pincode).toBe('411001');
+    expect(res.body.data.items[0].source).toBe('BUY_NOW');
+    expect(res.body.data.items[0].paidAt).toBeNull();
+    expect(res.body.data.items[0].fulfilmentStatus).toBe('PENDING');
+  });
+
+  it('marks the order paid when Razorpay confirms', async () => {
+    const { buyer, auction } = await buyNow();
+
+    const { body, signature } = buildWebhook('payment.captured', 'order_orders_1', 'pay_o1');
+    await request(app)
+      .post('/api/v1/wallet/webhook/razorpay')
+      .set('x-razorpay-signature', signature)
+      .set('Content-Type', 'application/json')
+      .send(body);
+
+    expect((await Auction.findById(auction._id)).status).toBe(AUCTION_STATUS.SOLD);
+    const res = await asUser(buyer.token).get('/api/v1/orders');
+    expect(res.body.data.items[0].paidAt).toBeTruthy();
+  });
+
+  it('keeps one buyer from seeing another buyer order', async () => {
+    const { buyer } = await buyNow();
+    const stranger = await createAuctionUser();
+
+    const mine = await asUser(buyer.token).get('/api/v1/orders');
+    const orderId = mine.body.data.items[0].id;
+
+    const res = await asUser(stranger.token).get(`/api/v1/orders/${orderId}`);
+
+    expect(res.status).toBe(404);
   });
 });
 
@@ -688,6 +965,141 @@ describe('cancelling and moderation', () => {
   });
 });
 
+describe('admin listings and orders', () => {
+  const listingBody = (overrides = {}) => ({
+    device: { brand: 'Apple', model: 'iPhone 14', storageGb: 256 },
+    condition: 'EXCELLENT',
+    photos: [{ url: 'https://example.test/a.jpg', publicId: 'auctions/a.jpg' }],
+    startPricePaise: 1500000,
+    bidIncrementPaise: 50000,
+    buyNowPricePaise: 2500000,
+    startAt: new Date(Date.now() + 1000).toISOString(),
+    endAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+    ...overrides,
+  });
+
+  it('creates a Grest listing owned by the platform account', async () => {
+    const { token } = await createAdmin();
+
+    const res = await asAdmin(token).post('/api/v1/admin/auctions').send(listingBody());
+
+    expect(res.status).toBe(201);
+    const auction = await Auction.findById(res.body.data.auction.id);
+    expect(auction.sellerType).toBe('PLATFORM');
+    expect(auction.status).toBe(AUCTION_STATUS.DRAFT);
+    expect(auction.buyNowPricePaise).toBe(2500000);
+  });
+
+  it('publishes without charging a listing credit', async () => {
+    const { token } = await createAdmin();
+    // Start now, so it goes LIVE rather than SCHEDULED. A past start is
+    // clamped to the moment of publishing.
+    const created = await asAdmin(token)
+      .post('/api/v1/admin/auctions')
+      .send(listingBody({ startAt: new Date(Date.now() - 1000).toISOString() }));
+
+    const res = await asAdmin(token).post(
+      `/api/v1/admin/auctions/${created.body.data.auction.id}/publish`
+    );
+
+    expect(res.status).toBe(200);
+    const auction = await Auction.findById(created.body.data.auction.id);
+    expect(auction.status).toBe(AUCTION_STATUS.LIVE);
+    // Grest billing itself would be meaningless.
+    expect(auction.listingCost).toBe(0);
+  });
+
+  it('refuses an instant price at or below the start price', async () => {
+    const { token } = await createAdmin();
+
+    const res = await asAdmin(token)
+      .post('/api/v1/admin/auctions')
+      .send(listingBody({ buyNowPricePaise: 1500000 }));
+
+    expect(res.status).toBe(422);
+  });
+
+  it('relists an unsold device as a fresh draft with no bid history', async () => {
+    const seller = await createAuctionUser();
+    const bidder = await createAuctionUser();
+    const auction = await createLiveAuction(seller.user._id);
+    await asUser(bidder.token)
+      .post(`/api/v1/auctions/${auction._id}/bids`)
+      .send({ amountPaise: 1000000 });
+    await Auction.updateOne(
+      { _id: auction._id },
+      { status: AUCTION_STATUS.PAYMENT_EXPIRED, endAt: new Date(Date.now() - 1000) }
+    );
+
+    const { token } = await createAdmin();
+    const res = await asAdmin(token).post(`/api/v1/admin/auctions/${auction._id}/relist`);
+
+    expect(res.status).toBe(201);
+    const copy = await Auction.findById(res.body.data.auction.id);
+    expect(copy.status).toBe(AUCTION_STATUS.DRAFT);
+    expect(copy.bidCount).toBe(0);
+    expect(copy.winnerId).toBeNull();
+    expect(copy.passedBidderIds).toHaveLength(0);
+    // The original is left as the record of what happened.
+    expect((await Auction.findById(auction._id)).status).toBe(AUCTION_STATUS.PAYMENT_EXPIRED);
+  });
+
+  it('will not relist a live auction', async () => {
+    const seller = await createAuctionUser();
+    const auction = await createLiveAuction(seller.user._id);
+    const { token } = await createAdmin();
+
+    const res = await asAdmin(token).post(`/api/v1/admin/auctions/${auction._id}/relist`);
+
+    expect(res.status).toBe(409);
+  });
+
+  it('moves an order through dispatch and delivery', async () => {
+    const seller = await createAuctionUser();
+    const buyer = await createAuctionUser();
+    const auction = await createLiveAuction(seller.user._id, { buyNowPricePaise: 2000000 });
+    stubCreateOrder('order_admin_ful');
+    await asUser(buyer.token)
+      .post(`/api/v1/auctions/${auction._id}/buy-now`)
+      .send({ shippingAddress: ADDRESS });
+
+    const { token } = await createAdmin();
+    const list = await asAdmin(token).get('/api/v1/admin/orders');
+    const orderId = list.body.data.items[0].id;
+
+    const dispatched = await asAdmin(token)
+      .patch(`/api/v1/admin/orders/${orderId}`)
+      .send({ status: 'DISPATCHED', note: 'Bluedart AWB 12345' });
+    expect(dispatched.status).toBe(200);
+    expect(dispatched.body.data.order.dispatchedAt).toBeTruthy();
+    expect(dispatched.body.data.order.notes[0].text).toBe('Bluedart AWB 12345');
+
+    const delivered = await asAdmin(token)
+      .patch(`/api/v1/admin/orders/${orderId}`)
+      .send({ status: 'DELIVERED' });
+    expect(delivered.body.data.order.fulfilmentStatus).toBe('DELIVERED');
+  });
+
+  it('refuses a status jump that skips dispatch', async () => {
+    const seller = await createAuctionUser();
+    const buyer = await createAuctionUser();
+    const auction = await createLiveAuction(seller.user._id, { buyNowPricePaise: 2000000 });
+    stubCreateOrder('order_admin_skip');
+    await asUser(buyer.token)
+      .post(`/api/v1/auctions/${auction._id}/buy-now`)
+      .send({ shippingAddress: ADDRESS });
+
+    const { token } = await createAdmin();
+    const list = await asAdmin(token).get('/api/v1/admin/orders');
+
+    const res = await asAdmin(token)
+      .patch(`/api/v1/admin/orders/${list.body.data.items[0].id}`)
+      .send({ status: 'DELIVERED' });
+
+    expect(res.status).toBe(409);
+  });
+});
+
 describe('unauthenticated access', () => {
   it('requires a token to browse', async () => {
     const res = await request(app).get('/api/v1/auctions');
@@ -715,5 +1127,185 @@ describe('unauthenticated access', () => {
       .send({ amountPaise: 1000000 });
 
     expect(res.status).toBe(403);
+  });
+});
+
+describe('what the API tells the client about buying', () => {
+  it('exposes the instant price and whether it can still be used', async () => {
+    const seller = await createAuctionUser();
+    const viewer = await createAuctionUser();
+    await createLiveAuction(seller.user._id, { buyNowPricePaise: 2000000 });
+
+    const res = await asUser(viewer.token).get('/api/v1/auctions');
+    const [item] = res.body.data.items;
+
+    expect(item.buyNowPricePaise).toBe(2000000);
+    expect(item.buyNowPriceInr).toBe(20000);
+    expect(item.canBuyNow).toBe(true);
+  });
+
+  it('turns canBuyNow off once bidding passes the instant price', async () => {
+    const seller = await createAuctionUser();
+    const bidder = await createAuctionUser();
+    const auction = await createLiveAuction(seller.user._id, { buyNowPricePaise: 2000000 });
+    await asUser(bidder.token)
+      .post(`/api/v1/auctions/${auction._id}/bids`)
+      .send({ amountPaise: 2000000 });
+
+    const res = await asUser(bidder.token).get(`/api/v1/auctions/${auction._id}`);
+
+    expect(res.body.data.auction.canBuyNow).toBe(false);
+  });
+
+  it('reports null for a listing with no instant price', async () => {
+    const seller = await createAuctionUser();
+    const viewer = await createAuctionUser();
+    await createLiveAuction(seller.user._id);
+
+    const res = await asUser(viewer.token).get('/api/v1/auctions');
+
+    expect(res.body.data.items[0].buyNowPricePaise).toBeNull();
+    expect(res.body.data.items[0].canBuyNow).toBe(false);
+  });
+
+  it('tells the winner what they owe, not the top bid', async () => {
+    const seller = await createAuctionUser();
+    const top = await createAuctionUser();
+    const second = await createAuctionUser();
+    const auction = await createLiveAuction(seller.user._id);
+    await asUser(second.token)
+      .post(`/api/v1/auctions/${auction._id}/bids`)
+      .send({ amountPaise: 1000000 });
+    await asUser(top.token)
+      .post(`/api/v1/auctions/${auction._id}/bids`)
+      .send({ amountPaise: 1050000 });
+    await Auction.updateOne({ _id: auction._id }, { endAt: new Date(Date.now() - 1000) });
+    await auctionCloser.closeAuction(auction._id);
+    await Auction.updateOne({ _id: auction._id }, { paymentDueAt: new Date(Date.now() - 1000) });
+    await auctionCloser.expireUnpaid();
+
+    const res = await asUser(second.token).get(`/api/v1/auctions/${auction._id}`);
+
+    expect(res.body.data.auction.youWon).toBe(true);
+    expect(res.body.data.auction.salePricePaise).toBe(1000000);
+    expect(res.body.data.auction.currentBidPaise).toBe(1050000);
+  });
+
+  it('keeps the sale price private from onlookers', async () => {
+    const seller = await createAuctionUser();
+    const winner = await createAuctionUser();
+    const nosy = await createAuctionUser();
+    const auction = await createLiveAuction(seller.user._id);
+    await asUser(winner.token)
+      .post(`/api/v1/auctions/${auction._id}/bids`)
+      .send({ amountPaise: 1000000 });
+    await Auction.updateOne({ _id: auction._id }, { endAt: new Date(Date.now() - 1000) });
+    await auctionCloser.closeAuction(auction._id);
+
+    const res = await asUser(nosy.token).get(`/api/v1/auctions/${auction._id}`);
+
+    expect(res.body.data.auction.salePricePaise).toBeUndefined();
+    expect(res.body.data.auction.winnerId).toBeUndefined();
+  });
+});
+
+describe('instant price on the customer listing path', () => {
+  it('persists buyNowPricePaise sent to POST /auctions', async () => {
+    const { token } = await createAuctionUser();
+
+    const res = await asUser(token)
+      .post('/api/v1/auctions')
+      .send(draftBody({ buyNowPricePaise: 2000000 }));
+
+    expect(res.status).toBe(201);
+    // The field used to be silently dropped here — the worst kind of failure,
+    // because the form looked like it worked.
+    expect(res.body.data.auction.buyNowPricePaise).toBe(2000000);
+    const auction = await Auction.findById(res.body.data.auction.id);
+    expect(auction.buyNowPricePaise).toBe(2000000);
+  });
+
+  it('lets a draft set the instant price later', async () => {
+    const { token } = await createAuctionUser();
+    const created = await asUser(token).post('/api/v1/auctions').send(draftBody());
+
+    const res = await asUser(token)
+      .patch(`/api/v1/auctions/${created.body.data.auction.id}`)
+      .send({ buyNowPricePaise: 1800000 });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.auction.buyNowPricePaise).toBe(1800000);
+  });
+
+  it('refuses an instant price at or below the start price', async () => {
+    const { token } = await createAuctionUser();
+
+    const res = await asUser(token)
+      .post('/api/v1/auctions')
+      .send(draftBody({ startPricePaise: 1000000, buyNowPricePaise: 1000000 }));
+
+    expect(res.status).toBe(400);
+    expect(res.body.errors[0].field).toBe('buyNowPricePaise');
+  });
+
+  it('catches a PATCH that raises the start price above the instant price', async () => {
+    const { token } = await createAuctionUser();
+    const created = await asUser(token)
+      .post('/api/v1/auctions')
+      .send(draftBody({ buyNowPricePaise: 1200000 }));
+
+    // Only the service can catch this: the body carries one field, the listing
+    // holds the other.
+    const res = await asUser(token)
+      .patch(`/api/v1/auctions/${created.body.data.auction.id}`)
+      .send({ startPricePaise: 1500000 });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('switches the instant price off the moment bidding passes it', async () => {
+    const seller = await createAuctionUser();
+    const bidder = await createAuctionUser();
+    const auction = await createLiveAuction(seller.user._id, {
+      startPricePaise: 4000000,
+      bidIncrementPaise: 100000,
+      buyNowPricePaise: 4600000, // ₹46,000
+    });
+
+    const before = await asUser(bidder.token).get(`/api/v1/auctions/${auction._id}`);
+    expect(before.body.data.auction.canBuyNow).toBe(true);
+
+    // Bidding climbs past the instant price — ₹47,000.
+    await asUser(bidder.token)
+      .post(`/api/v1/auctions/${auction._id}/bids`)
+      .send({ amountPaise: 4700000 });
+
+    const after = await asUser(bidder.token).get(`/api/v1/auctions/${auction._id}`);
+    expect(after.body.data.auction.canBuyNow).toBe(false);
+    // The price is still reported, so the app can explain why the button went.
+    expect(after.body.data.auction.buyNowPricePaise).toBe(4600000);
+  });
+
+  it('refuses the buy-now call itself once bidding has passed it', async () => {
+    const seller = await createAuctionUser();
+    const bidder = await createAuctionUser();
+    const buyer = await createAuctionUser();
+    const auction = await createLiveAuction(seller.user._id, {
+      startPricePaise: 4000000,
+      bidIncrementPaise: 100000,
+      buyNowPricePaise: 4600000,
+    });
+    await asUser(bidder.token)
+      .post(`/api/v1/auctions/${auction._id}/bids`)
+      .send({ amountPaise: 4700000 });
+
+    // Belt and braces: even a client that ignored canBuyNow cannot buy a device
+    // for less than the standing top bid.
+    const res = await asUser(buyer.token)
+      .post(`/api/v1/auctions/${auction._id}/buy-now`)
+      .send({ shippingAddress: ADDRESS });
+
+    expect(res.status).toBe(409);
+    expect((await Auction.findById(auction._id)).status).toBe(AUCTION_STATUS.LIVE);
   });
 });

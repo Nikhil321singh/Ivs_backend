@@ -84,6 +84,14 @@ const termRules = (optional) => {
         .withMessage('bidIncrementPaise must be at least 1 paisa.')
         .toInt()
     ),
+    // Optional instant buy price. Only the shape is checked here — that it sits
+    // above the start price is enforced in the service, which is the only place
+    // that knows both values after a partial update.
+    body('buyNowPricePaise')
+      .optional({ nullable: true })
+      .isInt({ min: 1 })
+      .withMessage('buyNowPricePaise must be a whole number of paise.')
+      .toInt(),
     maybe(body('startAt').isISO8601().withMessage('startAt must be an ISO 8601 date.').toDate()),
     maybe(body('endAt').isISO8601().withMessage('endAt must be an ISO 8601 date.').toDate()),
   ];
@@ -163,6 +171,33 @@ const myBidsValidator = [
   query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
 ];
 
+
+/**
+ * The delivery address, captured before payment. Required on the way in rather
+ * than patched afterwards: an order with no address cannot be dispatched, and
+ * chasing one after the money has moved is a support call.
+ */
+const shippingAddressValidator = [
+  body('shippingAddress').isObject().withMessage('A delivery address is required.'),
+  body('shippingAddress.name').trim().notEmpty().withMessage('Recipient name is required.').isLength({ max: 100 }),
+  body('shippingAddress.phone')
+    .trim()
+    .matches(/^[0-9]{10}$/)
+    .withMessage('A 10-digit contact number is required.'),
+  body('shippingAddress.line1').trim().notEmpty().withMessage('Address line 1 is required.').isLength({ max: 200 }),
+  body('shippingAddress.line2').optional({ nullable: true }).trim().isLength({ max: 200 }),
+  body('shippingAddress.landmark').optional({ nullable: true }).trim().isLength({ max: 120 }),
+  body('shippingAddress.city').trim().notEmpty().withMessage('City is required.').isLength({ max: 80 }),
+  body('shippingAddress.state').trim().notEmpty().withMessage('State is required.').isLength({ max: 80 }),
+  body('shippingAddress.pincode')
+    .trim()
+    .matches(/^[1-9][0-9]{5}$/)
+    .withMessage('A valid 6-digit pincode is required.'),
+];
+
+const payAuctionValidator = [...auctionIdParamValidator, ...shippingAddressValidator];
+const buyNowValidator = [...auctionIdParamValidator, ...shippingAddressValidator];
+
 module.exports = {
   auctionIdParamValidator,
   createAuctionValidator,
@@ -172,4 +207,7 @@ module.exports = {
   browseAuctionsValidator,
   myListingsValidator,
   myBidsValidator,
+  shippingAddressValidator,
+  payAuctionValidator,
+  buyNowValidator,
 };

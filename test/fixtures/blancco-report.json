@@ -1,0 +1,135 @@
+{
+  "reports": [
+    {
+      "blancco_data": {
+        "description": {
+          "document_id": "test-report-0001",
+          "document_log": [
+            {
+              "author": {
+                "product_name": {
+                  "value": "Blancco 5 Mobile"
+                },
+                "product_version": "5.6.1"
+              },
+              "date": "2026-09-24T19:43:47+0530"
+            }
+          ]
+        },
+        "blancco_hardware_report": {
+          "system": [
+            {
+              "@type": "string",
+              "manufacturer": "Apple, Inc."
+            },
+            {
+              "@type": "string",
+              "market_name": "iPhone 13 Pro Max"
+            },
+            {
+              "@type": "string",
+              "model": "iPhone 13 Pro Max GSM+CDMA 512GB Graphite"
+            },
+            {
+              "@type": "string",
+              "ram": "6GB"
+            },
+            {
+              "@type": "string",
+              "device_color": "Graphite"
+            },
+            {
+              "@type": "string",
+              "imei": "356370162838962"
+            },
+            {
+              "@type": "string",
+              "imei_two": "356370162849290"
+            },
+            {
+              "@type": "string",
+              "serial": "TESTSERIAL1"
+            },
+            {
+              "@type": "string",
+              "a_model_number": "A2484"
+            },
+            {
+              "@type": "string",
+              "firmware_version": "26.6"
+            },
+            {
+              "@type": "string",
+              "find_my_iphone": "Unlocked"
+            },
+            {
+              "@type": "string",
+              "mdm_status": "Unlocked"
+            }
+          ],
+          "mobile_battery": [
+            {
+              "@type": "uint",
+              "battery_capacity_design": 4325
+            },
+            {
+              "@type": "uint",
+              "battery_capacity_current": 3556
+            },
+            {
+              "@type": "uint",
+              "battery_cycles": 779
+            },
+            {
+              "@type": "uint",
+              "battery_health_metric": 82
+            },
+            {
+              "@type": "uint",
+              "battery_charge_level": 78
+            }
+          ],
+          "hardware_tests": [
+            {
+              "@type": "string",
+              "bluetooth": "successful"
+            },
+            {
+              "@type": "string",
+              "camera": "successful"
+            },
+            {
+              "@type": "string",
+              "front_camera": "successful"
+            },
+            {
+              "@type": "string",
+              "video": "successful"
+            },
+            {
+              "@type": "string",
+              "auto_camera_flash": "successful"
+            },
+            {
+              "@type": "string",
+              "wi_fi": "successful"
+            },
+            {
+              "@type": "string",
+              "testing_duration": "00:07:59"
+            }
+          ],
+          "device_components": [
+            {
+              "@type": "string",
+              "all_authenticated": "true"
+            }
+          ]
+        }
+      },
+      "user_data": {
+        "fields": []
+      }
+    }
+  ]
+}

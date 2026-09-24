@@ -5,6 +5,7 @@ const MESSAGES = require('../constants/messages');
 const auctionService = require('../services/auction.service');
 const bidService = require('../services/bid.service');
 const auctionPaymentService = require('../services/auctionPayment.service');
+const orderService = require('../services/order.service');
 
 const createAuction = asyncHandler(async (req, res) => {
   const auction = await auctionService.create(req.user.id, req.body);
@@ -115,9 +116,32 @@ const myBids = asyncHandler(async (req, res) => {
 });
 
 const createPaymentOrder = asyncHandler(async (req, res) => {
-  const order = await auctionPaymentService.createOrder(req.user.id, req.params.auctionId);
+  const order = await auctionPaymentService.createOrder(req.user.id, req.params.auctionId, {
+    shippingAddress: req.body.shippingAddress,
+  });
 
   successResponse(res, httpStatus.CREATED, MESSAGES.AUCTION.PAYMENT_ORDER_CREATED, order);
+});
+
+/** Instant purchase — ends the auction and opens checkout in one step. */
+const buyNow = asyncHandler(async (req, res) => {
+  const order = await auctionPaymentService.buyNow(req.user.id, req.params.auctionId, {
+    shippingAddress: req.body.shippingAddress,
+  });
+
+  successResponse(res, httpStatus.CREATED, MESSAGES.AUCTION.BUY_NOW_SUCCESS, order);
+});
+
+const myOrders = asyncHandler(async (req, res) => {
+  const data = await orderService.getForBuyer(req.user.id, req.query);
+
+  successResponse(res, httpStatus.OK, MESSAGES.ORDER.LIST_FETCHED, data);
+});
+
+const getOrder = asyncHandler(async (req, res) => {
+  const order = await orderService.getByIdForBuyer(req.user.id, req.params.orderId);
+
+  successResponse(res, httpStatus.OK, MESSAGES.ORDER.FETCHED, { order });
 });
 
 module.exports = {
@@ -134,4 +158,7 @@ module.exports = {
   getBidHistory,
   myBids,
   createPaymentOrder,
+  buyNow,
+  myOrders,
+  getOrder,
 };

@@ -2,6 +2,7 @@ const express = require('express');
 const adminController = require('../controllers/admin.controller');
 const adminAuth = require('../middleware/adminAuth.middleware');
 const validateRequest = require('../../middleware/validateRequest.middleware');
+const { uploadAuctionPhotos } = require('../../middleware/upload.middleware');
 const { adminLoginLimiter } = require('../../middleware/rateLimiter.middleware');
 const {
   loginValidator,
@@ -15,6 +16,10 @@ const {
   adjustCreditsValidator,
   adminAuctionIdParamValidator,
   takeDownAuctionValidator,
+  lookupImeiValidator,
+  createListingValidator,
+  updateListingValidator,
+  updateOrderValidator,
 } = require('../validators/admin.validator');
 const {
   upsertAppVersionValidator,
@@ -664,6 +669,274 @@ router.get('/subscriptions', adminAuth, adminController.listPlanPayments);
  *       200: { description: Auctions fetched successfully }
  */
 router.get('/auctions', adminAuth, adminController.listAuctions);
+
+/**
+ * @openapi
+ * /admin/auctions:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Create a Grest listing (draft)
+ *     description: >
+ *       Grest's own stock, listed from the portal. Owned by the Grest system
+ *       account and marked sellerType PLATFORM, so publishing it is never
+ *       charged a listing credit. Every buyer-facing rule still applies — photos
+ *       required, duration bounds, blocked/stolen IMEI refused.
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [device, condition, startPricePaise, bidIncrementPaise, startAt, endAt]
+ *             properties:
+ *               device: { type: object }
+ *               condition: { type: string, enum: [LIKE_NEW, EXCELLENT, GOOD, FAIR, POOR] }
+ *               conditionNotes: { type: string }
+ *               photos: { type: array, items: { type: object } }
+ *               startPricePaise: { type: integer, example: 1000000 }
+ *               bidIncrementPaise: { type: integer, example: 50000 }
+ *               buyNowPricePaise: { type: integer, example: 2000000, description: "Optional instant buy price. Must exceed startPricePaise." }
+ *               startAt: { type: string, format: date-time }
+ *               endAt: { type: string, format: date-time }
+ *     responses:
+ *       201: { description: Draft created successfully }
+ *       422: { description: Validation failed }
+ */
+router.post(
+  '/auctions',
+  adminAuth,
+  createListingValidator,
+  validateRequest,
+  adminController.createListing
+);
+
+/**
+ * @openapi
+ * /admin/auctions/lookup-imei:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Look a handset up in Blancco before listing it
+ *     description: >
+ *       Reads the diagnostic report Blancco's app already uploaded for this
+ *       IMEI — it does not run a diagnosis. Returns the report, form prefill
+ *       (make, model, colour), the grade, and `sellable: false` when the device
+ *       is still locked to an iCloud account or an MDM profile.
+ *       404 means the handset has never been through the diagnostics app.
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [imei]
+ *             properties:
+ *               imei: { type: string, example: "356370162838962" }
+ *     responses:
+ *       200: { description: Device report fetched }
+ *       404: { description: No report exists for this IMEI }
+ *       502: { description: Blancco could not be reached }
+ *       503: { description: Diagnostics not configured }
+ */
+router.post(
+  '/auctions/lookup-imei',
+  adminAuth,
+  lookupImeiValidator,
+  validateRequest,
+  adminController.lookupDeviceImei
+);
+
+/**
+ * @openapi
+ * /admin/auctions/{auctionId}:
+ *   patch:
+ *     tags: [Admin]
+ *     summary: Edit a draft listing
+ *     description: >
+ *       Drafts only. Once published the terms are frozen — people bid against a
+ *       price and a deadline, and moving either afterwards is the most abusable
+ *       thing a marketplace can allow.
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Listing updated successfully }
+ *       409: { description: Listing is already published }
+ */
+router.patch(
+  '/auctions/:auctionId',
+  adminAuth,
+  updateListingValidator,
+  validateRequest,
+  adminController.updateListing
+);
+
+/**
+ * @openapi
+ * /admin/auctions/{auctionId}/publish:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Publish a Grest listing (no credit charged)
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Listing published }
+ *       409: { description: Not a draft }
+ *       422: { description: No photos, blocked IMEI, or duration out of bounds }
+ */
+/**
+ * @openapi
+ * /admin/auctions/{auctionId}/photos:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Upload device photos onto a Grest draft
+ *     description: >
+ *       Multipart, field name `photos`, up to 20 files per request and at most
+ *       `auctionMaxPhotos` on the listing. JPG, PNG or WEBP, each under the
+ *       configured size limit. The portal posts the files and this server puts
+ *       them in S3 — the browser never needs AWS credentials.
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               photos:
+ *                 type: array
+ *                 items: { type: string, format: binary }
+ *     responses:
+ *       201: { description: Photos uploaded; returns the listing with photo ids and urls }
+ *       400: { description: Too many photos, wrong type, or file too large }
+ *       409: { description: Listing is already published }
+ */
+router.post(
+  '/auctions/:auctionId/photos',
+  adminAuth,
+  adminAuctionIdParamValidator,
+  validateRequest,
+  uploadAuctionPhotos,
+  adminController.addListingPhotos
+);
+
+/**
+ * @openapi
+ * /admin/auctions/{auctionId}/photos/{photoId}:
+ *   delete:
+ *     tags: [Admin]
+ *     summary: Remove one photo from a draft
+ *     description: Deletes the stored object too, so removing a photo does not orphan a file in S3.
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Photo removed }
+ *       404: { description: Photo not found on this listing }
+ */
+router.delete(
+  '/auctions/:auctionId/photos/:photoId',
+  adminAuth,
+  adminAuctionIdParamValidator,
+  validateRequest,
+  adminController.removeListingPhoto
+);
+
+router.post(
+  '/auctions/:auctionId/publish',
+  adminAuth,
+  adminAuctionIdParamValidator,
+  validateRequest,
+  adminController.publishListing
+);
+
+/**
+ * @openapi
+ * /admin/auctions/{auctionId}/relist:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Put an unsold or unpaid device back up as a fresh draft
+ *     description: >
+ *       Clones the listing rather than reopening it — the finished auction keeps
+ *       its own bids and defaulters as a record of what happened. The new draft
+ *       starts clean, so a bidder who failed to pay last time may bid again.
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       201: { description: Relisted as a new draft }
+ *       409: { description: That auction cannot be relisted }
+ */
+router.post(
+  '/auctions/:auctionId/relist',
+  adminAuth,
+  adminAuctionIdParamValidator,
+  validateRequest,
+  adminController.relistAuction
+);
+
+/* ---- Orders: the fulfilment queue -------------------------------- */
+
+/**
+ * @openapi
+ * /admin/orders:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Device orders — buyer, address, payment and delivery status
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema: { type: string, enum: [PENDING, DISPATCHED, DELIVERED, CANCELLED] }
+ *       - in: query
+ *         name: search
+ *         schema: { type: string }
+ *         description: Matches recipient name, phone or pincode.
+ *     responses:
+ *       200: { description: Orders fetched successfully }
+ */
+router.get('/orders', adminAuth, adminController.listOrders);
+
+/**
+ * @openapi
+ * /admin/orders/settlement:
+ *   get:
+ *     tags: [Admin]
+ *     summary: What Grest owes each vendor for sold devices
+ *     description: >
+ *       There is no automated payout — Grest collects the buyer's money and
+ *       settles with vendors out of band. This is the view that says how much,
+ *       to whom. Platform listings are excluded; Grest does not owe itself.
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Settlement fetched successfully }
+ */
+router.get('/orders/settlement', adminAuth, adminController.vendorSettlement);
+
+/**
+ * @openapi
+ * /admin/orders/{orderId}:
+ *   patch:
+ *     tags: [Admin]
+ *     summary: Move an order along, or add a note
+ *     description: >
+ *       PENDING → DISPATCHED → DELIVERED, or CANCELLED from either of the first
+ *       two. DELIVERED is terminal. The buyer is notified on every status change.
+ *       Send a note alone to record something without moving the order.
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               status: { type: string, enum: [PENDING, DISPATCHED, DELIVERED, CANCELLED] }
+ *               note: { type: string, example: "Handed to Bluedart, AWB 12345" }
+ *     responses:
+ *       200: { description: Order updated successfully }
+ *       409: { description: That status transition is not allowed }
+ */
+router.patch(
+  '/orders/:orderId',
+  adminAuth,
+  updateOrderValidator,
+  validateRequest,
+  adminController.updateOrder
+);
 
 /**
  * @openapi

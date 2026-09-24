@@ -5,6 +5,7 @@ const MESSAGES = require('../../constants/messages');
 const adminService = require('../services/admin.service');
 const subscriptionAdminService = require('../services/subscription.admin.service');
 const auctionAdminService = require('../services/auction.admin.service');
+const orderService = require('../../services/order.service');
 const settingsService = require('../../services/settings.service');
 const notificationService = require('../../services/notification.service');
 const appVersionService = require('../../services/appVersion.service');
@@ -284,6 +285,78 @@ const takeDownAuction = asyncHandler(async (req, res) => {
   successResponse(res, httpStatus.OK, MESSAGES.AUCTION.CANCELLED, { auction });
 });
 
+/* ---- Grest's own listings ---------------------------------------- */
+
+/**
+ * Looks a handset up in Blancco before it is listed. Doubles as form prefill,
+ * so an operator types an IMEI rather than a specification.
+ */
+const lookupDeviceImei = asyncHandler(async (req, res) => {
+  const data = await auctionAdminService.lookupImei(req.body.imei);
+
+  successResponse(res, httpStatus.OK, MESSAGES.AUCTION.LOOKUP_OK, data);
+});
+
+const createListing = asyncHandler(async (req, res) => {
+  const auction = await auctionAdminService.createListing(req.body, req.admin._id);
+
+  successResponse(res, httpStatus.CREATED, MESSAGES.AUCTION.CREATED, { auction });
+});
+
+const addListingPhotos = asyncHandler(async (req, res) => {
+  const auction = await auctionAdminService.addPhotos(req.params.auctionId, req.files);
+
+  successResponse(res, httpStatus.CREATED, MESSAGES.AUCTION.PHOTOS_ADDED, { auction });
+});
+
+const removeListingPhoto = asyncHandler(async (req, res) => {
+  const auction = await auctionAdminService.removePhoto(req.params.auctionId, req.params.photoId);
+
+  successResponse(res, httpStatus.OK, MESSAGES.AUCTION.PHOTO_REMOVED, { auction });
+});
+
+const updateListing = asyncHandler(async (req, res) => {
+  const auction = await auctionAdminService.updateListing(req.params.auctionId, req.body);
+
+  successResponse(res, httpStatus.OK, MESSAGES.AUCTION.UPDATED, { auction });
+});
+
+const publishListing = asyncHandler(async (req, res) => {
+  const auction = await auctionAdminService.publishListing(req.params.auctionId);
+
+  successResponse(res, httpStatus.OK, MESSAGES.AUCTION.PUBLISHED, { auction });
+});
+
+const relistAuction = asyncHandler(async (req, res) => {
+  const auction = await auctionAdminService.relist(req.params.auctionId, req.admin._id);
+
+  successResponse(res, httpStatus.CREATED, MESSAGES.AUCTION.RELISTED, { auction });
+});
+
+/* ---- Orders ------------------------------------------------------- */
+
+const listOrders = asyncHandler(async (req, res) => {
+  const data = await orderService.list(req.query);
+
+  successResponse(res, httpStatus.OK, MESSAGES.ORDER.LIST_FETCHED, data);
+});
+
+const updateOrder = asyncHandler(async (req, res) => {
+  const order = await orderService.updateFulfilment(
+    req.params.orderId,
+    { status: req.body.status, note: req.body.note },
+    req.admin._id
+  );
+
+  successResponse(res, httpStatus.OK, MESSAGES.ORDER.UPDATED, { order });
+});
+
+const vendorSettlement = asyncHandler(async (req, res) => {
+  const data = await orderService.vendorSettlement();
+
+  successResponse(res, httpStatus.OK, MESSAGES.ORDER.SETTLEMENT_FETCHED, { settlements: data });
+});
+
 const getAuctionStats = asyncHandler(async (req, res) => {
   const stats = await auctionAdminService.getStats();
 
@@ -317,4 +390,14 @@ module.exports = {
   getAuctionBids,
   takeDownAuction,
   getAuctionStats,
+  lookupDeviceImei,
+  createListing,
+  addListingPhotos,
+  removeListingPhoto,
+  updateListing,
+  publishListing,
+  relistAuction,
+  listOrders,
+  updateOrder,
+  vendorSettlement,
 };

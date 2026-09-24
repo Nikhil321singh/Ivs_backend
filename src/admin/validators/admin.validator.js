@@ -7,6 +7,7 @@ const {
 } = require('../../constants/notification');
 const USER_TYPE = require('../../constants/userType');
 const { PLAN_TIER, PLAN_AUDIENCE } = require('../../constants/entitlementEnums');
+const { DEVICE_CONDITION, FULFILMENT_STATUS } = require('../../constants/auctionEnums');
 
 const loginValidator = [
   body('email')
@@ -259,6 +260,91 @@ const takeDownAuctionValidator = [
     .withMessage('reason must be 500 characters or fewer.'),
 ];
 
+/**
+ * A Grest listing, created from the portal. Mirrors the customer-side rules —
+ * money in paise, times as ISO strings, condition from the shared enum — so a
+ * platform listing and a vendor listing are the same shape of thing.
+ */
+const lookupImeiValidator = [
+  body('imei')
+    .trim()
+    .matches(/^[0-9]{15}$/)
+    .withMessage('A 15-digit IMEI is required.'),
+];
+
+const createListingValidator = [
+  body('device').isObject().withMessage('device is required.'),
+  body('device.brand').trim().notEmpty().withMessage('Device brand is required.').isLength({ max: 60 }),
+  body('device.model').trim().notEmpty().withMessage('Device model is required.').isLength({ max: 120 }),
+  body('device.storageGb').optional({ nullable: true }).isInt({ min: 0, max: 4096 }).toInt(),
+  body('device.ramGb').optional({ nullable: true }).isInt({ min: 0, max: 1024 }).toInt(),
+  body('device.color').optional({ nullable: true }).trim().isLength({ max: 40 }),
+  body('device.imei')
+    .optional({ nullable: true })
+    .trim()
+    .matches(/^\d{15}$/)
+    .withMessage('IMEI must be exactly 15 digits.'),
+  body('condition')
+    .isIn(Object.values(DEVICE_CONDITION))
+    .withMessage(`condition must be one of: ${Object.values(DEVICE_CONDITION).join(', ')}.`),
+  body('conditionNotes').optional({ nullable: true }).trim().isLength({ max: 2000 }),
+  body('photos').optional().isArray(),
+  body('photos.*.url').optional().isString().trim().notEmpty(),
+  body('photos.*.publicId').optional().isString().trim().notEmpty(),
+  body('startPricePaise').isInt({ min: 0 }).withMessage('startPricePaise must be whole paise.').toInt(),
+  body('bidIncrementPaise').isInt({ min: 1 }).withMessage('bidIncrementPaise must be at least 1.').toInt(),
+  // The instant buy price. Optional — a listing without one can only be won by
+  // bidding. Checked against the start price so it can never be the cheaper of
+  // the two, which would make bidding pointless.
+  body('buyNowPricePaise')
+    .optional({ nullable: true })
+    .isInt({ min: 1 })
+    .toInt()
+    .custom((value, { req }) => {
+      if (value !== null && value !== undefined && value <= req.body.startPricePaise) {
+        throw new Error('buyNowPricePaise must be higher than startPricePaise.');
+      }
+      return true;
+    }),
+  body('startAt').isISO8601().withMessage('startAt must be an ISO 8601 date.').toDate(),
+  body('endAt').isISO8601().withMessage('endAt must be an ISO 8601 date.').toDate(),
+];
+
+// Same rules, all optional — a PATCH may carry any subset of a draft.
+const updateListingValidator = [
+  ...adminAuctionIdParamValidator,
+  body('device').optional().isObject(),
+  body('device.brand').optional().trim().notEmpty().isLength({ max: 60 }),
+  body('device.model').optional().trim().notEmpty().isLength({ max: 120 }),
+  body('condition').optional().isIn(Object.values(DEVICE_CONDITION)),
+  body('conditionNotes').optional({ nullable: true }).trim().isLength({ max: 2000 }),
+  body('photos').optional().isArray(),
+  body('startPricePaise').optional().isInt({ min: 0 }).toInt(),
+  body('bidIncrementPaise').optional().isInt({ min: 1 }).toInt(),
+  body('buyNowPricePaise').optional({ nullable: true }).isInt({ min: 1 }).toInt(),
+  body('startAt').optional().isISO8601().toDate(),
+  body('endAt').optional().isISO8601().toDate(),
+];
+
+const orderIdParamValidator = [
+  param('orderId').isMongoId().withMessage('A valid order id is required.'),
+];
+
+const updateOrderValidator = [
+  ...orderIdParamValidator,
+  body('status')
+    .optional()
+    .isIn(Object.values(FULFILMENT_STATUS))
+    .withMessage(`status must be one of: ${Object.values(FULFILMENT_STATUS).join(', ')}.`),
+  body('note').optional({ nullable: true }).trim().isLength({ max: 1000 }),
+  body().custom((_v, { req }) => {
+    if (!req.body.status && !req.body.note) {
+      throw new Error('Provide a status, a note, or both.');
+    }
+    return true;
+  }),
+];
+
 module.exports = {
   loginValidator,
   updateSettingsValidator,
@@ -271,4 +357,9 @@ module.exports = {
   adjustCreditsValidator,
   adminAuctionIdParamValidator,
   takeDownAuctionValidator,
+  lookupImeiValidator,
+  createListingValidator,
+  updateListingValidator,
+  orderIdParamValidator,
+  updateOrderValidator,
 };

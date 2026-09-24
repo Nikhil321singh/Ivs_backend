@@ -15,6 +15,8 @@ const {
   browseAuctionsValidator,
   myListingsValidator,
   myBidsValidator,
+  payAuctionValidator,
+  buyNowValidator,
 } = require('../validators/auction.validator');
 
 const router = express.Router();
@@ -405,9 +407,47 @@ router.post(
   '/:auctionId/pay',
   authenticate,
   requireKyc,
-  auctionIdParamValidator,
+  payAuctionValidator,
   validateRequest,
   auctionController.createPaymentOrder
+);
+
+/**
+ * @openapi
+ * /auctions/{auctionId}/buy-now:
+ *   post:
+ *     tags: [Auctions]
+ *     summary: Buy the device instantly at the listed price
+ *     description: >
+ *       Ends the auction immediately at buyNowPricePaise and opens checkout.
+ *       Offered only while the current bid is still below that price — once
+ *       bidding passes it, selling at it would be selling below the book, and
+ *       the call is refused with 409. Everyone who bid is marked LOST and
+ *       notified. The delivery address is required up front.
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [shippingAddress]
+ *             properties:
+ *               shippingAddress:
+ *                 type: object
+ *                 description: name, phone, line1, city, state, pincode required; line2 and landmark optional.
+ *     responses:
+ *       201: { description: Device reserved; open Razorpay Checkout to confirm }
+ *       403: { description: You cannot buy your own listing }
+ *       409: { description: Not live, no instant price, or bidding has passed it }
+ */
+router.post(
+  '/:auctionId/buy-now',
+  authenticate,
+  requireKyc,
+  buyNowValidator,
+  validateRequest,
+  auctionController.buyNow
 );
 
 module.exports = router;

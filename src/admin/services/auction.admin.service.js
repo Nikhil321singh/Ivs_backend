@@ -1,10 +1,16 @@
+const crypto = require('crypto');
 const Auction = require('../../models/Auction.model');
 const Bid = require('../../models/Bid.model');
+const User = require('../../models/User.model');
 const auctionService = require('../../services/auction.service');
 const bidService = require('../../services/bid.service');
+const blanccoProvider = require('../../services/providers/blanccoProvider');
+const uploadService = require('../../services/upload.service');
+const settingsService = require('../../services/settings.service');
+const { SETTING_KEYS } = require('../../constants/settings');
 const notificationService = require('../../services/notification.service');
 const { NOTIFICATION_TYPE } = require('../../constants/notification');
-const { AUCTION_STATUS, CLOSED_STATUSES } = require('../../constants/auctionEnums');
+const { AUCTION_STATUS, CLOSED_STATUSES, SELLER_TYPE } = require('../../constants/auctionEnums');
 const ApiError = require('../../utils/apiError');
 const httpStatus = require('../../constants/httpStatus');
 const MESSAGES = require('../../constants/messages');
@@ -172,6 +178,355 @@ const takeDown = async (auctionId, { reason }, adminId) => {
   return auctionService.decorate(claimed, {});
 };
 
+/* ------------------------------------------------------------------ *
+ * Grest's own listings
+ * ------------------------------------------------------------------ */
+
+const PLATFORM_SELLER_MOBILE = '0000000000';
+
+/**
+ * The account that owns Grest's own listings.
+ *
+ * `Auction.sellerId` is a required ref to a User, and making it nullable would
+ * mean touching every query, populate and index that assumes a seller exists.
+ * A single system account is the cheaper answer: everything downstream keeps
+ * working, and `sellerType` is what actually distinguishes a platform listing.
+ *
+ * Created on first use so a fresh database needs no seeding. It is not a real
+ * account — the mobile is unreachable and it has no auth tokens — so nobody can
+ * sign in as it.
+ */
+const getPlatformSeller = async () => {
+  const existing = await User.findOne({ mobile: PLATFORM_SELLER_MOBILE });
+  if (existing) return existing;
+
+  try {
+    return await User.create({
+      mobile: PLATFORM_SELLER_MOBILE,
+      countryCode: '+91',
+      name: 'Grest',
+      isMobileVerified: true,
+      kycCompleted: true,
+    });
+  } catch (err) {
+    // Two admins creating a listing at the same moment raced us.
+    if (err.code === 11000) return User.findOne({ mobile: PLATFORM_SELLER_MOBILE });
+    throw err;
+  }
+};
+
+/**
+ * Shapes a Blancco report for storage on a listing.
+ *
+ * Only what a buyer or an operator actually needs is kept. The full payload is
+ * not stored on the auction — Blancco holds it, and `reportId` is the way back
+ * to it — so a listing document stays a listing rather than a copy of a vendor
+ * system.
+ */
+const toDiagnosisReport = (report) => ({
+  grade: report.grade,
+  imei: report.device.imei,
+  reportId: report.reportId,
+  diagnosedAt: report.diagnosedAt,
+  source: report.sourceVersion ? `${report.source} ${report.sourceVersion}` : report.source,
+  properties: {
+    modelName: report.device.marketName || report.device.model,
+    manufacturer: report.device.manufacturer,
+    color: report.device.color,
+    ram: report.device.ram,
+    serial: report.device.serial,
+    osVersion: report.device.firmwareVersion,
+    modelNumber: report.device.modelNumber,
+  },
+  locks: report.locks,
+  battery: {
+    healthPercent: report.battery.healthPercent,
+    cycles: report.battery.cycles,
+    designCapacityMah: report.battery.designCapacityMah,
+    currentCapacityMah: report.battery.currentCapacityMah,
+  },
+  passed: report.passed,
+  failed: report.failed,
+  skipped: report.skipped,
+  total: report.total,
+  // Flattened for display. The raw per-test vocabulary stays out of the app.
+  tests: report.tests.map((t) => ({ name: t.name, result: t.result })),
+});
+
+/**
+ * Looks a handset up in Blancco by IMEI, for the admin "add a device" screen.
+ *
+ * This is a READ of a report Blancco's app already produced — it does not run
+ * a diagnosis. A device that has never been through that app has no report,
+ * which is a 404 here rather than an error: nothing is broken.
+ *
+ * The response doubles as form prefill (make, model, colour, RAM) so an
+ * operator types an IMEI rather than a specification.
+ */
+const lookupImei = async (imei) => {
+  if (!blanccoProvider.isConfigured()) {
+    throw new ApiError(httpStatus.SERVICE_UNAVAILABLE, MESSAGES.AUCTION.DIAGNOSIS_NOT_CONFIGURED);
+  }
+
+  const outcome = await blanccoProvider.diagnose({ imei });
+
+  if (outcome.resultStatus === blanccoProvider.RESULT_STATUS.ERROR) {
+    throw new ApiError(httpStatus.BAD_GATEWAY, MESSAGES.AUCTION.DIAGNOSIS_LOOKUP_FAILED);
+  }
+  if (outcome.resultStatus !== blanccoProvider.RESULT_STATUS.SUCCESS || !outcome.result) {
+    throw new ApiError(httpStatus.NOT_FOUND, MESSAGES.AUCTION.DIAGNOSIS_NO_REPORT, [
+      { field: 'imei', message: MESSAGES.AUCTION.DIAGNOSIS_NO_REPORT, imei: String(imei) },
+    ]);
+  }
+
+  const report = outcome.result;
+
+  return {
+    report: toDiagnosisReport(report),
+    // Everything the create-listing form can fill in for itself.
+    prefill: {
+      device: {
+        brand: report.device.manufacturer ? report.device.manufacturer.split(',')[0].trim() : null,
+        model: report.device.marketName || report.device.model,
+        color: report.device.color,
+        imei: report.device.imei,
+      },
+      grade: report.grade,
+      batteryHealthPercent: report.battery.healthPercent,
+    },
+    // Surfaced separately so the portal can refuse to list before the operator
+    // has done the work of composing a draft.
+    sellable: report.grade !== 'LOCKED',
+    locks: report.locks,
+  };
+};
+
+/**
+ * Creates a Grest listing as a draft. Same validation and lifecycle as a vendor
+ * listing — it just belongs to the platform account and is marked PLATFORM, so
+ * publishing it is never charged a listing credit.
+ *
+ * When the payload carries an IMEI and no report of its own, Blancco is asked
+ * for one and it is attached. Best-effort: a device Blancco has never seen is
+ * still a device Grest can sell, so a miss leaves the listing unverified rather
+ * than refusing to create it.
+ */
+const createListing = async (payload, adminId) => {
+  const seller = await getPlatformSeller();
+
+  let diagnosisReport = payload.diagnosisReport || null;
+
+  if (!diagnosisReport && payload.device?.imei && blanccoProvider.isConfigured()) {
+    try {
+      const outcome = await blanccoProvider.diagnose({ imei: payload.device.imei });
+      if (outcome.resultStatus === blanccoProvider.RESULT_STATUS.SUCCESS && outcome.result) {
+        diagnosisReport = toDiagnosisReport(outcome.result);
+      }
+    } catch (err) {
+      console.error('[Auction] Blancco lookup failed on create', payload.device.imei, err.message);
+    }
+  }
+
+  const auction = await Auction.create({
+    sellerId: seller._id,
+    sellerType: SELLER_TYPE.PLATFORM,
+    status: AUCTION_STATUS.DRAFT,
+    device: payload.device,
+    condition: payload.condition,
+    conditionNotes: payload.conditionNotes || null,
+    diagnosisReport,
+    photos: payload.photos || [],
+    startPricePaise: payload.startPricePaise,
+    bidIncrementPaise: payload.bidIncrementPaise,
+    buyNowPricePaise: payload.buyNowPricePaise ?? null,
+    startAt: payload.startAt,
+    endAt: payload.endAt,
+  });
+
+  console.log('[Auction] platform listing created', String(auction._id), 'by admin', String(adminId));
+
+  return auctionService.decorate(auction, { viewerId: seller._id });
+};
+
+const EDITABLE = [
+  'device',
+  'condition',
+  'conditionNotes',
+  'diagnosisReport',
+  'photos',
+  'startPricePaise',
+  'bidIncrementPaise',
+  'buyNowPricePaise',
+  'startAt',
+  'endAt',
+];
+
+/**
+ * Uploads device photos onto a Grest draft.
+ *
+ * The portal posts the files and this server puts them in S3, rather than the
+ * browser uploading directly: that would mean handing the admin portal its own
+ * AWS credentials, and the bucket is already reachable from here. Files are
+ * held in memory and streamed straight out — they never touch local disk.
+ */
+const addPhotos = async (auctionId, files) => {
+  const auction = await Auction.findById(auctionId);
+  if (!auction) throw new ApiError(httpStatus.NOT_FOUND, MESSAGES.AUCTION.NOT_FOUND);
+
+  if (auction.status !== AUCTION_STATUS.DRAFT) {
+    throw new ApiError(httpStatus.CONFLICT, MESSAGES.AUCTION.NOT_EDITABLE);
+  }
+  if (!files || files.length === 0) {
+    throw new ApiError(httpStatus.UNPROCESSABLE_ENTITY, MESSAGES.AUCTION.NO_FILES);
+  }
+
+  const maxPhotos = await settingsService.get(SETTING_KEYS.AUCTION_MAX_PHOTOS);
+  if (auction.photos.length + files.length > maxPhotos) {
+    throw new ApiError(httpStatus.BAD_REQUEST, MESSAGES.AUCTION.TOO_MANY_PHOTOS, [
+      {
+        field: 'photos',
+        message: `A listing may carry at most ${maxPhotos} photos.`,
+        current: auction.photos.length,
+        max: maxPhotos,
+      },
+    ]);
+  }
+
+  const uploaded = [];
+  for (const file of files) {
+    const publicId = `${auction._id}-${crypto.randomBytes(6).toString('hex')}`;
+    // Sequential: these are multi-megabyte uploads and firing eight at once
+    // buys nothing but memory pressure on a small instance.
+    // eslint-disable-next-line no-await-in-loop
+    const stored = await uploadService.uploadAuctionPhoto(file.buffer, publicId, file.mimetype);
+    uploaded.push({ url: stored.url, publicId: stored.publicId });
+  }
+
+  auction.photos.push(...uploaded);
+  await auction.save();
+
+  return auctionService.decorate(auction, { viewerId: auction.sellerId });
+};
+
+/** Removes one photo from a draft, and the stored object behind it. */
+const removePhoto = async (auctionId, photoId) => {
+  const auction = await Auction.findById(auctionId);
+  if (!auction) throw new ApiError(httpStatus.NOT_FOUND, MESSAGES.AUCTION.NOT_FOUND);
+
+  if (auction.status !== AUCTION_STATUS.DRAFT) {
+    throw new ApiError(httpStatus.CONFLICT, MESSAGES.AUCTION.NOT_EDITABLE);
+  }
+
+  const photo = auction.photos.id(photoId);
+  if (!photo) throw new ApiError(httpStatus.NOT_FOUND, MESSAGES.AUCTION.PHOTO_NOT_FOUND);
+
+  const { publicId } = photo;
+  photo.deleteOne();
+  await auction.save();
+
+  // Best-effort: the listing is already correct, and a storage hiccup must not
+  // fail the request. Worst case the object is orphaned, not wrongly shown.
+  try {
+    await uploadService.deleteProfileImage(publicId);
+  } catch (err) {
+    console.error('[Auction] failed to delete photo object', publicId, err.message);
+  }
+
+  return auctionService.decorate(auction, { viewerId: auction.sellerId });
+};
+
+/** Edits a draft. Published terms stay frozen, exactly as for a vendor. */
+const updateListing = async (auctionId, payload) => {
+  const auction = await Auction.findById(auctionId);
+  if (!auction) throw new ApiError(httpStatus.NOT_FOUND, MESSAGES.AUCTION.NOT_FOUND);
+
+  if (auction.status !== AUCTION_STATUS.DRAFT) {
+    throw new ApiError(httpStatus.CONFLICT, MESSAGES.AUCTION.NOT_EDITABLE);
+  }
+
+  EDITABLE.forEach((field) => {
+    if (payload[field] !== undefined) auction[field] = payload[field];
+  });
+
+  await auction.save();
+
+  return auctionService.decorate(auction, { viewerId: auction.sellerId });
+};
+
+/**
+ * Publishes a Grest listing.
+ *
+ * Deliberately does NOT go through auctionService.publish: that path charges a
+ * listing credit, and Grest billing itself for its own stock is meaningless.
+ * Every other rule — photos required, a blocked or stolen IMEI refused, the
+ * duration bounds — is shared, because those protect the buyer regardless of
+ * who is selling.
+ */
+const publishListing = async (auctionId) => {
+  const auction = await Auction.findById(auctionId);
+  if (!auction) throw new ApiError(httpStatus.NOT_FOUND, MESSAGES.AUCTION.NOT_FOUND);
+
+  return auctionService.publishWithoutCharge(auction);
+};
+
+/**
+ * Puts an unsold device back up.
+ *
+ * Clones the listing into a fresh draft rather than reopening the old one: the
+ * finished auction is a record of what happened, with its own bids and its own
+ * defaulters, and reviving it would rewrite that history. The new draft carries
+ * no bids, no winner and no passed bidders — so someone who failed to pay last
+ * time is free to bid again, which is the intended behaviour.
+ */
+const relist = async (auctionId, adminId) => {
+  const source = await Auction.findById(auctionId).lean();
+  if (!source) throw new ApiError(httpStatus.NOT_FOUND, MESSAGES.AUCTION.NOT_FOUND);
+
+  const relistable = [
+    AUCTION_STATUS.ENDED_NO_BIDS,
+    AUCTION_STATUS.PAYMENT_EXPIRED,
+    AUCTION_STATUS.CANCELLED,
+  ];
+
+  if (!relistable.includes(source.status)) {
+    throw new ApiError(httpStatus.CONFLICT, MESSAGES.AUCTION.NOT_RELISTABLE, [
+      { field: 'status', message: `An auction that is ${source.status} cannot be relisted.` },
+    ]);
+  }
+
+  const durationMs = source.endAt - source.startAt;
+  const startAt = new Date();
+
+  const copy = await Auction.create({
+    sellerId: source.sellerId,
+    sellerType: source.sellerType,
+    status: AUCTION_STATUS.DRAFT,
+    device: source.device,
+    condition: source.condition,
+    conditionNotes: source.conditionNotes,
+    diagnosisReport: source.diagnosisReport,
+    photos: (source.photos || []).map((p) => ({ url: p.url, publicId: p.publicId })),
+    diagnoseSessionId: source.diagnoseSessionId,
+    imeiVerificationId: source.imeiVerificationId,
+    startPricePaise: source.startPricePaise,
+    bidIncrementPaise: source.bidIncrementPaise,
+    buyNowPricePaise: source.buyNowPricePaise,
+    startAt,
+    endAt: new Date(startAt.getTime() + durationMs),
+  });
+
+  console.log(
+    '[Auction] relisted',
+    String(source._id),
+    'as',
+    String(copy._id),
+    'by admin',
+    String(adminId)
+  );
+
+  return auctionService.decorate(copy, { viewerId: copy.sellerId });
+};
+
 /** Dashboard counters for the auctions tab. */
 const getStats = async () => {
   const now = new Date();
@@ -199,6 +554,15 @@ const getStats = async () => {
 };
 
 module.exports = {
+  getPlatformSeller,
+  lookupImei,
+  toDiagnosisReport,
+  createListing,
+  addPhotos,
+  removePhoto,
+  updateListing,
+  publishListing,
+  relist,
   listAuctions,
   getAuction,
   getBids,

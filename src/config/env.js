@@ -327,6 +327,15 @@ const env = {
   // today); swap it and add the matching credentials block to change backends
   // with no code changes. See services/providers/storageProvider.js for the
   // driver contract.
+  // Blancco Mobile Diagnostics. Used ONLY when an admin adds a device from the
+  // portal: the IMEI is looked up against reports Blancco's app already
+  // uploaded. Kept separate from `diagnose` above because that slot belongs to
+  // the customer-facing diagnosis flow, which is a different integration.
+  blancco: {
+    baseUrl: process.env.BLANCCO_BASE_URL || 'https://api.eu-west-1.blancco.cloud/v1',
+    apiKey: process.env.BLANCCO_API_KEY,
+  },
+
   // Auctions. The sweep closes finished auctions and lapses unpaid sales; how
   // often it runs only affects how promptly a winner is told, never whether a
   // bid can land on a closed auction (that is enforced per request).

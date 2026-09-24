@@ -1,5 +1,6 @@
 const Auction = require('../models/Auction.model');
 const notificationService = require('./notification.service');
+const orderService = require('./order.service');
 const { NOTIFICATION_TYPE } = require('../constants/notification');
 const { AUCTION_STATUS } = require('../constants/auctionEnums');
 
@@ -59,17 +60,27 @@ const completeSale = async (payment) => {
     return current;
   }
 
+  // The order carries the delivery address and drives fulfilment from here on.
+  // Non-fatal: the auction is already SOLD and the money already taken, so a
+  // failure here must not undo the sale — it leaves an order to reconcile,
+  // which the admin orders screen surfaces.
+  try {
+    await orderService.markPaid(sold._id, payment._id);
+  } catch (err) {
+    console.error('[Auction] could not mark order paid', String(sold._id), err.message);
+  }
+
   const label = `${sold.device?.brand || ''} ${sold.device?.model || ''}`.trim() || 'the device';
 
   await Promise.all([
     notifySafely(sold.sellerId, {
       title: 'Your auction has been paid for',
-      body: `The buyer paid ${rupees(sold.currentBidPaise)} for ${label}. Arrange handover with them now.`,
+      body: `The buyer paid ${rupees(sold.salePricePaise ?? sold.currentBidPaise)} for ${label}. Arrange handover with them now.`,
       data: { auctionId: String(sold._id), outcome: AUCTION_STATUS.SOLD },
     }),
     notifySafely(sold.winnerId, {
       title: 'Payment received',
-      body: `You paid ${rupees(sold.currentBidPaise)} for ${label}. The seller has been notified.`,
+      body: `You paid ${rupees(sold.salePricePaise ?? sold.currentBidPaise)} for ${label}. The seller has been notified.`,
       data: { auctionId: String(sold._id), outcome: AUCTION_STATUS.SOLD },
     }),
   ]);

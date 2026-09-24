@@ -49,9 +49,33 @@ const EDITABLE_FIELDS = [
   'imeiVerificationId',
   'startPricePaise',
   'bidIncrementPaise',
+  'buyNowPricePaise',
   'startAt',
   'endAt',
 ];
+
+/**
+ * The instant price has to sit above the opening price, or bidding is pointless
+ * — the first bid would already match or beat it.
+ *
+ * Checked here rather than in the validator because a PATCH may carry either
+ * field on its own; only the service knows the values the listing will actually
+ * end up with.
+ */
+const assertBuyNowAboveStart = (auction) => {
+  if (auction.buyNowPricePaise === null || auction.buyNowPricePaise === undefined) return;
+
+  if (auction.buyNowPricePaise <= auction.startPricePaise) {
+    throw new ApiError(httpStatus.BAD_REQUEST, MESSAGES.AUCTION.BUY_NOW_BELOW_START, [
+      {
+        field: 'buyNowPricePaise',
+        message: 'The instant buy price must be higher than the starting price.',
+        buyNowPricePaise: auction.buyNowPricePaise,
+        startPricePaise: auction.startPricePaise,
+      },
+    ]);
+  }
+};
 
 const ensureObjectId = (id, message) => {
   if (!mongoose.isValidObjectId(id)) throw new ApiError(httpStatus.NOT_FOUND, message);
@@ -103,6 +127,21 @@ const decorate = (auction, { viewerId = null, diagnosis = null, verification = n
     minNextBidInr: bidService.minNextBidPaise(auction) / 100,
     bidCount: auction.bidCount,
 
+    // Instant purchase. `canBuyNow` is the server's own rule, resolved here so
+    // the client renders the button from one boolean instead of reimplementing
+    // "live, priced, and bidding has not passed it" and drifting out of step.
+    buyNowPricePaise: auction.buyNowPricePaise ?? null,
+    buyNowPriceInr:
+      auction.buyNowPricePaise === null || auction.buyNowPricePaise === undefined
+        ? null
+        : auction.buyNowPricePaise / 100,
+    canBuyNow:
+      live &&
+      !!auction.buyNowPricePaise &&
+      (auction.currentBidPaise === null ||
+        auction.currentBidPaise === undefined ||
+        auction.currentBidPaise < auction.buyNowPricePaise),
+
     startAt: auction.startAt,
     endAt: auction.endAt,
     // Both are given so a client can run a countdown WITHOUT trusting its own
@@ -135,6 +174,14 @@ const decorate = (auction, { viewerId = null, diagnosis = null, verification = n
     payload.paymentDueAt = auction.paymentDueAt;
     payload.soldAt = auction.soldAt;
     payload.youWon = !!isWinner;
+    // What the current holder actually owes. After a second-chance offer this
+    // is the new bidder's own bid, not the top of the book — so the app must
+    // render this, never currentBidPaise, on the pay screen.
+    payload.salePricePaise = auction.salePricePaise ?? null;
+    payload.salePriceInr =
+      auction.salePricePaise === null || auction.salePricePaise === undefined
+        ? null
+        : auction.salePricePaise / 100;
   }
 
   return payload;
@@ -186,6 +233,8 @@ const loadOwned = async (userId, auctionId) => {
 const create = async (userId, payload) => {
   await resolveReferences(userId, payload);
 
+  assertBuyNowAboveStart(payload);
+
   const auction = await Auction.create({
     sellerId: userId,
     status: AUCTION_STATUS.DRAFT,
@@ -197,6 +246,7 @@ const create = async (userId, payload) => {
     imeiVerificationId: payload.imeiVerificationId || null,
     startPricePaise: payload.startPricePaise,
     bidIncrementPaise: payload.bidIncrementPaise,
+    buyNowPricePaise: payload.buyNowPricePaise ?? null,
     startAt: payload.startAt,
     endAt: payload.endAt,
   });
@@ -222,6 +272,8 @@ const update = async (userId, auctionId, payload) => {
   EDITABLE_FIELDS.forEach((field) => {
     if (payload[field] !== undefined) auction[field] = payload[field];
   });
+
+  assertBuyNowAboveStart(auction);
 
   await auction.save();
 
@@ -334,6 +386,30 @@ const removePhoto = async (userId, auctionId, photoId) => {
 };
 
 /**
+ * A handset still tied to an iCloud account or an MDM enrolment is useless to
+ * whoever buys it. Same class of rule as a blocked or stolen IMEI: refuse it at
+ * publish rather than let a buyer find out after paying.
+ */
+const assertNotLocked = (auction) => {
+  const locks = auction.diagnosisReport?.locks;
+  if (!locks) return;
+
+  const locked = [];
+  if (locks.findMyIphone === 'LOCKED') locked.push('Find My iPhone');
+  if (locks.mdmStatus === 'LOCKED') locked.push('MDM profile');
+
+  if (locked.length) {
+    throw new ApiError(httpStatus.UNPROCESSABLE_ENTITY, MESSAGES.AUCTION.DEVICE_LOCKED, [
+      {
+        field: 'diagnosisReport',
+        message: `Still locked by: ${locked.join(' and ')}.`,
+        locks,
+      },
+    ]);
+  }
+};
+
+/**
  * Every rule a draft must satisfy before it can be seen or bid on. Returns the
  * start time the auction will actually run from.
  *
@@ -353,6 +429,8 @@ const assertPublishable = async (auction, settings) => {
   if (!auction.photos || auction.photos.length === 0) {
     throw new ApiError(httpStatus.UNPROCESSABLE_ENTITY, MESSAGES.AUCTION.PHOTO_REQUIRED);
   }
+
+  assertNotLocked(auction);
 
   const effectiveStartAt = auction.startAt < now ? now : auction.startAt;
 
@@ -475,6 +553,58 @@ const publish = async (userId, auctionId, { billingSource, cost = 0 }) => {
   }
 
   return decorate(claimed, { viewerId: userId });
+};
+
+/**
+ * Publishes a listing WITHOUT charging for it — the path Grest's own stock
+ * takes from the admin portal, where billing ourselves would be meaningless.
+ *
+ * Every other rule is the one `publish` applies, because those protect the
+ * buyer regardless of who is selling: photos are required, the duration bounds
+ * hold, and a device CEIR reports as blocked or stolen is refused. Only the
+ * charge and the ownership check differ.
+ */
+const publishWithoutCharge = async (auction) => {
+  const settings = await settingsService.getAll();
+  const effectiveStartAt = await assertPublishable(auction, settings);
+
+  const { diagnosis, verification } = await resolveReferences(auction.sellerId, {
+    diagnoseSessionId: auction.diagnoseSessionId,
+    imeiVerificationId: auction.imeiVerificationId,
+  });
+
+  const diagnosticStatus =
+    (diagnosis && diagnosis.resultStatus === DiagnoseSession.RESULT_STATUS.SUCCESS) ||
+    auction.diagnosisReport
+      ? DIAGNOSTIC_STATUS.VERIFIED
+      : DIAGNOSTIC_STATUS.UNVERIFIED;
+
+  const imeiStatus = verification ? verification.imei1Status : null;
+
+  if (imeiStatus === IVS_STATUS.BLOCKED || imeiStatus === IVS_STATUS.STOLEN) {
+    throw new ApiError(httpStatus.UNPROCESSABLE_ENTITY, MESSAGES.AUCTION.IMEI_NOT_CLEAN, [
+      { field: 'imeiVerificationId', message: `CEIR reports this IMEI as ${imeiStatus}.`, imeiStatus },
+    ]);
+  }
+
+  const goesLiveNow = effectiveStartAt <= new Date();
+
+  const claimed = await Auction.findOneAndUpdate(
+    { _id: auction._id, status: AUCTION_STATUS.DRAFT },
+    {
+      status: goesLiveNow ? AUCTION_STATUS.LIVE : AUCTION_STATUS.SCHEDULED,
+      startAt: effectiveStartAt,
+      diagnosticStatus,
+      imeiStatus,
+      originalEndAt: auction.endAt,
+      listingCost: 0,
+    },
+    { new: true }
+  );
+
+  if (!claimed) throw new ApiError(httpStatus.CONFLICT, MESSAGES.AUCTION.NOT_DRAFT);
+
+  return decorate(claimed, { viewerId: auction.sellerId });
 };
 
 const cancel = async (userId, auctionId, reason = null) => {
@@ -663,6 +793,7 @@ module.exports = {
   attachUploadedPhotos,
   removePhoto,
   publish,
+  publishWithoutCharge,
   cancel,
   browse,
   getById,
