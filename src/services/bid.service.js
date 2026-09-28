@@ -286,6 +286,103 @@ const STATUS_GROUPS = Object.freeze({
   lost: [BID_STATUS.LOST],
 });
 
+/** Shapes one auction document for a "my bids" row. Includes the sale price so
+ *  a won/paid device can show what the buyer actually paid. */
+const mapAuction = (auction, now) => ({
+  id: String(auction._id),
+  status: auction.status,
+  device: auction.device,
+  condition: auction.condition,
+  photo: auction.photos?.[0]?.url || null,
+  currentBidPaise: auction.currentBidPaise,
+  bidCount: auction.bidCount,
+  endAt: auction.endAt,
+  secondsRemaining: Math.max(0, Math.floor((auction.endAt - now) / 1000)),
+  minNextBidPaise: minNextBidPaise(auction),
+  salePricePaise: auction.salePricePaise ?? null,
+  salePriceInr: auction.salePricePaise != null ? auction.salePricePaise / 100 : null,
+});
+
+/**
+ * The "Successful" tab. A device is won either by out-bidding everyone (a bid
+ * ends up WON) OR by Buy Now — and a Buy Now creates NO bid at all: it sets
+ * every bid to LOST and leaves `winningBidId` null (see auctionPayment.service).
+ *
+ * A bid-only query therefore misses every Buy Now purchase, so this unions the
+ * two: WON bids, plus the auctions this user won outright. Keyed by auction so a
+ * device shows exactly once. Paginated in memory — a single buyer's win list is
+ * small, and the two sources cannot be merged in one aggregation.
+ */
+const getWonBids = async (uid, { safePage, safeLimit, skip, now }) => {
+  const [bidRows, buyNowAuctions] = await Promise.all([
+    Bid.aggregate([
+      { $match: { bidderId: uid, status: BID_STATUS.WON } },
+      { $sort: { createdAt: -1 } },
+      { $group: { _id: '$auctionId', bid: { $first: '$$ROOT' } } },
+      { $replaceRoot: { newRoot: '$bid' } },
+      { $lookup: { from: 'auctions', localField: 'auctionId', foreignField: '_id', as: 'auction' } },
+      { $unwind: '$auction' },
+    ]),
+    // Won outright: this user is the winner but there is no winning bid.
+    // Buy Now writes winnerId through an aggregation-pipeline $set, which skips
+    // Mongoose casting and can persist it as a string. Comparing with $toString
+    // matches whether it was stored as an ObjectId or a string; a plain query on
+    // an ObjectId-typed path would be cast and miss the string rows.
+    Auction.find({
+      status: { $in: [AUCTION_STATUS.PAYMENT_PENDING, AUCTION_STATUS.SOLD] },
+      winningBidId: null,
+      $expr: { $eq: [{ $toString: '$winnerId' }, String(uid)] },
+    }).lean(),
+  ]);
+
+  const seen = new Set();
+  const rows = [];
+
+  for (const r of bidRows) {
+    seen.add(String(r.auctionId));
+    rows.push({
+      auctionId: String(r.auctionId),
+      myBidPaise: r.amountPaise,
+      bidAt: r.createdAt,
+      auction: r.auction,
+      sortAt: r.auction.soldAt || r.auction.closedAt || r.createdAt,
+    });
+  }
+
+  for (const a of buyNowAuctions) {
+    if (seen.has(String(a._id))) continue; // a bidding win already covers it
+    rows.push({
+      auctionId: String(a._id),
+      // No bid was placed — the price paid is the sale (Buy Now) price.
+      myBidPaise: a.salePricePaise ?? null,
+      bidAt: a.closedAt || a.soldAt || null,
+      auction: a,
+      sortAt: a.soldAt || a.closedAt || a.paymentDueAt || new Date(0),
+    });
+  }
+
+  rows.sort((x, y) => new Date(y.sortAt) - new Date(x.sortAt));
+  const total = rows.length;
+
+  return {
+    items: rows.slice(skip, skip + safeLimit).map((row) => ({
+      auctionId: row.auctionId,
+      myBidPaise: row.myBidPaise,
+      myBidInr: row.myBidPaise != null ? row.myBidPaise / 100 : null,
+      status: BID_STATUS.WON,
+      bidAt: row.bidAt,
+      auction: mapAuction(row.auction, now),
+    })),
+    serverTime: now,
+    pagination: {
+      page: safePage,
+      limit: safeLimit,
+      total,
+      pages: Math.ceil(total / safeLimit) || 1,
+    },
+  };
+};
+
 /**
  * "My bids", one row per auction rather than per bid — a bidder who raised
  * their own bid four times wants to see one auction, not four rows.
@@ -297,10 +394,17 @@ const getMyBids = async (userId, { group = null, page = 1, limit = 20 } = {}) =>
   const safePage = Math.max(1, parseInt(page, 10) || 1);
   const safeLimit = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
   const skip = (safePage - 1) * safeLimit;
+  const uid = new mongoose.Types.ObjectId(String(userId));
+  const now = new Date();
+
+  // Wins are special: Buy Now purchases have no bid, so they need a union query.
+  if (String(group || '').toLowerCase() === 'won') {
+    return getWonBids(uid, { safePage, safeLimit, skip, now });
+  }
 
   const statuses = STATUS_GROUPS[String(group || '').toLowerCase()] || null;
 
-  const match = { bidderId: new mongoose.Types.ObjectId(String(userId)) };
+  const match = { bidderId: uid };
   if (statuses) match.status = { $in: statuses };
 
   const base = [
@@ -330,7 +434,6 @@ const getMyBids = async (userId, { group = null, page = 1, limit = 20 } = {}) =>
   ]);
 
   const total = counted[0]?.total || 0;
-  const now = new Date();
 
   return {
     items: rows.map((row) => ({
@@ -339,18 +442,7 @@ const getMyBids = async (userId, { group = null, page = 1, limit = 20 } = {}) =>
       myBidInr: row.amountPaise / 100,
       status: row.status,
       bidAt: row.createdAt,
-      auction: {
-        id: String(row.auction._id),
-        status: row.auction.status,
-        device: row.auction.device,
-        condition: row.auction.condition,
-        photo: row.auction.photos?.[0]?.url || null,
-        currentBidPaise: row.auction.currentBidPaise,
-        bidCount: row.auction.bidCount,
-        endAt: row.auction.endAt,
-        secondsRemaining: Math.max(0, Math.floor((row.auction.endAt - now) / 1000)),
-        minNextBidPaise: minNextBidPaise(row.auction),
-      },
+      auction: mapAuction(row.auction, now),
     })),
     serverTime: now,
     pagination: {
