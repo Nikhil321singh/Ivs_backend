@@ -1,20 +1,11 @@
 const Auction = require('../models/Auction.model');
 const Payment = require('../models/Payment.model');
 const razorpay = require('./providers/razorpayProvider');
-const Bid = require('../models/Bid.model');
 const auctionCloser = require('./auctionCloser.service');
 const orderService = require('./order.service');
-const settingsService = require('./settings.service');
-const notificationService = require('./notification.service');
-const { SETTING_KEYS } = require('../constants/settings');
-const { NOTIFICATION_TYPE } = require('../constants/notification');
 const { PAYMENT_PURPOSE } = require('../constants/entitlementEnums');
 const { PAYMENT_STATUS } = require('../constants/walletEnums');
-const {
-  AUCTION_STATUS,
-  ORDER_SOURCE,
-  BID_STATUS,
-} = require('../constants/auctionEnums');
+const { AUCTION_STATUS, ORDER_SOURCE } = require('../constants/auctionEnums');
 const ApiError = require('../utils/apiError');
 const httpStatus = require('../constants/httpStatus');
 const MESSAGES = require('../constants/messages');
@@ -191,74 +182,43 @@ const buyNow = async (userId, auctionId, { shippingAddress = null } = {}) => {
   if (!auction.buyNowPricePaise) {
     throw new ApiError(httpStatus.CONFLICT, MESSAGES.AUCTION.NO_BUY_NOW);
   }
-
-  const windowHours = await settingsService.get(SETTING_KEYS.AUCTION_BUY_NOW_WINDOW_HOURS);
-  const now = new Date();
-  const dueAt = new Date(now.getTime() + windowHours * 60 * 60 * 1000);
-
-  const claimed = await Auction.findOneAndUpdate(
-    {
-      _id: auction._id,
-      status: AUCTION_STATUS.LIVE,
-      endAt: { $gt: now },
-      buyNowPricePaise: { $ne: null },
-      // Selling at the instant price once bidding has passed it would be
-      // selling below the book.
-      $expr: {
-        $or: [
-          { $eq: [{ $ifNull: ['$currentBidPaise', null] }, null] },
-          { $lt: ['$currentBidPaise', '$buyNowPricePaise'] },
-        ],
-      },
-    },
-    [
-      {
-        $set: {
-          status: AUCTION_STATUS.PAYMENT_PENDING,
-          winnerId: userId,
-          // A Buy Now has no winning bid — the price came from the listing.
-          winningBidId: null,
-          salePricePaise: '$buyNowPricePaise',
-          closedAt: now,
-          paymentDueAt: dueAt,
-        },
-      },
-    ],
-    { new: true }
-  );
-
-  if (!claimed) {
-    const fresh = await Auction.findById(auction._id).lean();
-    // Say which of the two things went wrong, so the app can either refresh the
-    // price or tell the buyer it is gone.
-    if (fresh && fresh.currentBidPaise >= fresh.buyNowPricePaise) {
-      throw new ApiError(httpStatus.CONFLICT, MESSAGES.AUCTION.BUY_NOW_PASSED);
-    }
-    throw new ApiError(httpStatus.CONFLICT, MESSAGES.AUCTION.NOT_LIVE);
+  // Selling at the instant price once bidding has passed it would be selling
+  // below the book. Previously enforced by the reservation write; now that the
+  // auction is left LIVE until payment, this is the up-front gate (the same rule
+  // is re-checked atomically at capture time in auctionSale.completeSale).
+  if (auction.currentBidPaise != null && auction.currentBidPaise >= auction.buyNowPricePaise) {
+    throw new ApiError(httpStatus.CONFLICT, MESSAGES.AUCTION.BUY_NOW_PASSED);
   }
 
-  // Everyone who bid has lost — the device went to an instant buyer.
-  const losers = await Bid.distinct('bidderId', { auctionId: claimed._id });
-  await Bid.updateMany({ auctionId: claimed._id }, { status: BID_STATUS.LOST });
+  const salePricePaise = auction.buyNowPricePaise;
 
-  const salesOrder = await orderService.createForAuction(claimed, userId, {
+  // The auction is deliberately NOT reserved here. It stays LIVE and open to
+  // bids until this payment is actually captured — the sale (and everything that
+  // comes with it: marking bids lost, notifying losers, closing the auction)
+  // happens in auctionSale.completeSale once the money lands. This is what makes
+  // an abandoned checkout a no-op instead of taking the device off the market.
+  //
+  // The order is still created up front (idempotent per auction+buyer) so the
+  // delivery address is captured with the buyer's intent; it is only marked paid
+  // when the sale completes, and cancelled if the payment loses the race.
+  const salesOrder = await orderService.createForAuction(auction, userId, {
     source: ORDER_SOURCE.BUY_NOW,
-    amountPaise: claimed.salePricePaise,
+    amountPaise: salePricePaise,
     shippingAddress,
   });
 
-  const receipt = `aucbn_${String(claimed._id).slice(-8)}_${Date.now().toString(36)}`;
+  const receipt = `aucbn_${String(auction._id).slice(-8)}_${Date.now().toString(36)}`;
 
   let order;
   try {
     order = await razorpay.createOrder({
-      amountPaise: claimed.salePricePaise,
+      amountPaise: salePricePaise,
       currency: 'INR',
       receipt,
       notes: {
         userId: String(userId),
         purpose: PAYMENT_PURPOSE.AUCTION,
-        auctionId: String(claimed._id),
+        auctionId: String(auction._id),
         source: ORDER_SOURCE.BUY_NOW,
       },
     });
@@ -267,45 +227,23 @@ const buyNow = async (userId, auctionId, { shippingAddress = null } = {}) => {
     throw new ApiError(httpStatus.INTERNAL_SERVER_ERROR, MESSAGES.PAYMENT.ORDER_CREATE_FAILED);
   }
 
-  const payment = await Payment.create({
+  await Payment.create({
     userId,
     razorpayOrderId: order.id,
-    amountPaise: claimed.salePricePaise,
+    amountPaise: salePricePaise,
     currency: 'INR',
     purpose: PAYMENT_PURPOSE.AUCTION,
     tokens: 0,
-    auctionId: claimed._id,
+    auctionId: auction._id,
     notes: order.notes || null,
   });
 
-  await Auction.updateOne({ _id: claimed._id }, { paymentId: payment._id });
-
-  const label = `${claimed.device?.brand || ''} ${claimed.device?.model || ''}`.trim() || 'a device';
-
-  await Promise.all(
-    losers
-      .filter((id) => String(id) !== String(userId))
-      .map(async (id) => {
-        try {
-          await notificationService.notifyUser(id, {
-            title: 'Auction ended early',
-            body: `${label} was bought instantly by another buyer.`,
-            type: NOTIFICATION_TYPE.AUCTION,
-            data: { auctionId: String(claimed._id), outcome: BID_STATUS.LOST },
-          });
-        } catch (err) {
-          console.error('[Auction] buy-now loser notification failed', err.message);
-        }
-      })
-  );
-
   return {
     orderId: order.id,
-    amount: claimed.salePricePaise,
+    amount: salePricePaise,
     currency: 'INR',
-    auctionId: String(claimed._id),
+    auctionId: String(auction._id),
     salesOrderId: String(salesOrder._id),
-    paymentDueAt: dueAt,
     razorpayKeyId: razorpay.getKeyId(),
     checkout: razorpay.getCheckoutOptions(),
   };

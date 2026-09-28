@@ -8,7 +8,7 @@ const {
   asUser,
   creditsOf,
 } = require('./helpers/factory');
-const { stubCreateOrder, buildWebhook } = require('./helpers/razorpay');
+const { stubCreateOrder, stubRefund, buildWebhook } = require('./helpers/razorpay');
 const settings = require('../src/services/settings.service');
 const auctionCloser = require('../src/services/auctionCloser.service');
 const Auction = require('../src/models/Auction.model');
@@ -721,7 +721,7 @@ describe('buy now', () => {
     return { seller, auction };
   };
 
-  it('ends the auction immediately and opens checkout at the instant price', async () => {
+  it('opens checkout at the instant price without reserving the auction', async () => {
     const { auction } = await liveWithBuyNow();
     const buyer = await createAuctionUser();
     stubCreateOrder('order_buy_now_1');
@@ -733,15 +733,15 @@ describe('buy now', () => {
     expect(res.status).toBe(201);
     expect(res.body.data.amount).toBe(2000000);
 
+    // The auction is NOT taken off the market until the payment is captured —
+    // an abandoned checkout must leave it exactly as it was.
     const fresh = await Auction.findById(auction._id);
-    expect(fresh.status).toBe(AUCTION_STATUS.PAYMENT_PENDING);
-    expect(String(fresh.winnerId)).toBe(String(buyer.user._id));
-    expect(fresh.salePricePaise).toBe(2000000);
-    // No bid backs a Buy Now — the price came from the listing.
-    expect(fresh.winningBidId).toBeNull();
+    expect(fresh.status).toBe(AUCTION_STATUS.LIVE);
+    expect(fresh.winnerId).toBeNull();
+    expect(fresh.salePricePaise).toBeNull();
   });
 
-  it('marks existing bidders LOST', async () => {
+  it('closes the auction and marks bidders LOST only when payment is captured', async () => {
     const { auction } = await liveWithBuyNow();
     const bidder = await createAuctionUser();
     const buyer = await createAuctionUser();
@@ -754,7 +754,27 @@ describe('buy now', () => {
       .post(`/api/v1/auctions/${auction._id}/buy-now`)
       .send({ shippingAddress: ADDRESS });
 
-    const bid = await Bid.findOne({ auctionId: auction._id, bidderId: bidder.user._id });
+    // Still live, bidder still in the running — nothing closed on the click.
+    expect((await Auction.findById(auction._id)).status).toBe(AUCTION_STATUS.LIVE);
+    let bid = await Bid.findOne({ auctionId: auction._id, bidderId: bidder.user._id });
+    expect(bid.status).not.toBe(BID_STATUS.LOST);
+
+    // Payment captured → the sale completes, the auction is SOLD to the buyer and
+    // the bidder loses.
+    const { body, signature } = buildWebhook('payment.captured', 'order_buy_now_2', 'pay_bn2');
+    await request(app)
+      .post('/api/v1/wallet/webhook/razorpay')
+      .set('x-razorpay-signature', signature)
+      .set('Content-Type', 'application/json')
+      .send(body);
+
+    const sold = await Auction.findById(auction._id);
+    expect(sold.status).toBe(AUCTION_STATUS.SOLD);
+    expect(String(sold.winnerId)).toBe(String(buyer.user._id));
+    expect(sold.salePricePaise).toBe(2000000);
+    // No bid backs a Buy Now — the price came from the listing.
+    expect(sold.winningBidId).toBeNull();
+    bid = await Bid.findOne({ auctionId: auction._id, bidderId: bidder.user._id });
     expect(bid.status).toBe(BID_STATUS.LOST);
   });
 
@@ -774,13 +794,14 @@ describe('buy now', () => {
     expect((await Auction.findById(auction._id)).status).toBe(AUCTION_STATUS.LIVE);
   });
 
-  it('lets only one of two simultaneous instant buyers win', async () => {
+  it('lets two buyers check out but sells to whoever pays first, refunding the other', async () => {
     const { auction } = await liveWithBuyNow();
     const a = await createAuctionUser();
     const b = await createAuctionUser();
     stubCreateOrder('order_bn_race_a');
     stubCreateOrder('order_bn_race_b');
 
+    // With no reservation, both buyers can open checkout.
     const [one, two] = await Promise.all([
       asUser(a.token)
         .post(`/api/v1/auctions/${auction._id}/buy-now`)
@@ -789,8 +810,35 @@ describe('buy now', () => {
         .post(`/api/v1/auctions/${auction._id}/buy-now`)
         .send({ shippingAddress: ADDRESS }),
     ]);
+    expect([one.status, two.status]).toEqual([201, 201]);
 
-    expect([one.status, two.status].sort()).toEqual([201, 409]);
+    // A pays first → sale completes to A.
+    const paidA = buildWebhook('payment.captured', 'order_bn_race_a', 'pay_bn_a');
+    await request(app)
+      .post('/api/v1/wallet/webhook/razorpay')
+      .set('x-razorpay-signature', paidA.signature)
+      .set('Content-Type', 'application/json')
+      .send(paidA.body);
+
+    // B pays second → the device is gone, so B is auto-refunded.
+    const refund = stubRefund('rfnd_bn_b');
+    const paidB = buildWebhook('payment.captured', 'order_bn_race_b', 'pay_bn_b');
+    await request(app)
+      .post('/api/v1/wallet/webhook/razorpay')
+      .set('x-razorpay-signature', paidB.signature)
+      .set('Content-Type', 'application/json')
+      .send(paidB.body);
+
+    const sold = await Auction.findById(auction._id);
+    expect(sold.status).toBe(AUCTION_STATUS.SOLD);
+    expect(String(sold.winnerId)).toBe(String(a.user._id));
+
+    // B's order was cancelled (their money is coming back), A's is paid.
+    const aOrders = await asUser(a.token).get('/api/v1/orders');
+    const bOrders = await asUser(b.token).get('/api/v1/orders');
+    expect(aOrders.body.data.items[0].paidAt).toBeTruthy();
+    expect(bOrders.body.data.items[0].fulfilmentStatus).toBe('CANCELLED');
+    expect(refund).toBe('rfnd_bn_b');
   });
 
   it('refuses a listing with no instant price', async () => {

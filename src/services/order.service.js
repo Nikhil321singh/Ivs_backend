@@ -65,11 +65,27 @@ const createForAuction = async (
   });
 };
 
-/** Marks the order paid once Razorpay confirms. Called from the sale path. */
-const markPaid = async (auctionId, paymentId) => {
+/** Marks the buyer's order paid once Razorpay confirms. Called from the sale
+ *  path. Keyed on (auction, buyer) so a Buy Now race — where a losing buyer may
+ *  hold their own unpaid order on the same auction — never marks the wrong one
+ *  paid. */
+const markPaid = async (auctionId, buyerId, paymentId) => {
   const order = await Order.findOneAndUpdate(
-    { auctionId, paidAt: null, fulfilmentStatus: { $ne: FULFILMENT_STATUS.CANCELLED } },
+    { auctionId, buyerId, paidAt: null, fulfilmentStatus: { $ne: FULFILMENT_STATUS.CANCELLED } },
     { paidAt: new Date(), paymentId },
+    { new: true }
+  );
+
+  return order;
+};
+
+/** Cancels a buyer's still-unpaid order for an auction — used when a Buy Now
+ *  payment is refunded because the device was no longer available. Only ever
+ *  touches an unpaid order, so it can never cancel a completed sale. */
+const cancelUnpaidForBuyer = async (auctionId, buyerId) => {
+  const order = await Order.findOneAndUpdate(
+    { auctionId, buyerId, paidAt: null, fulfilmentStatus: { $ne: FULFILMENT_STATUS.CANCELLED } },
+    { fulfilmentStatus: FULFILMENT_STATUS.CANCELLED },
     { new: true }
   );
 
@@ -270,6 +286,7 @@ const vendorSettlement = async () => {
 module.exports = {
   createForAuction,
   markPaid,
+  cancelUnpaidForBuyer,
   getForBuyer,
   getByIdForBuyer,
   list,

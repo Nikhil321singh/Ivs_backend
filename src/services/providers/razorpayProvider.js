@@ -36,6 +36,26 @@ const createOrder = async ({ amountPaise, currency = 'INR', receipt, notes }) =>
   return response.data; // { id, amount, currency, receipt, notes, status, ... }
 };
 
+/**
+ * Refunds a captured payment. `amountPaise` omitted = full refund. Used when a
+ * Buy Now payment is captured but the device is no longer available (another
+ * buyer's payment landed first, or bidding passed the instant price) — the money
+ * has to go straight back.
+ */
+const refund = async (razorpayPaymentId, { amountPaise, notes } = {}) => {
+  const response = await axios.post(
+    `${env.razorpay.apiBaseUrl}/payments/${razorpayPaymentId}/refund`,
+    { ...(amountPaise ? { amount: amountPaise } : {}), ...(notes ? { notes } : {}) },
+    {
+      timeout: REQUEST_TIMEOUT,
+      auth: { username: env.razorpay.keyId, password: env.razorpay.keySecret },
+      headers: { 'Content-Type': 'application/json' },
+    }
+  );
+
+  return response.data; // { id, payment_id, amount, status, ... }
+};
+
 const hmacSha256 = (payload, secret) =>
   crypto.createHmac('sha256', secret).update(payload).digest('hex');
 
@@ -116,6 +136,7 @@ module.exports = {
   getCallbackUrl,
   getCheckoutOptions,
   createOrder,
+  refund,
   verifyCheckoutSignature,
   verifyWebhookSignature,
 };
