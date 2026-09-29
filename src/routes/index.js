@@ -14,6 +14,7 @@ const assistantRoutes = require('./assistant.routes');
 const notificationRoutes = require('./notification.routes');
 const appRoutes = require('./app.routes');
 const wrapperRoutes = require('./wrapper.routes');
+const repairAnalysisRoutes = require('./repairAnalysis.routes');
 // Self-contained admin module — see src/admin/README.md.
 const adminModule = require('../admin');
 const PRICING = require('../constants/pricing');
@@ -115,6 +116,8 @@ router.use('/app', appRoutes);
 // Server-to-server only — authenticated by a shared secret in the body, not by
 // a user session. See wrapper.routes.js.
 router.use('/wrapper', wrapperRoutes);
+// External Repair Analysis API — device diagnostics decision trees and chat.
+router.use('/repair-analysis', repairAnalysisRoutes);
 router.use('/admin', adminModule.router);
 
 module.exports = router;
