@@ -178,6 +178,18 @@ const bidLimiter = buildLimiter({
   skip: skipUnidentified,
 });
 
+// Each assistant reply is a paid Claude call, so an unmetered endpoint is a
+// direct spend risk. Mounted after authenticate, so it is keyed per user —
+// generous enough for a real back-and-forth chat, tight enough that a script
+// can't run the Anthropic bill up.
+const assistantLimiter = buildLimiter({
+  windowMs: intFromEnv('RATE_LIMIT_ASSISTANT_WINDOW_MIN', 5) * MINUTE,
+  max: intFromEnv('RATE_LIMIT_ASSISTANT_MAX', 30),
+  message: 'Too many assistant messages in a short time. Please slow down and try again.',
+  keyGenerator: identityKeyOnly,
+  skip: skipUnidentified,
+});
+
 // Admin login is a password endpoint, so it's the one place brute force is
 // worth paying for. Keyed on the email being attempted, so guessing one
 // account's password is capped no matter where the attempts come from.
@@ -195,6 +207,7 @@ module.exports = {
   otpVerifyLimiter,
   imeiVerificationLimiter,
   bidLimiter,
+  assistantLimiter,
   adminLoginLimiter,
   limitsDisabled,
   // Exported for tests — these carry the logic worth asserting on.

@@ -10,6 +10,7 @@ const auctionRoutes = require('./auction.routes');
 const orderRoutes = require('./order.routes');
 const referralRoutes = require('./referral.routes');
 const diagnoseRoutes = require('./diagnose.routes');
+const assistantRoutes = require('./assistant.routes');
 const notificationRoutes = require('./notification.routes');
 const appRoutes = require('./app.routes');
 const wrapperRoutes = require('./wrapper.routes');
@@ -104,6 +105,9 @@ router.use('/auctions', auctionRoutes);
 router.use('/orders', orderRoutes);
 router.use('/referral', referralRoutes);
 router.use('/diagnose', diagnoseRoutes);
+// The in-app "Gia" assistant's free-text answers (Claude-backed). Authenticated
+// and rate-limited — see assistant.routes.js.
+router.use('/assistant', assistantRoutes);
 router.use('/notifications', notificationRoutes);
 // Client-facing app metadata (the launch-time update check). Unauthenticated —
 // see routes/app.routes.js.
