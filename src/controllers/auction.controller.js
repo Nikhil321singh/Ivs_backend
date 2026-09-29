@@ -64,12 +64,18 @@ const cancelAuction = asyncHandler(async (req, res) => {
 const browseAuctions = asyncHandler(async (req, res) => {
   const data = await auctionService.browse(req.query, req.user.id);
 
+  res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
   successResponse(res, httpStatus.OK, MESSAGES.AUCTION.LIST_FETCHED, data);
 });
 
 const getAuction = asyncHandler(async (req, res) => {
   const auction = await auctionService.getById(req.params.auctionId, req.user.id);
 
+  res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
   successResponse(res, httpStatus.OK, MESSAGES.AUCTION.FETCHED, { auction });
 });
 
@@ -106,12 +112,18 @@ const placeBid = asyncHandler(async (req, res) => {
 const getBidHistory = asyncHandler(async (req, res) => {
   const data = await bidService.getHistory(req.params.auctionId, req.query);
 
+  res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
   successResponse(res, httpStatus.OK, MESSAGES.BID.HISTORY_FETCHED, data);
 });
 
 const myBids = asyncHandler(async (req, res) => {
   const data = await bidService.getMyBids(req.user.id, req.query);
 
+  res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
   successResponse(res, httpStatus.OK, MESSAGES.BID.MY_BIDS_FETCHED, data);
 });
 
