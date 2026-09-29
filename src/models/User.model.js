@@ -47,6 +47,32 @@ const userSchema = new Schema(
       trim: true,
       default: null,
     },
+    billingAddress: {
+      type: {
+        name: { type: String, trim: true },
+        phone: { type: String, trim: true },
+        line1: { type: String, trim: true },
+        line2: { type: String, trim: true, default: null },
+        city: { type: String, trim: true },
+        state: { type: String, trim: true },
+        pincode: { type: String, trim: true },
+        landmark: { type: String, trim: true, default: null },
+      },
+      default: null,
+    },
+    shippingAddress: {
+      type: {
+        name: { type: String, trim: true },
+        phone: { type: String, trim: true },
+        line1: { type: String, trim: true },
+        line2: { type: String, trim: true, default: null },
+        city: { type: String, trim: true },
+        state: { type: String, trim: true },
+        pincode: { type: String, trim: true },
+        landmark: { type: String, trim: true, default: null },
+      },
+      default: null,
+    },
     // No `default: null` on fields below that carry a sparse unique index
     // (email, panNumber, gstNumber, aadhaarNumberHash): MongoDB's sparse
     // index only excludes documents where the field is truly absent, not

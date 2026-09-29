@@ -9,6 +9,7 @@ const {
   updateProfileValidator,
   sendAadhaarOtpValidator,
   verifyAadhaarOtpValidator,
+  saveAddressesValidator,
 } = require('../validators/user.validator');
 
 const router = express.Router();
@@ -167,6 +168,57 @@ router.put(
   updateProfileValidator,
   validateRequest,
   userController.updateProfile
+);
+
+/**
+ * @openapi
+ * /user/addresses:
+ *   post:
+ *     tags: [User]
+ *     summary: Save billing and shipping addresses
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [billingAddress, shippingAddress]
+ *             properties:
+ *               billingAddress:
+ *                 type: object
+ *                 required: [name, phone, line1, city, state, pincode]
+ *                 properties:
+ *                   name: { type: string, example: "John Doe" }
+ *                   phone: { type: string, example: "9876543210" }
+ *                   line1: { type: string, example: "123 Main Street" }
+ *                   line2: { type: string, example: "Apt 4", nullable: true }
+ *                   city: { type: string, example: "Mumbai" }
+ *                   state: { type: string, example: "Maharashtra" }
+ *                   pincode: { type: string, example: "400001" }
+ *                   landmark: { type: string, example: "Near Central Park", nullable: true }
+ *               shippingAddress:
+ *                 type: object
+ *                 required: [name, phone, line1, city, state, pincode]
+ *                 properties:
+ *                   name: { type: string, example: "Jane Doe" }
+ *                   phone: { type: string, example: "9876543210" }
+ *                   line1: { type: string, example: "456 Oak Avenue" }
+ *                   line2: { type: string, example: "Suite 200", nullable: true }
+ *                   city: { type: string, example: "Bangalore" }
+ *                   state: { type: string, example: "Karnataka" }
+ *                   pincode: { type: string, example: "560001" }
+ *                   landmark: { type: string, example: "Near Tech Park", nullable: true }
+ *     responses:
+ *       200: { description: Addresses saved successfully }
+ *       422: { description: Validation failed }
+ */
+router.post(
+  '/addresses',
+  authenticate,
+  saveAddressesValidator,
+  validateRequest,
+  userController.saveAddresses
 );
 
 /**

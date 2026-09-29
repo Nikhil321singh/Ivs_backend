@@ -153,6 +153,12 @@ const getUserDetails = asyncHandler(async (req, res) => {
   successResponse(res, httpStatus.OK, MESSAGES.USER.DETAILS_FETCHED, details);
 });
 
+const saveAddresses = asyncHandler(async (req, res) => {
+  const addresses = await userService.saveAddresses(req.user.id, req.body);
+
+  successResponse(res, httpStatus.OK, 'Addresses saved successfully', addresses);
+});
+
 module.exports = {
   sendAadhaarOtp,
   verifyAadhaarOtp,
@@ -161,6 +167,7 @@ module.exports = {
   updateProfile,
   getProfile,
   getUserDetails,
+  saveAddresses,
   startDigilockerAadhaar,
   digilockerAadhaarCallback,
   getDigilockerAadhaarVerification,

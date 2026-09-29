@@ -268,6 +268,25 @@ const updateProfile = async (userId, { name, companyName, email, address }, prof
   return user;
 };
 
+const saveAddresses = async (userId, { billingAddress, shippingAddress }) => {
+  const user = await getUserById(userId);
+
+  if (billingAddress !== undefined) {
+    user.billingAddress = billingAddress;
+  }
+  if (shippingAddress !== undefined) {
+    user.shippingAddress = shippingAddress;
+  }
+
+  await user.save();
+
+  return {
+    id: user._id,
+    billingAddress: user.billingAddress,
+    shippingAddress: user.shippingAddress,
+  };
+};
+
 /**
  * Deletes the user's account at their own request — a soft delete.
  *
@@ -529,5 +548,6 @@ module.exports = {
   completeKyc,
   skipKyc,
   updateProfile,
+  saveAddresses,
   deleteAccount,
 };
