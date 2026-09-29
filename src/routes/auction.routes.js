@@ -118,7 +118,7 @@ router.get('/my/bids', authenticate, myBidsValidator, validateRequest, auctionCo
  *         schema: { type: string, example: Apple }
  *       - in: query
  *         name: condition
- *         schema: { type: string, example: "LIKE_NEW,EXCELLENT" }
+ *         schema: { type: string, example: "A+,A" }
  *       - in: query
  *         name: storageGb
  *         schema: { type: integer, example: 128 }
@@ -158,7 +158,7 @@ router.get('/my/bids', authenticate, myBidsValidator, validateRequest, auctionCo
  *               device:
  *                 type: object
  *                 example: { brand: "Apple", model: "iPhone 13", storageGb: 128, color: "Midnight", imei: "355301083783251" }
- *               condition: { type: string, enum: [LIKE_NEW, EXCELLENT, GOOD, FAIR, POOR] }
+ *               condition: { type: string, enum: ["A+", "A", "super", "B+", "B", "B-", "C+", "C", "D+", "D", "fair", "E"] }
  *               conditionNotes: { type: string }
  *               diagnoseSessionId: { type: string, description: "A diagnosis this account ran on the device." }
  *               imeiVerificationId: { type: string, description: "An IMEI check this account ran. BLOCKED/STOLEN cannot be published." }

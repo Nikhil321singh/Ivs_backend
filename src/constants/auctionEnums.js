@@ -67,11 +67,18 @@ const ONGOING_BID_STATUSES = Object.freeze([BID_STATUS.HIGHEST, BID_STATUS.OUTBI
 
 /** Seller-declared handset condition. Ordered best to worst. */
 const DEVICE_CONDITION = Object.freeze({
-  LIKE_NEW: 'LIKE_NEW',
-  EXCELLENT: 'EXCELLENT',
-  GOOD: 'GOOD',
-  FAIR: 'FAIR',
-  POOR: 'POOR',
+  A_PLUS: 'A+',
+  A: 'A',
+  SUPER: 'super',
+  B_PLUS: 'B+',
+  B: 'B',
+  B_MINUS: 'B-',
+  C_PLUS: 'C+',
+  C: 'C',
+  D_PLUS: 'D+',
+  D: 'D',
+  FAIR: 'fair',
+  E: 'E',
 });
 
 /**

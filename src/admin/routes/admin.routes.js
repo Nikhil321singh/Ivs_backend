@@ -691,7 +691,7 @@ router.get('/auctions', adminAuth, adminController.listAuctions);
  *             required: [device, condition, startPricePaise, bidIncrementPaise, startAt, endAt]
  *             properties:
  *               device: { type: object }
- *               condition: { type: string, enum: [LIKE_NEW, EXCELLENT, GOOD, FAIR, POOR] }
+ *               condition: { type: string, enum: ["A+", "A", "super", "B+", "B", "B-", "C+", "C", "D+", "D", "fair", "E"] }
  *               conditionNotes: { type: string }
  *               photos: { type: array, items: { type: object } }
  *               startPricePaise: { type: integer, example: 1000000 }
