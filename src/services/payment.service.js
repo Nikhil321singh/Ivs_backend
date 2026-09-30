@@ -1,9 +1,20 @@
 const Payment = require('../models/Payment.model');
+const Auction = require('../models/Auction.model');
 const razorpay = require('./providers/razorpayProvider');
 const walletService = require('./wallet.service');
+const entitlementService = require('./entitlement.service');
+const auctionSale = require('./auctionSale.service');
 const referralService = require('./referral.service');
 const PRICING = require('../constants/pricing');
+const settingsService = require('./settings.service');
+const { SETTING_KEYS } = require('../constants/settings');
+const { BILLING_MODE } = require('../constants/entitlementEnums');
 const { PAYMENT_STATUS, TXN_REASON, TXN_REF_TYPE } = require('../constants/walletEnums');
+const {
+  PAYMENT_PURPOSE,
+  ENTITLEMENT_REASON,
+  ENTITLEMENT_REF_TYPE,
+} = require('../constants/entitlementEnums');
 const ApiError = require('../utils/apiError');
 const httpStatus = require('../constants/httpStatus');
 const MESSAGES = require('../constants/messages');
@@ -18,6 +29,13 @@ const MESSAGES = require('../constants/messages');
 const createTopupOrder = async (userId, amountInr) => {
   if (!razorpay.isConfigured()) {
     throw new ApiError(httpStatus.INTERNAL_SERVER_ERROR, MESSAGES.PAYMENT.NOT_CONFIGURED);
+  }
+
+  // In SUBSCRIPTION mode nothing spends tokens, so selling them would take
+  // money for something the customer cannot use. WALLET and BOTH still sell —
+  // BOTH is the cutover mode, where tokens remain spendable as a fallback.
+  if ((await settingsService.get(SETTING_KEYS.BILLING_MODE)) === BILLING_MODE.SUBSCRIPTION) {
+    throw new ApiError(httpStatus.BAD_REQUEST, MESSAGES.PAYMENT.TOPUP_DISABLED);
   }
   if (amountInr < PRICING.MIN_TOPUP_INR) {
     throw new ApiError(httpStatus.BAD_REQUEST, MESSAGES.PAYMENT.MIN_AMOUNT);
@@ -63,53 +81,22 @@ const createTopupOrder = async (userId, amountInr) => {
     currency: 'INR',
     tokens,
     razorpayKeyId: razorpay.getKeyId(),
-    // Checkout options for the app's WebView. Inside a WebView the JS
-    // `handler` callback is unreliable — a UPI intent hands control to the
-    // PSP app and the page that would have run the handler is gone — so
-    // Checkout has to run in redirect mode instead: Razorpay POSTs the result
-    // to `callback_url` (our /wallet/topup/callback) and `webview_intent`
-    // lets Checkout fire the UPI intent out to the native app. The client
-    // spreads this object straight into its Checkout options.
-    checkout: {
-      callback_url: razorpay.getCallbackUrl(),
-      redirect: true,
-      webview_intent: true,
-      // Pin the UPI block to intent + QR. Two reasons:
-      //
-      // 1. NPCI retired UPI Collect on 28 Feb 2026, so a checkout that falls
-      //    back to collect now renders an empty UPI section. Naming the flows
-      //    explicitly keeps the block populated.
-      // 2. QR needs nothing from the native wrapper. Intent only works once
-      //    the app handles the `upi:`/`intent:` URL in shouldOverrideUrlLoading;
-      //    until that ships, QR is the flow that still lets a user pay. Both
-      //    are listed so the same payload keeps working after the app updates —
-      //    no rebuild needed on either side of that change.
-      //
-      // show_default_blocks stays true so cards/netbanking/wallets still render
-      // below the UPI block; `sequence` only promotes UPI to the top. If
-      // Checkout ever ignores `flows` (it is not in the public docs — Razorpay
-      // support recommends it), this degrades to a plain UPI block rather than
-      // hiding anything.
-      config: {
-        display: {
-          blocks: {
-            upi: {
-              name: 'Pay using UPI',
-              instruments: [{ method: 'upi', flows: ['intent', 'qr'] }],
-            },
-          },
-          sequence: ['block.upi'],
-          preferences: { show_default_blocks: true },
-        },
-      },
-    },
+    checkout: razorpay.getCheckoutOptions(),
   };
 };
 
 /**
- * Credits tokens for a confirmed payment exactly once. Both the webhook and
- * the client /verify path funnel through here; the CREATED→PAID flip is
- * atomic, so whichever arrives first does the work and the other is a no-op.
+ * Fulfils a confirmed payment exactly once. Both the webhook and the client
+ * /verify path funnel through here; the CREATED→PAID flip is atomic, so
+ * whichever arrives first does the work and the other is a no-op.
+ *
+ * What "fulfil" means depends on what was bought: a PLAN grants credits from
+ * the snapshot frozen at order time, a TOPUP credits tokens to the wallet, and
+ * an AUCTION completes a sale between two users.
+ *
+ * The referral payout that follows applies to PLAN and TOPUP only. An auction
+ * payment is a buyer paying a seller, not a purchase from us, so it must not
+ * trigger a reward — and it must not credit anything to the payer's wallet.
  */
 const creditForPayment = async (payment, { paymentId, signature }) => {
   const claimed = await Payment.findOneAndUpdate(
@@ -127,19 +114,51 @@ const creditForPayment = async (payment, { paymentId, signature }) => {
     return Payment.findById(payment._id);
   }
 
-  const txn = await walletService.credit(claimed.userId, claimed.tokens, {
-    reason: TXN_REASON.TOPUP,
-    referenceType: TXN_REF_TYPE.PAYMENT,
-    referenceId: claimed._id,
-    idempotencyKey: `payment-${paymentId}`,
-    metadata: { orderId: claimed.razorpayOrderId },
-  });
+  if (claimed.purpose === PAYMENT_PURPOSE.AUCTION) {
+    // A sale between two users. Nothing is credited to anyone's balance — the
+    // auction simply becomes SOLD, and both sides are told.
+    await auctionSale.completeSale(claimed);
+    return claimed;
+  }
 
-  claimed.creditTxnId = txn._id;
-  await claimed.save();
+  if (claimed.purpose === PAYMENT_PURPOSE.PLAN) {
+    // Credit what was sold, not what the plan says today — an admin may have
+    // repriced or re-quota'd it between checkout and capture.
+    const quotas = claimed.planSnapshot?.quotas
+      ? Object.fromEntries(claimed.planSnapshot.quotas)
+      : {};
 
-  // A successful top-up unlocks any pending referral reward. Non-fatal:
-  // never fail the credit because a referral payout had trouble.
+    await entitlementService.creditPack(claimed.userId, quotas, {
+      reason: ENTITLEMENT_REASON.PLAN_PURCHASE,
+      referenceType: ENTITLEMENT_REF_TYPE.PAYMENT,
+      referenceId: claimed._id,
+      // creditPack suffixes this per feature, so a two-feature pack replayed by
+      // a duplicate webhook still grants each feature exactly once.
+      idempotencyKey: `payment-${paymentId}`,
+      metadata: { orderId: claimed.razorpayOrderId, planCode: claimed.planSnapshot?.code },
+    });
+
+    // `creditTxnId` intentionally stays null: it references a WalletTransaction
+    // and a pack writes one EntitlementTransaction per feature, so there is no
+    // single row to point at. Those rows carry referenceId → this Payment,
+    // which is the durable link in the direction that actually gets queried.
+  } else {
+    const txn = await walletService.credit(claimed.userId, claimed.tokens, {
+      reason: TXN_REASON.TOPUP,
+      referenceType: TXN_REF_TYPE.PAYMENT,
+      referenceId: claimed._id,
+      idempotencyKey: `payment-${paymentId}`,
+      metadata: { orderId: claimed.razorpayOrderId },
+    });
+
+    claimed.creditTxnId = txn._id;
+    await claimed.save();
+  }
+
+  // A successful purchase — pack or top-up — unlocks any pending referral
+  // reward. Non-fatal: never fail the fulfilment because a payout had trouble.
+  // This is also why the referral programme survives the move to credit packs:
+  // with top-ups switched off, a pack purchase is the qualifying event.
   try {
     await referralService.maybeRewardReferral(claimed.userId);
   } catch (err) {
@@ -196,9 +215,22 @@ const verifyPayment = async (userId, { orderId, paymentId, signature }) => {
   }
 
   const updated = await creditForPayment(payment, { paymentId, signature });
-  const balance = await walletService.getBalance(userId);
 
-  return { payment: updated, balance };
+  if (updated.purpose === PAYMENT_PURPOSE.PLAN) {
+    const { credits } = await entitlementService.getSummary(userId);
+    return { payment: updated, credits };
+  }
+
+  if (updated.purpose === PAYMENT_PURPOSE.AUCTION) {
+    // Nothing was credited to a balance — the useful answer is the sale itself.
+    const auction = await Auction.findById(updated.auctionId).lean();
+    return {
+      payment: updated,
+      auction: auction ? { id: String(auction._id), status: auction.status } : null,
+    };
+  }
+
+  return { payment: updated, balance: await walletService.getBalance(userId) };
 };
 
 /**

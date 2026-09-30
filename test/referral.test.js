@@ -5,6 +5,14 @@ const Referral = require('../src/models/Referral.model');
 const referralService = require('../src/services/referral.service');
 const PRICING = require('../src/constants/pricing');
 const { REFERRAL_STATUS } = require('../src/constants/walletEnums');
+const settingsService = require('../src/services/settings.service');
+
+// Referral rewards are paid on a first purchase, and these specs make that
+// purchase a token top-up. Top-ups are only sold under the wallet billing
+// modes, so declare it — the default is now SUBSCRIPTION.
+beforeEach(async () => {
+  await settingsService.update({ billingMode: 'WALLET' });
+});
 
 /**
  * The referral reward is the only bonus in the system (SIGNUP_BONUS is 0), and

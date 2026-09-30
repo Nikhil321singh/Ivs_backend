@@ -2,6 +2,7 @@ const express = require('express');
 const adminController = require('../controllers/admin.controller');
 const adminAuth = require('../middleware/adminAuth.middleware');
 const validateRequest = require('../../middleware/validateRequest.middleware');
+const { uploadAuctionPhotos } = require('../../middleware/upload.middleware');
 const { adminLoginLimiter } = require('../../middleware/rateLimiter.middleware');
 const {
   loginValidator,
@@ -9,6 +10,16 @@ const {
   userIdParamValidator,
   sendNotificationValidator,
   campaignIdParamValidator,
+  planIdParamValidator,
+  createPlanValidator,
+  updatePlanValidator,
+  adjustCreditsValidator,
+  adminAuctionIdParamValidator,
+  takeDownAuctionValidator,
+  lookupImeiValidator,
+  createListingValidator,
+  updateListingValidator,
+  updateOrderValidator,
 } = require('../validators/admin.validator');
 const {
   upsertAppVersionValidator,
@@ -447,6 +458,572 @@ router.post(
   notifyUpdateValidator,
   validateRequest,
   adminController.notifyAppUpdate
+);
+
+/* ------------------------------------------------------------------ *
+ * Credit packs. See SUBSCRIPTION_DESIGN.md §8 — plans, quantities and
+ * prices are data edited from here, never constants in the codebase.
+ * ------------------------------------------------------------------ */
+
+/**
+ * @openapi
+ * /admin/plans:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Every credit pack, active or not
+ *     description: Each plan is returned with the same computed maths the app sees — effective per-check rate, discount and derived MRP — plus the custom tier's current rules.
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Plans fetched successfully }
+ *   post:
+ *     tags: [Admin]
+ *     summary: Create a credit pack
+ *     description: >
+ *       Rejected with 422 if the price would make this pack cheaper per check
+ *       than the custom tier — that inverts the pricing ladder, making a small
+ *       pack better value than buying in volume. A merely flat ladder succeeds
+ *       and returns `warnings`.
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [code, name, tier, quotas, pricePaise]
+ *             properties:
+ *               code: { type: string, example: "PRO_MAX" }
+ *               name: { type: string, example: "Pro Max" }
+ *               tier: { type: string, enum: [BASIC, PRO, PRO_MAX, CUSTOM] }
+ *               quotas: { type: object, example: { IVS_CHECK: 40, DIAGNOSE: 30 } }
+ *               pricePaise: { type: integer, example: 169900 }
+ *               mrpPaise: { type: integer, description: "Strikethrough anchor. Omit to derive it from the list unit prices." }
+ *               badge: { type: string, example: "Most popular" }
+ *               highlight: { type: boolean }
+ *               sortOrder: { type: integer }
+ *               audience: { type: string, enum: [individual, vendor, all] }
+ *               isActive: { type: boolean }
+ *     responses:
+ *       201: { description: Plan created successfully }
+ *       409: { description: A plan with this code already exists }
+ *       422: { description: The price breaks the pricing ladder }
+ */
+router.get('/plans', adminAuth, adminController.listPlans);
+router.post('/plans', adminAuth, createPlanValidator, validateRequest, adminController.createPlan);
+
+/**
+ * @openapi
+ * /admin/plans/{planId}:
+ *   patch:
+ *     tags: [Admin]
+ *     summary: Edit a credit pack (quantities, price, badge, ordering, active)
+ *     description: >
+ *       Any subset of fields. `code` is not editable — it is the identity seed
+ *       scripts and reports address the plan by. Deactivate with
+ *       `isActive: false` rather than deleting: purchases keep their own
+ *       snapshot, but history views still need the plan to resolve.
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: planId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Plan updated successfully }
+ *       404: { description: Plan not found }
+ *       422: { description: The price breaks the pricing ladder }
+ */
+router.patch(
+  '/plans/:planId',
+  adminAuth,
+  planIdParamValidator,
+  updatePlanValidator,
+  validateRequest,
+  adminController.updatePlan
+);
+
+/**
+ * @openapi
+ * /admin/entitlements/{userId}:
+ *   get:
+ *     tags: [Admin]
+ *     summary: A customer's remaining credits, lifetime stats and recent movements
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Credits fetched successfully }
+ *       404: { description: User not found }
+ */
+router.get(
+  '/entitlements/:userId',
+  adminAuth,
+  userIdParamValidator,
+  validateRequest,
+  adminController.getUserEntitlement
+);
+
+/**
+ * @openapi
+ * /admin/entitlements/{userId}/adjust:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Grant or deduct credits manually
+ *     description: >
+ *       For refunds, goodwill and disputed checks. Never writes the counter
+ *       directly — it goes through the same path as a purchase, writing an
+ *       ADMIN_ADJUSTMENT ledger row stamped with the acting admin and the note.
+ *       The note is required: there is no role separation on admin accounts, so
+ *       this trail is the only control on an operator minting free credits.
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [feature, delta, note]
+ *             properties:
+ *               feature: { type: string, example: "IVS_CHECK" }
+ *               delta: { type: integer, example: 5, description: "Positive grants, negative deducts. Never zero." }
+ *               note: { type: string, example: "Refund for failed check REF-123" }
+ *     responses:
+ *       200: { description: Credits adjusted successfully }
+ *       402: { description: Deduction exceeds the customer's remaining credits }
+ *       404: { description: User not found }
+ */
+router.post(
+  '/entitlements/:userId/adjust',
+  adminAuth,
+  adjustCreditsValidator,
+  validateRequest,
+  adminController.adjustCredits
+);
+
+/**
+ * @openapi
+ * /admin/subscriptions:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Credit pack purchases, with captured revenue over the same filter
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 20, maximum: 100 }
+ *       - in: query
+ *         name: status
+ *         schema: { type: string, enum: [CREATED, PAID, FAILED, REFUNDED] }
+ *       - in: query
+ *         name: planCode
+ *         schema: { type: string, example: "PRO_MAX" }
+ *       - in: query
+ *         name: userId
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Purchases fetched successfully }
+ */
+router.get('/subscriptions', adminAuth, adminController.listPlanPayments);
+
+/* ------------------------------------------------------------------ *
+ * Auctions. Read-only, except taking a listing down — an admin cannot
+ * bid, reprice, or choose a winner. See AUCTION_DESIGN.md.
+ * ------------------------------------------------------------------ */
+
+/**
+ * @openapi
+ * /admin/auctions:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Every auction, including drafts customers never see
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema: { type: string, example: "LIVE,PAYMENT_PENDING" }
+ *       - in: query
+ *         name: sellerId
+ *         schema: { type: string }
+ *       - in: query
+ *         name: search
+ *         schema: { type: string }
+ *         description: Matches brand, model or IMEI.
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 20, maximum: 100 }
+ *     responses:
+ *       200: { description: Auctions fetched successfully }
+ */
+router.get('/auctions', adminAuth, adminController.listAuctions);
+
+/**
+ * @openapi
+ * /admin/auctions:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Create a Grest listing (draft)
+ *     description: >
+ *       Grest's own stock, listed from the portal. Owned by the Grest system
+ *       account and marked sellerType PLATFORM, so publishing it is never
+ *       charged a listing credit. Every buyer-facing rule still applies — photos
+ *       required, duration bounds, blocked/stolen IMEI refused.
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [device, condition, startPricePaise, bidIncrementPaise, startAt, endAt]
+ *             properties:
+ *               device: { type: object }
+ *               condition: { type: string, enum: ["A+", "A", "super", "B+", "B", "B-", "C+", "C", "D+", "D", "fair", "E"] }
+ *               conditionNotes: { type: string }
+ *               photos: { type: array, items: { type: object } }
+ *               startPricePaise: { type: integer, example: 1000000 }
+ *               bidIncrementPaise: { type: integer, example: 50000 }
+ *               buyNowPricePaise: { type: integer, example: 2000000, description: "Optional instant buy price. Must exceed startPricePaise." }
+ *               startAt: { type: string, format: date-time }
+ *               endAt: { type: string, format: date-time }
+ *     responses:
+ *       201: { description: Draft created successfully }
+ *       422: { description: Validation failed }
+ */
+router.post(
+  '/auctions',
+  adminAuth,
+  createListingValidator,
+  validateRequest,
+  adminController.createListing
+);
+
+/**
+ * @openapi
+ * /admin/auctions/lookup-imei:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Look a handset up in Blancco before listing it
+ *     description: >
+ *       Reads the diagnostic report Blancco's app already uploaded for this
+ *       IMEI — it does not run a diagnosis. Returns the report, form prefill
+ *       (make, model, colour), the grade, and `sellable: false` when the device
+ *       is still locked to an iCloud account or an MDM profile.
+ *       404 means the handset has never been through the diagnostics app.
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [imei]
+ *             properties:
+ *               imei: { type: string, example: "356370162838962" }
+ *     responses:
+ *       200: { description: Device report fetched }
+ *       404: { description: No report exists for this IMEI }
+ *       502: { description: Blancco could not be reached }
+ *       503: { description: Diagnostics not configured }
+ */
+router.post(
+  '/auctions/lookup-imei',
+  adminAuth,
+  lookupImeiValidator,
+  validateRequest,
+  adminController.lookupDeviceImei
+);
+
+/**
+ * @openapi
+ * /admin/auctions/{auctionId}:
+ *   patch:
+ *     tags: [Admin]
+ *     summary: Edit a draft listing
+ *     description: >
+ *       Drafts only. Once published the terms are frozen — people bid against a
+ *       price and a deadline, and moving either afterwards is the most abusable
+ *       thing a marketplace can allow.
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Listing updated successfully }
+ *       409: { description: Listing is already published }
+ */
+router.patch(
+  '/auctions/:auctionId',
+  adminAuth,
+  updateListingValidator,
+  validateRequest,
+  adminController.updateListing
+);
+
+/**
+ * @openapi
+ * /admin/auctions/{auctionId}/publish:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Publish a Grest listing (no credit charged)
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Listing published }
+ *       409: { description: Not a draft }
+ *       422: { description: No photos, blocked IMEI, or duration out of bounds }
+ */
+/**
+ * @openapi
+ * /admin/auctions/{auctionId}/photos:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Upload device photos onto a Grest draft
+ *     description: >
+ *       Multipart, field name `photos`, up to 20 files per request and at most
+ *       `auctionMaxPhotos` on the listing. JPG, PNG or WEBP, each under the
+ *       configured size limit. The portal posts the files and this server puts
+ *       them in S3 — the browser never needs AWS credentials.
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               photos:
+ *                 type: array
+ *                 items: { type: string, format: binary }
+ *     responses:
+ *       201: { description: Photos uploaded; returns the listing with photo ids and urls }
+ *       400: { description: Too many photos, wrong type, or file too large }
+ *       409: { description: Listing is already published }
+ */
+router.post(
+  '/auctions/:auctionId/photos',
+  adminAuth,
+  adminAuctionIdParamValidator,
+  validateRequest,
+  uploadAuctionPhotos,
+  adminController.addListingPhotos
+);
+
+/**
+ * @openapi
+ * /admin/auctions/{auctionId}/photos/{photoId}:
+ *   delete:
+ *     tags: [Admin]
+ *     summary: Remove one photo from a draft
+ *     description: Deletes the stored object too, so removing a photo does not orphan a file in S3.
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Photo removed }
+ *       404: { description: Photo not found on this listing }
+ */
+router.delete(
+  '/auctions/:auctionId/photos/:photoId',
+  adminAuth,
+  adminAuctionIdParamValidator,
+  validateRequest,
+  adminController.removeListingPhoto
+);
+
+router.post(
+  '/auctions/:auctionId/publish',
+  adminAuth,
+  adminAuctionIdParamValidator,
+  validateRequest,
+  adminController.publishListing
+);
+
+/**
+ * @openapi
+ * /admin/auctions/{auctionId}/relist:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Put an unsold or unpaid device back up as a fresh draft
+ *     description: >
+ *       Clones the listing rather than reopening it — the finished auction keeps
+ *       its own bids and defaulters as a record of what happened. The new draft
+ *       starts clean, so a bidder who failed to pay last time may bid again.
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       201: { description: Relisted as a new draft }
+ *       409: { description: That auction cannot be relisted }
+ */
+router.post(
+  '/auctions/:auctionId/relist',
+  adminAuth,
+  adminAuctionIdParamValidator,
+  validateRequest,
+  adminController.relistAuction
+);
+
+/* ---- Orders: the fulfilment queue -------------------------------- */
+
+/**
+ * @openapi
+ * /admin/orders:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Device orders — buyer, address, payment and delivery status
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema: { type: string, enum: [PENDING, DISPATCHED, DELIVERED, CANCELLED] }
+ *       - in: query
+ *         name: search
+ *         schema: { type: string }
+ *         description: Matches recipient name, phone or pincode.
+ *     responses:
+ *       200: { description: Orders fetched successfully }
+ */
+router.get('/orders', adminAuth, adminController.listOrders);
+
+/**
+ * @openapi
+ * /admin/orders/settlement:
+ *   get:
+ *     tags: [Admin]
+ *     summary: What Grest owes each vendor for sold devices
+ *     description: >
+ *       There is no automated payout — Grest collects the buyer's money and
+ *       settles with vendors out of band. This is the view that says how much,
+ *       to whom. Platform listings are excluded; Grest does not owe itself.
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Settlement fetched successfully }
+ */
+router.get('/orders/settlement', adminAuth, adminController.vendorSettlement);
+
+/**
+ * @openapi
+ * /admin/orders/{orderId}:
+ *   patch:
+ *     tags: [Admin]
+ *     summary: Move an order along, or add a note
+ *     description: >
+ *       PENDING → DISPATCHED → DELIVERED, or CANCELLED from either of the first
+ *       two. DELIVERED is terminal. The buyer is notified on every status change.
+ *       Send a note alone to record something without moving the order.
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               status: { type: string, enum: [PENDING, DISPATCHED, DELIVERED, CANCELLED] }
+ *               note: { type: string, example: "Handed to Bluedart, AWB 12345" }
+ *     responses:
+ *       200: { description: Order updated successfully }
+ *       409: { description: That status transition is not allowed }
+ */
+router.patch(
+  '/orders/:orderId',
+  adminAuth,
+  updateOrderValidator,
+  validateRequest,
+  adminController.updateOrder
+);
+
+/**
+ * @openapi
+ * /admin/auctions/stats:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Auction dashboard counters
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Stats fetched successfully }
+ */
+router.get('/auctions/stats', adminAuth, adminController.getAuctionStats);
+
+/**
+ * @openapi
+ * /admin/auctions/{auctionId}:
+ *   get:
+ *     tags: [Admin]
+ *     summary: One auction with its seller, winner and recent bids
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: auctionId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Auction fetched successfully }
+ *       404: { description: Auction not found }
+ */
+router.get(
+  '/auctions/:auctionId',
+  adminAuth,
+  adminAuctionIdParamValidator,
+  validateRequest,
+  adminController.getAuctionDetail
+);
+
+/**
+ * @openapi
+ * /admin/auctions/{auctionId}/bids:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Full bid history with bidders identified
+ *     description: Unlike the customer-facing history, which shows first names only, this identifies every bidder — it is the view for investigating shill bidding.
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Bid history fetched successfully }
+ */
+router.get(
+  '/auctions/:auctionId/bids',
+  adminAuth,
+  adminAuctionIdParamValidator,
+  validateRequest,
+  adminController.getAuctionBids
+);
+
+/**
+ * @openapi
+ * /admin/auctions/{auctionId}/takedown:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Remove a listing, even one with live bids
+ *     description: >
+ *       For a stolen handset, a fraudulent listing or an abusive description.
+ *       Unlike the seller's own cancel this works mid-auction, which is the
+ *       point — but everyone who bid is notified, and the reason is recorded.
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [reason]
+ *             properties:
+ *               reason: { type: string, example: "IMEI reported stolen by CEIR" }
+ *     responses:
+ *       200: { description: Auction removed successfully }
+ *       409: { description: Auction is already closed }
+ *       422: { description: A reason is required }
+ */
+router.post(
+  '/auctions/:auctionId/takedown',
+  adminAuth,
+  takeDownAuctionValidator,
+  validateRequest,
+  adminController.takeDownAuction
 );
 
 module.exports = router;

@@ -277,6 +277,23 @@ const env = {
     apiKey: process.env.DIAGNOSE_API_KEY,
   },
 
+  // Anthropic (Claude) — powers the in-app "Gia" assistant's free-text answers.
+  // Lazy-validated in assistant.service.js like the other providers, so the
+  // server boots fine before the key is provisioned (the assistant simply
+  // refuses free-text questions until it is set). The key MUST live here on the
+  // server only — never shipped in the mobile app, where it could be extracted
+  // from the bundle and abused. `model` is env-tunable so cost/quality can be
+  // changed without a deploy (sonnet is the default balance; set
+  // ANTHROPIC_MODEL=claude-opus-4-8 for the most capable, or a haiku id for the
+  // cheapest).
+  anthropic: {
+    apiKey: process.env.ANTHROPIC_API_KEY,
+    baseUrl: (process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/+$/, ''),
+    model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
+    version: process.env.ANTHROPIC_VERSION || '2023-06-01',
+    maxTokens: parseInt(process.env.ANTHROPIC_MAX_TOKENS, 10) || 1024,
+  },
+
   // Firebase Cloud Messaging (HTTP v1). Credentials come from the Firebase
   // console -> Project settings -> Service accounts -> "Generate new private
   // key". Lazy-validated in services/providers/fcmProvider.js like the other
@@ -327,9 +344,29 @@ const env = {
   // today); swap it and add the matching credentials block to change backends
   // with no code changes. See services/providers/storageProvider.js for the
   // driver contract.
+  // Blancco Mobile Diagnostics. Used ONLY when an admin adds a device from the
+  // portal: the IMEI is looked up against reports Blancco's app already
+  // uploaded. Kept separate from `diagnose` above because that slot belongs to
+  // the customer-facing diagnosis flow, which is a different integration.
+  blancco: {
+    baseUrl: process.env.BLANCCO_BASE_URL || 'https://api.eu-west-1.blancco.cloud/v1',
+    apiKey: process.env.BLANCCO_API_KEY,
+  },
+
+  // Auctions. The sweep closes finished auctions and lapses unpaid sales; how
+  // often it runs only affects how promptly a winner is told, never whether a
+  // bid can land on a closed auction (that is enforced per request).
+  auction: {
+    sweepIntervalMs: parseInt(process.env.AUCTION_SWEEP_INTERVAL_MS || '30000', 10),
+  },
+
   storage: {
     driver: process.env.STORAGE_DRIVER || 's3',
     imageFolder: process.env.STORAGE_IMAGE_FOLDER || 'ivs/profile',
+    // Auction device photos live under their own prefix: they are public
+    // listing images with a different lifecycle to profile/KYC pictures, and
+    // keeping them apart means a bucket policy can treat them differently.
+    auctionFolder: process.env.STORAGE_AUCTION_FOLDER || 'ivs/auctions',
   },
 
   // AWS S3 (used when STORAGE_DRIVER=s3 — the default). No static access keys:

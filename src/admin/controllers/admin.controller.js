@@ -3,6 +3,9 @@ const { successResponse } = require('../../helpers/apiResponse');
 const httpStatus = require('../../constants/httpStatus');
 const MESSAGES = require('../../constants/messages');
 const adminService = require('../services/admin.service');
+const subscriptionAdminService = require('../services/subscription.admin.service');
+const auctionAdminService = require('../services/auction.admin.service');
+const orderService = require('../../services/order.service');
 const settingsService = require('../../services/settings.service');
 const notificationService = require('../../services/notification.service');
 const appVersionService = require('../../services/appVersion.service');
@@ -199,6 +202,167 @@ const getStats = asyncHandler(async (req, res) => {
   successResponse(res, httpStatus.OK, MESSAGES.ADMIN.STATS_FETCHED, stats);
 });
 
+/* ---------------------------------------------------------------- *
+ * Credit packs — catalogue, customer credits, revenue.
+ * Everything a customer pays or receives is edited here rather than in
+ * code. See SUBSCRIPTION_DESIGN.md §8.
+ * ---------------------------------------------------------------- */
+
+const listPlans = asyncHandler(async (req, res) => {
+  const data = await subscriptionAdminService.listPlans();
+
+  successResponse(res, httpStatus.OK, MESSAGES.PLAN.FETCHED, data);
+});
+
+const createPlan = asyncHandler(async (req, res) => {
+  const data = await subscriptionAdminService.createPlan(req.body, req.admin._id);
+
+  successResponse(res, httpStatus.CREATED, MESSAGES.PLAN.CREATED, data);
+});
+
+const updatePlan = asyncHandler(async (req, res) => {
+  const data = await subscriptionAdminService.updatePlan(
+    req.params.planId,
+    req.body,
+    req.admin._id
+  );
+
+  successResponse(res, httpStatus.OK, MESSAGES.PLAN.UPDATED, data);
+});
+
+const getUserEntitlement = asyncHandler(async (req, res) => {
+  const data = await subscriptionAdminService.getUserEntitlement(req.params.userId);
+
+  successResponse(res, httpStatus.OK, MESSAGES.ENTITLEMENT.FETCHED, data);
+});
+
+const adjustCredits = asyncHandler(async (req, res) => {
+  const data = await subscriptionAdminService.adjustCredits(
+    req.params.userId,
+    { feature: req.body.feature, delta: req.body.delta, note: req.body.note },
+    req.admin._id
+  );
+
+  successResponse(res, httpStatus.OK, MESSAGES.ENTITLEMENT.ADJUSTED, data);
+});
+
+const listPlanPayments = asyncHandler(async (req, res) => {
+  const data = await subscriptionAdminService.listPlanPayments(req.query);
+
+  successResponse(res, httpStatus.OK, MESSAGES.SUBSCRIPTION.PURCHASES_FETCHED, data);
+});
+
+/* ---------------------------------------------------------------- *
+ * Auctions. Read-only visibility, plus the one write an operator
+ * genuinely needs: taking a listing down.
+ * ---------------------------------------------------------------- */
+
+const listAuctions = asyncHandler(async (req, res) => {
+  const data = await auctionAdminService.listAuctions(req.query);
+
+  successResponse(res, httpStatus.OK, MESSAGES.AUCTION.LIST_FETCHED, data);
+});
+
+const getAuctionDetail = asyncHandler(async (req, res) => {
+  const data = await auctionAdminService.getAuction(req.params.auctionId);
+
+  successResponse(res, httpStatus.OK, MESSAGES.AUCTION.FETCHED, data);
+});
+
+const getAuctionBids = asyncHandler(async (req, res) => {
+  const data = await auctionAdminService.getBids(req.params.auctionId, req.query);
+
+  successResponse(res, httpStatus.OK, MESSAGES.BID.HISTORY_FETCHED, data);
+});
+
+const takeDownAuction = asyncHandler(async (req, res) => {
+  const auction = await auctionAdminService.takeDown(
+    req.params.auctionId,
+    { reason: req.body.reason },
+    req.admin._id
+  );
+
+  successResponse(res, httpStatus.OK, MESSAGES.AUCTION.CANCELLED, { auction });
+});
+
+/* ---- Grest's own listings ---------------------------------------- */
+
+/**
+ * Looks a handset up in Blancco before it is listed. Doubles as form prefill,
+ * so an operator types an IMEI rather than a specification.
+ */
+const lookupDeviceImei = asyncHandler(async (req, res) => {
+  const data = await auctionAdminService.lookupImei(req.body.imei);
+
+  successResponse(res, httpStatus.OK, MESSAGES.AUCTION.LOOKUP_OK, data);
+});
+
+const createListing = asyncHandler(async (req, res) => {
+  const auction = await auctionAdminService.createListing(req.body, req.admin._id);
+
+  successResponse(res, httpStatus.CREATED, MESSAGES.AUCTION.CREATED, { auction });
+});
+
+const addListingPhotos = asyncHandler(async (req, res) => {
+  const auction = await auctionAdminService.addPhotos(req.params.auctionId, req.files);
+
+  successResponse(res, httpStatus.CREATED, MESSAGES.AUCTION.PHOTOS_ADDED, { auction });
+});
+
+const removeListingPhoto = asyncHandler(async (req, res) => {
+  const auction = await auctionAdminService.removePhoto(req.params.auctionId, req.params.photoId);
+
+  successResponse(res, httpStatus.OK, MESSAGES.AUCTION.PHOTO_REMOVED, { auction });
+});
+
+const updateListing = asyncHandler(async (req, res) => {
+  const auction = await auctionAdminService.updateListing(req.params.auctionId, req.body);
+
+  successResponse(res, httpStatus.OK, MESSAGES.AUCTION.UPDATED, { auction });
+});
+
+const publishListing = asyncHandler(async (req, res) => {
+  const auction = await auctionAdminService.publishListing(req.params.auctionId);
+
+  successResponse(res, httpStatus.OK, MESSAGES.AUCTION.PUBLISHED, { auction });
+});
+
+const relistAuction = asyncHandler(async (req, res) => {
+  const auction = await auctionAdminService.relist(req.params.auctionId, req.admin._id);
+
+  successResponse(res, httpStatus.CREATED, MESSAGES.AUCTION.RELISTED, { auction });
+});
+
+/* ---- Orders ------------------------------------------------------- */
+
+const listOrders = asyncHandler(async (req, res) => {
+  const data = await orderService.list(req.query);
+
+  successResponse(res, httpStatus.OK, MESSAGES.ORDER.LIST_FETCHED, data);
+});
+
+const updateOrder = asyncHandler(async (req, res) => {
+  const order = await orderService.updateFulfilment(
+    req.params.orderId,
+    { status: req.body.status, note: req.body.note },
+    req.admin._id
+  );
+
+  successResponse(res, httpStatus.OK, MESSAGES.ORDER.UPDATED, { order });
+});
+
+const vendorSettlement = asyncHandler(async (req, res) => {
+  const data = await orderService.vendorSettlement();
+
+  successResponse(res, httpStatus.OK, MESSAGES.ORDER.SETTLEMENT_FETCHED, { settlements: data });
+});
+
+const getAuctionStats = asyncHandler(async (req, res) => {
+  const stats = await auctionAdminService.getStats();
+
+  successResponse(res, httpStatus.OK, MESSAGES.ADMIN.STATS_FETCHED, stats);
+});
+
 module.exports = {
   login,
   me,
@@ -215,4 +379,25 @@ module.exports = {
   listAppVersions,
   upsertAppVersion,
   notifyAppUpdate,
+  listPlans,
+  createPlan,
+  updatePlan,
+  getUserEntitlement,
+  adjustCredits,
+  listPlanPayments,
+  listAuctions,
+  getAuctionDetail,
+  getAuctionBids,
+  takeDownAuction,
+  getAuctionStats,
+  lookupDeviceImei,
+  createListing,
+  addListingPhotos,
+  removeListingPhoto,
+  updateListing,
+  publishListing,
+  relistAuction,
+  listOrders,
+  updateOrder,
+  vendorSettlement,
 };

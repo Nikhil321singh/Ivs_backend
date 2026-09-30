@@ -38,6 +38,22 @@ const stubCreateOrder = (orderId = `order_${Date.now()}`) => {
   return orderId;
 };
 
+/**
+ * Stubs Razorpay's refund endpoint (POST /v1/payments/:id/refund) so the buy-now
+ * lost-race path can auto-refund without a network call. Matches any payment id.
+ */
+const stubRefund = (refundId = `rfnd_${Date.now()}`) => {
+  nock(API_BASE)
+    .post(/\/v1\/payments\/[^/]+\/refund$/)
+    .reply(200, (uri, body) => ({
+      id: refundId,
+      payment_id: uri.split('/')[3],
+      amount: body.amount,
+      status: 'processed',
+    }));
+  return refundId;
+};
+
 /** Builds a signed webhook body + header pair for a given event. */
 const buildWebhook = (event, orderId, paymentId) => {
   const body = JSON.stringify({
@@ -51,5 +67,6 @@ module.exports = {
   checkoutSignature,
   webhookSignature,
   stubCreateOrder,
+  stubRefund,
   buildWebhook,
 };
