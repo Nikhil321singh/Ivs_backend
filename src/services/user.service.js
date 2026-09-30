@@ -287,6 +287,56 @@ const saveAddresses = async (userId, { billingAddress, shippingAddress }) => {
   };
 };
 
+// --- Delivery address book (multiple saved addresses) --------------------------
+
+const onlyDigits = (s) => String(s ?? '').replace(/\D/g, '');
+
+// Two entries are "the same" address when their significant fields match — used
+// to keep the book from piling up duplicate copies (e.g. the client migrating the
+// same local address on more than one device).
+const sameAddress = (a, b) =>
+  a &&
+  b &&
+  String(a.line1 || '').trim() === String(b.line1 || '').trim() &&
+  onlyDigits(a.pincode) === onlyDigits(b.pincode) &&
+  onlyDigits(a.phone) === onlyDigits(b.phone);
+
+const getAddresses = async (userId) => {
+  const user = await getUserById(userId);
+  return { addresses: user.addresses || [] };
+};
+
+// Adds an address to the book, deduped. Returns the whole list plus the stored
+// entry (the existing match when it was a duplicate, so the client can select it).
+const addAddress = async (userId, address) => {
+  const user = await getUserById(userId);
+
+  const existing = (user.addresses || []).find((a) => sameAddress(a, address));
+  if (existing) {
+    return { addresses: user.addresses, entry: existing };
+  }
+
+  user.addresses.push(address);
+  await user.save();
+
+  const entry = user.addresses[user.addresses.length - 1];
+  return { addresses: user.addresses, entry };
+};
+
+const removeAddress = async (userId, addressId) => {
+  const user = await getUserById(userId);
+
+  const entry = user.addresses.id(addressId);
+  if (!entry) {
+    throw new ApiError(httpStatus.NOT_FOUND, MESSAGES.USER.ADDRESS_NOT_FOUND);
+  }
+
+  entry.deleteOne();
+  await user.save();
+
+  return { addresses: user.addresses };
+};
+
 /**
  * Deletes the user's account at their own request — a soft delete.
  *
@@ -549,5 +599,8 @@ module.exports = {
   skipKyc,
   updateProfile,
   saveAddresses,
+  getAddresses,
+  addAddress,
+  removeAddress,
   deleteAccount,
 };

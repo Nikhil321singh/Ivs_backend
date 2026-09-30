@@ -60,6 +60,10 @@ module.exports = {
     PROFILE_IMAGE_REQUIRED: 'Profile image is required.',
     OWNER_IMAGE_REQUIRED: 'Owner image is required for a vendor.',
     USER_TYPE_INVALID: 'User type must be either "vendor" or "individual".',
+    ADDRESSES_FETCHED: 'Addresses fetched successfully.',
+    ADDRESS_ADDED: 'Address saved successfully.',
+    ADDRESS_REMOVED: 'Address removed successfully.',
+    ADDRESS_NOT_FOUND: 'Address not found.',
   },
   WRAPPER: {
     SESSION_STARTED: 'DigiLocker session created.',

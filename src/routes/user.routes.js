@@ -10,6 +10,8 @@ const {
   sendAadhaarOtpValidator,
   verifyAadhaarOtpValidator,
   saveAddressesValidator,
+  addressBookValidator,
+  addressIdValidator,
 } = require('../validators/user.validator');
 
 const router = express.Router();
@@ -219,6 +221,73 @@ router.post(
   saveAddressesValidator,
   validateRequest,
   userController.saveAddresses
+);
+
+/**
+ * @openapi
+ * /user/address-book:
+ *   get:
+ *     tags: [User]
+ *     summary: List the user's saved delivery addresses
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Addresses fetched successfully }
+ *   post:
+ *     tags: [User]
+ *     summary: Add a delivery address to the saved book (deduped)
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name, phone, line1, city, state, pincode]
+ *             properties:
+ *               name: { type: string }
+ *               phone: { type: string }
+ *               line1: { type: string }
+ *               line2: { type: string, nullable: true }
+ *               landmark: { type: string, nullable: true }
+ *               city: { type: string }
+ *               state: { type: string }
+ *               pincode: { type: string }
+ *     responses:
+ *       201: { description: Address saved successfully }
+ *       422: { description: Validation failed }
+ */
+router.get('/address-book', authenticate, userController.getAddressBook);
+
+router.post(
+  '/address-book',
+  authenticate,
+  addressBookValidator,
+  validateRequest,
+  userController.addAddressBookEntry
+);
+
+/**
+ * @openapi
+ * /user/address-book/{id}:
+ *   delete:
+ *     tags: [User]
+ *     summary: Remove a saved delivery address by id
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Address removed successfully }
+ *       404: { description: Address not found }
+ */
+router.delete(
+  '/address-book/:id',
+  authenticate,
+  addressIdValidator,
+  validateRequest,
+  userController.removeAddressBookEntry
 );
 
 /**

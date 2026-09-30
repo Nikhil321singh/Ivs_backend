@@ -1,3 +1,4 @@
+
 const mongoose = require('mongoose');
 const USER_STATUS = require('../constants/userStatus');
 const USER_TYPE = require('../constants/userType');
@@ -72,6 +73,29 @@ const userSchema = new Schema(
         landmark: { type: String, trim: true, default: null },
       },
       default: null,
+    },
+    // The buyer's delivery address book — multiple saved addresses used by the
+    // bidding checkout sheet and the Account → Saved addresses screen. Each entry
+    // keeps its own `_id` so the app can select/remove a specific one. Distinct
+    // from the single billing/shipping fields above (which the profile/KYC flow
+    // still owns); this is the multi-address list.
+    addresses: {
+      type: [
+        new Schema(
+          {
+            name: { type: String, trim: true },
+            phone: { type: String, trim: true },
+            line1: { type: String, trim: true },
+            line2: { type: String, trim: true, default: null },
+            landmark: { type: String, trim: true, default: null },
+            city: { type: String, trim: true },
+            state: { type: String, trim: true },
+            pincode: { type: String, trim: true },
+          },
+          { _id: true, timestamps: false }
+        ),
+      ],
+      default: [],
     },
     // No `default: null` on fields below that carry a sparse unique index
     // (email, panNumber, gstNumber, aadhaarNumberHash): MongoDB's sparse

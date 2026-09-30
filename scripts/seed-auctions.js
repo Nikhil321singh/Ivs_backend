@@ -126,6 +126,22 @@ const seed = async () => {
   await Bid.create({ auctionId: aLost._id, bidderId: buyer._id, amountPaise: rupees(45000), status: BID_STATUS.LOST });
   await Bid.create({ auctionId: aLost._id, bidderId: rival._id, amountPaise: rupees(47000), status: BID_STATUS.WON });
 
+  // ---- Buyer: WON x2 (already sold + paid) -----------------------------
+  const aWon2 = await makeAuction(seller, { device: { brand: 'Apple', model: 'iPhone 14', storageGb: 256, color: 'Purple', imei: '355301083783265' }, condition: DEVICE_CONDITION.EXCELLENT, photo: PHOTO.iphone14, startInr: 45000, currentBidInr: 51000, currentBidderId: buyer._id, bidCount: 3, status: AUCTION_STATUS.SOLD, winnerId: buyer._id, closedAt: hoursFromNow(-30), soldAt: hoursFromNow(-29), endAt: hoursFromNow(-30), notes: 'won-2' });
+  await Bid.create({ auctionId: aWon2._id, bidderId: buyer._id, amountPaise: rupees(51000), status: BID_STATUS.WON });
+
+  const aWon3 = await makeAuction(seller, { device: { brand: 'Apple', model: 'iPhone 12', storageGb: 128, color: 'Black', imei: '355301083783266' }, condition: DEVICE_CONDITION.GOOD, photo: PHOTO.iphone14, startInr: 28000, currentBidInr: 33500, currentBidderId: buyer._id, bidCount: 4, status: AUCTION_STATUS.PAYMENT_PENDING, winnerId: buyer._id, closedAt: hoursFromNow(-3), paymentDueAt: hoursFromNow(21), endAt: hoursFromNow(-3), notes: 'won-3' });
+  await Bid.create({ auctionId: aWon3._id, bidderId: buyer._id, amountPaise: rupees(33500), status: BID_STATUS.WON });
+
+  // ---- Buyer: LOST x2 (rival won) -------------------------------------
+  const aLost2 = await makeAuction(seller, { device: { brand: 'Apple', model: 'iPhone 15', storageGb: 128, color: 'Pink', imei: '355301083783267' }, condition: DEVICE_CONDITION.LIKE_NEW, photo: PHOTO.iphone15pro, startInr: 60000, currentBidInr: 67000, currentBidderId: rival._id, bidCount: 3, status: AUCTION_STATUS.SOLD, winnerId: rival._id, closedAt: hoursFromNow(-50), soldAt: hoursFromNow(-49), endAt: hoursFromNow(-50), notes: 'lost-2' });
+  await Bid.create({ auctionId: aLost2._id, bidderId: buyer._id, amountPaise: rupees(65000), status: BID_STATUS.LOST });
+  await Bid.create({ auctionId: aLost2._id, bidderId: rival._id, amountPaise: rupees(67000), status: BID_STATUS.WON });
+
+  const aLost3 = await makeAuction(seller, { device: { brand: 'Apple', model: 'iPhone 13', storageGb: 128, color: 'Blue', imei: '355301083783268' }, condition: DEVICE_CONDITION.GOOD, photo: PHOTO.iphone14, startInr: 32000, currentBidInr: 38000, currentBidderId: rival._id, bidCount: 5, status: AUCTION_STATUS.SOLD, winnerId: rival._id, closedAt: hoursFromNow(-70), soldAt: hoursFromNow(-69), endAt: hoursFromNow(-70), notes: 'lost-3' });
+  await Bid.create({ auctionId: aLost3._id, bidderId: buyer._id, amountPaise: rupees(36000), status: BID_STATUS.LOST });
+  await Bid.create({ auctionId: aLost3._id, bidderId: rival._id, amountPaise: rupees(38000), status: BID_STATUS.WON });
+
   const { accessToken, refreshToken } = await tokenService.issueTokenPair(buyer, 'seed-web');
 
   const liveCount = await Auction.countDocuments({ status: AUCTION_STATUS.LIVE, conditionNotes: new RegExp(MARKER.replace(/[[\]]/g, '\\$&')) });
