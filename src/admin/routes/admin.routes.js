@@ -20,6 +20,7 @@ const {
   createListingValidator,
   updateListingValidator,
   updateOrderValidator,
+  presignedUrlValidator,
   confirmS3PhotoValidator,
 } = require('../validators/admin.validator');
 const {
@@ -816,6 +817,53 @@ router.post(
   validateRequest,
   uploadAuctionPhotos,
   adminController.addListingPhotos
+);
+
+/**
+ * @openapi
+ * /admin/auctions/{auctionId}/photos/presigned-url:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Generate a presigned URL for direct S3 upload
+ *     description: >
+ *       Returns a presigned URL valid for 15 minutes that the browser can use
+ *       to upload directly to S3 without server involvement. After uploading,
+ *       call /photos/confirm with the S3 key to register the photo.
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [filename, contentType]
+ *             properties:
+ *               filename: { type: string, example: "device.jpg" }
+ *               contentType: { type: string, enum: ["image/jpeg", "image/png", "image/webp"], example: "image/jpeg" }
+ *     responses:
+ *       200: { description: Presigned URL generated }
+ *       400: { description: Invalid content type }
+ *       404: { description: Listing not found }
+ *       409: { description: Listing is already published or too many photos }
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               success: { type: boolean, example: true }
+ *               data:
+ *                 type: object
+ *                 properties:
+ *                   url: { type: string, example: "https://grest-ecomm-test.s3.ap-south-1.amazonaws.com/auctions/..." }
+ *                   key: { type: string, example: "auctions/6ac09d6028faf8a1ca4e7092/1699564234-abc123.jpg" }
+ *                   expiresIn: { type: integer, example: 900, description: "Seconds until URL expires" }
+ */
+router.post(
+  '/auctions/:auctionId/photos/presigned-url',
+  adminAuth,
+  presignedUrlValidator,
+  validateRequest,
+  adminController.getPresignedUrl
 );
 
 /**

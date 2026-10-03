@@ -345,6 +345,22 @@ const updateOrderValidator = [
   }),
 ];
 
+const presignedUrlValidator = [
+  ...adminAuctionIdParamValidator,
+  body('filename')
+    .trim()
+    .notEmpty()
+    .withMessage('Filename is required.')
+    .isLength({ max: 255 })
+    .withMessage('Filename is too long.'),
+  body('contentType')
+    .trim()
+    .notEmpty()
+    .withMessage('Content type is required.')
+    .isIn(['image/jpeg', 'image/jpg', 'image/png', 'image/webp'])
+    .withMessage('Only JPG, PNG, and WEBP images are allowed.'),
+];
+
 const confirmS3PhotoValidator = [
   ...adminAuctionIdParamValidator,
   body('s3Key')
@@ -395,5 +411,6 @@ module.exports = {
   updateListingValidator,
   orderIdParamValidator,
   updateOrderValidator,
+  presignedUrlValidator,
   confirmS3PhotoValidator,
 };

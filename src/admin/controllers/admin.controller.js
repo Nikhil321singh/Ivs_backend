@@ -309,6 +309,12 @@ const addListingPhotos = asyncHandler(async (req, res) => {
   successResponse(res, httpStatus.CREATED, MESSAGES.AUCTION.PHOTOS_ADDED, { auction });
 });
 
+const getPresignedUrl = asyncHandler(async (req, res) => {
+  const result = await auctionAdminService.getPresignedUrl(req.params.auctionId, req.body);
+
+  successResponse(res, httpStatus.OK, 'Presigned URL generated', result);
+});
+
 const confirmS3Photo = asyncHandler(async (req, res) => {
   const auction = await auctionAdminService.confirmS3Photo(req.params.auctionId, req.body);
 
@@ -399,6 +405,7 @@ module.exports = {
   lookupDeviceImei,
   createListing,
   addListingPhotos,
+  getPresignedUrl,
   confirmS3Photo,
   removeListingPhoto,
   updateListing,

@@ -46,6 +46,17 @@ const uploadAuctionPhoto = async (buffer, publicId, contentType) => {
 };
 
 /**
+ * Generates a presigned URL for direct upload to S3.
+ *
+ * The browser uses this URL to upload directly without the server handling
+ * the bytes. Valid for 15 minutes (900 seconds).
+ */
+const getPresignedUploadUrl = async (s3Key, contentType) => {
+  const storage = getStorageProvider();
+  return storage.getPresignedUrl(s3Key, contentType);
+};
+
+/**
  * Deletes a previously uploaded image (profile, business proof or auction
  * photo) by its stored public_id. No-op for a falsy id.
  */
@@ -58,5 +69,6 @@ module.exports = {
   uploadProfileImage,
   uploadBusinessProofImage,
   uploadAuctionPhoto,
+  getPresignedUploadUrl,
   deleteProfileImage,
 };

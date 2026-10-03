@@ -408,6 +408,48 @@ const addPhotos = async (auctionId, files) => {
   return auctionService.decorate(auction, { viewerId: auction.sellerId });
 };
 
+/**
+ * Generates a presigned URL for direct S3 upload.
+ *
+ * The frontend uses this URL to upload directly to S3 without the server
+ * handling the file bytes. The URL is valid for 15 minutes.
+ */
+const getPresignedUrl = async (auctionId, { filename, contentType }) => {
+  const auction = await Auction.findById(auctionId);
+  if (!auction) throw new ApiError(httpStatus.NOT_FOUND, MESSAGES.AUCTION.NOT_FOUND);
+
+  if (auction.status !== AUCTION_STATUS.DRAFT) {
+    throw new ApiError(httpStatus.CONFLICT, MESSAGES.AUCTION.NOT_EDITABLE);
+  }
+
+  const maxPhotos = await settingsService.get(SETTING_KEYS.AUCTION_MAX_PHOTOS);
+  if (auction.photos.length >= maxPhotos) {
+    throw new ApiError(httpStatus.BAD_REQUEST, MESSAGES.AUCTION.TOO_MANY_PHOTOS, [
+      {
+        field: 'photos',
+        message: `A listing may carry at most ${maxPhotos} photos.`,
+        current: auction.photos.length,
+        max: maxPhotos,
+      },
+    ]);
+  }
+
+  // Generate S3 key: auctions/{auctionId}/{timestamp}-{randomId}.{ext}
+  const timestamp = Date.now();
+  const randomId = crypto.randomBytes(6).toString('hex');
+  const ext = filename.split('.').pop() || 'jpg';
+  const s3Key = `auctions/${auctionId}/${timestamp}-${randomId}.${ext}`;
+
+  // Generate presigned URL valid for 15 minutes
+  const presignedUrl = await uploadService.getPresignedUploadUrl(s3Key, contentType);
+
+  return {
+    url: presignedUrl.url,
+    key: s3Key,
+    expiresIn: presignedUrl.expiresIn || 900, // 15 minutes default
+  };
+};
+
 /** Confirms an S3 direct upload and adds it to the listing. */
 const confirmS3Photo = async (auctionId, { s3Key, filename, contentType, size }) => {
   const auction = await Auction.findById(auctionId);
@@ -597,6 +639,7 @@ module.exports = {
   toDiagnosisReport,
   createListing,
   addPhotos,
+  getPresignedUrl,
   confirmS3Photo,
   removePhoto,
   updateListing,

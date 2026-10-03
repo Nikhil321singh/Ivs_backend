@@ -1,4 +1,5 @@
 const { S3Client, PutObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
+const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const {
   CognitoIdentityProviderClient,
   InitiateAuthCommand,
@@ -104,4 +105,15 @@ const deleteImage = async (publicId) => {
   await client.send(new DeleteObjectCommand({ Bucket: cfg.bucket, Key: publicId }));
 };
 
-module.exports = { isConfigured, uploadImage, deleteImage };
+const getPresignedUrl = async (key, contentType) => {
+  const client = await getClient();
+  const command = new PutObjectCommand({
+    Bucket: cfg.bucket,
+    Key: key,
+    ContentType: contentType || 'application/octet-stream',
+  });
+  const url = await getSignedUrl(client, command, { expiresIn: 900 }); // 15 minutes
+  return { url, expiresIn: 900 };
+};
+
+module.exports = { isConfigured, uploadImage, deleteImage, getPresignedUrl };
