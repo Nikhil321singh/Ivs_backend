@@ -20,6 +20,7 @@ const {
   createListingValidator,
   updateListingValidator,
   updateOrderValidator,
+  confirmS3PhotoValidator,
 } = require('../validators/admin.validator');
 const {
   upsertAppVersionValidator,
@@ -815,6 +816,43 @@ router.post(
   validateRequest,
   uploadAuctionPhotos,
   adminController.addListingPhotos
+);
+
+/**
+ * @openapi
+ * /admin/auctions/{auctionId}/photos/confirm:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Confirm an S3 direct upload and add photo to listing
+ *     description: >
+ *       After uploading directly to S3, call this endpoint with the S3 metadata
+ *       to register the photo on the listing. The browser uploads directly to S3
+ *       and this server just records it in the database.
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [s3Key, filename, contentType, size]
+ *             properties:
+ *               s3Key: { type: string, example: "auctions/6ac09d6028faf8a1ca4e7092/1699564234-abc123.jpg" }
+ *               filename: { type: string, example: "photo.jpg" }
+ *               contentType: { type: string, example: "image/jpeg" }
+ *               size: { type: integer, example: 2048576 }
+ *     responses:
+ *       201: { description: Photo confirmed and added to listing }
+ *       400: { description: Invalid S3 key or file too large }
+ *       404: { description: Listing not found }
+ *       409: { description: Listing is already published or too many photos }
+ */
+router.post(
+  '/auctions/:auctionId/photos/confirm',
+  adminAuth,
+  confirmS3PhotoValidator,
+  validateRequest,
+  adminController.confirmS3Photo
 );
 
 /**

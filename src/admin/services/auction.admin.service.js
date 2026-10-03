@@ -408,6 +408,44 @@ const addPhotos = async (auctionId, files) => {
   return auctionService.decorate(auction, { viewerId: auction.sellerId });
 };
 
+/** Confirms an S3 direct upload and adds it to the listing. */
+const confirmS3Photo = async (auctionId, { s3Key, filename, contentType, size }) => {
+  const auction = await Auction.findById(auctionId);
+  if (!auction) throw new ApiError(httpStatus.NOT_FOUND, MESSAGES.AUCTION.NOT_FOUND);
+
+  if (auction.status !== AUCTION_STATUS.DRAFT) {
+    throw new ApiError(httpStatus.CONFLICT, MESSAGES.AUCTION.NOT_EDITABLE);
+  }
+
+  const maxPhotos = await settingsService.get(SETTING_KEYS.AUCTION_MAX_PHOTOS);
+  if (auction.photos.length >= maxPhotos) {
+    throw new ApiError(httpStatus.BAD_REQUEST, MESSAGES.AUCTION.TOO_MANY_PHOTOS, [
+      {
+        field: 'photos',
+        message: `A listing may carry at most ${maxPhotos} photos.`,
+        current: auction.photos.length,
+        max: maxPhotos,
+      },
+    ]);
+  }
+
+  // Build the S3 URL — assumes the bucket and region from env
+  const s3BucketUrl = `https://${process.env.AWS_S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com`;
+  const photoUrl = `${s3BucketUrl}/${s3Key}`;
+
+  // Add the photo reference to the listing
+  auction.photos.push({
+    url: photoUrl,
+    publicId: s3Key,
+  });
+
+  await auction.save();
+
+  console.log('[Auction] S3 photo confirmed', String(auction._id), 's3Key:', s3Key);
+
+  return auctionService.decorate(auction, { viewerId: auction.sellerId });
+};
+
 /** Removes one photo from a draft, and the stored object behind it. */
 const removePhoto = async (auctionId, photoId) => {
   const auction = await Auction.findById(auctionId);
@@ -559,6 +597,7 @@ module.exports = {
   toDiagnosisReport,
   createListing,
   addPhotos,
+  confirmS3Photo,
   removePhoto,
   updateListing,
   publishListing,

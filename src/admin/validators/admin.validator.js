@@ -345,6 +345,39 @@ const updateOrderValidator = [
   }),
 ];
 
+const confirmS3PhotoValidator = [
+  ...adminAuctionIdParamValidator,
+  body('s3Key')
+    .trim()
+    .notEmpty()
+    .withMessage('S3 key is required.')
+    .matches(/^auctions\/[a-f0-9]{24}\/[a-z0-9\-._]+$/)
+    .withMessage('Invalid S3 key format.'),
+  body('filename')
+    .trim()
+    .notEmpty()
+    .withMessage('Filename is required.')
+    .isLength({ max: 255 })
+    .withMessage('Filename is too long.'),
+  body('contentType')
+    .trim()
+    .notEmpty()
+    .withMessage('Content type is required.')
+    .isIn(['image/jpeg', 'image/jpg', 'image/png', 'image/webp'])
+    .withMessage('Only JPG, PNG, and WEBP images are allowed.'),
+  body('size')
+    .isInt({ min: 1 })
+    .withMessage('Size must be a positive integer.')
+    .custom((value, { req }) => {
+      const maxSizeMb = 5; // Should match env.upload.maxSizeMb
+      const maxSizeBytes = maxSizeMb * 1024 * 1024;
+      if (value > maxSizeBytes) {
+        throw new Error(`File size must be smaller than ${maxSizeMb}MB.`);
+      }
+      return true;
+    }),
+];
+
 module.exports = {
   loginValidator,
   updateSettingsValidator,
@@ -362,4 +395,5 @@ module.exports = {
   updateListingValidator,
   orderIdParamValidator,
   updateOrderValidator,
+  confirmS3PhotoValidator,
 };

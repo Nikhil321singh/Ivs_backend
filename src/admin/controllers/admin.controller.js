@@ -309,6 +309,12 @@ const addListingPhotos = asyncHandler(async (req, res) => {
   successResponse(res, httpStatus.CREATED, MESSAGES.AUCTION.PHOTOS_ADDED, { auction });
 });
 
+const confirmS3Photo = asyncHandler(async (req, res) => {
+  const auction = await auctionAdminService.confirmS3Photo(req.params.auctionId, req.body);
+
+  successResponse(res, httpStatus.CREATED, MESSAGES.AUCTION.PHOTOS_ADDED, { auction });
+});
+
 const removeListingPhoto = asyncHandler(async (req, res) => {
   const auction = await auctionAdminService.removePhoto(req.params.auctionId, req.params.photoId);
 
@@ -393,6 +399,7 @@ module.exports = {
   lookupDeviceImei,
   createListing,
   addListingPhotos,
+  confirmS3Photo,
   removeListingPhoto,
   updateListing,
   publishListing,
