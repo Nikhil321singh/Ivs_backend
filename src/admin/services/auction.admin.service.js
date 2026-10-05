@@ -83,7 +83,7 @@ const getAuction = async (auctionId) => {
   const recentBids = await Bid.find({ auctionId })
     .sort({ createdAt: -1 })
     .limit(20)
-    .populate('bidderId', 'name mobile')
+    .populate('bidderId', 'name mobile companyName')
     .lean();
 
   return { auction, recentBids, serverTime: new Date() };
@@ -98,7 +98,7 @@ const getBids = async (auctionId, { page, limit } = {}) => {
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(safeLimit)
-      .populate('bidderId', 'name mobile')
+      .populate('bidderId', 'name mobile companyName')
       .lean(),
     Bid.countDocuments({ auctionId }),
   ]);
