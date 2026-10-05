@@ -1,10 +1,13 @@
+const crypto = require('crypto');
 const mongoose = require('mongoose');
 const DiagnoseSession = require('../models/DiagnoseSession.model');
 const DiagnoseRecord = require('../models/DiagnoseRecord.model');
 const provider = require('./providers/diagnoseProvider');
 const walletService = require('./wallet.service');
+const entitlementService = require('./entitlement.service');
 const settingsService = require('./settings.service');
 const { TXN_REASON, TXN_REF_TYPE } = require('../constants/walletEnums');
+const { BILLING_SOURCE, ENTITLEMENT_REF_TYPE } = require('../constants/entitlementEnums');
 const { maskAadhaar } = require('../utils/mask.util');
 const ApiError = require('../utils/apiError');
 const httpStatus = require('../constants/httpStatus');
@@ -13,30 +16,48 @@ const MESSAGES = require('../constants/messages');
 const { RESULT_STATUS, SESSION_STATUS } = DiagnoseSession;
 
 /**
- * Runs a device diagnosis and charges the user only on a definitive success
- * — identical billing contract to IVS. If the third-party errors or is
- * unconfigured (ERROR/UNKNOWN), the attempt is logged but no tokens are
- * deducted, so the customer can retry for free.
+ * Runs a device diagnosis and charges only on a definitive success — identical
+ * billing contract to IVS. If the third-party errors or is unconfigured
+ * (ERROR/UNKNOWN), the attempt is logged but nothing is charged, so the
+ * customer can retry for free.
  *
- * Preconditions: requireBalance('DIAGNOSE') has already confirmed the wallet
- * can cover the cost before this runs.
+ * Preconditions: requireFeatureAccess('DIAGNOSE') has already confirmed the
+ * customer can pay, and decided which system pays. That decision arrives in
+ * `billingSource` and is never re-derived here — see the note on the IVS
+ * controller for why.
  */
-const runDiagnosis = async (userId, input) => {
+const runDiagnosis = async (userId, input, { billingSource = null, cost = null } = {}) => {
   const outcome = await provider.diagnose(input);
   const isBillable = outcome.resultStatus === provider.RESULT_STATUS.SUCCESS;
-  // Operator-editable price, read once so the debit and the response agree.
-  const cost = await settingsService.getFeatureCost('DIAGNOSE');
+
+  const billedInCredits = billingSource === BILLING_SOURCE.ENTITLEMENT;
+  // Reuse the price the guard checked against; only fall back to a fresh read
+  // if this was called without one. A credit-billed run has no token price.
+  const effectiveCost = billedInCredits
+    ? 0
+    : cost ?? (await settingsService.getFeatureCost('DIAGNOSE'));
+
+  const chargeRef = `DGCHG-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
 
   let chargeTxnId = null;
   let charged = false;
 
   if (isBillable) {
-    const txn = await walletService.debit(userId, cost, {
-      reason: TXN_REASON.FEATURE_CHARGE,
-      referenceType: TXN_REF_TYPE.DIAGNOSE,
-      metadata: { providerRefId: outcome.providerRefId },
-    });
-    chargeTxnId = txn._id;
+    if (billedInCredits) {
+      await entitlementService.consume(userId, 'DIAGNOSE', {
+        referenceType: ENTITLEMENT_REF_TYPE.DIAGNOSE,
+        idempotencyKey: `${chargeRef}:charge`,
+        metadata: { chargeRef, providerRefId: outcome.providerRefId },
+      });
+    } else {
+      const txn = await walletService.debit(userId, effectiveCost, {
+        reason: TXN_REASON.FEATURE_CHARGE,
+        referenceType: TXN_REF_TYPE.DIAGNOSE,
+        idempotencyKey: `${chargeRef}:charge`,
+        metadata: { feature: 'DIAGNOSE', chargeRef, providerRefId: outcome.providerRefId },
+      });
+      chargeTxnId = txn._id;
+    }
     charged = true;
   }
 
@@ -48,17 +69,25 @@ const runDiagnosis = async (userId, input) => {
     result: outcome.result,
     rawResponse: outcome.rawResponse,
     chargeTxnId,
+    billingSource,
     status: isBillable ? SESSION_STATUS.COMPLETED : SESSION_STATUS.FAILED,
   });
 
-  const balance = await walletService.getBalance(userId);
+  const [balance, creditsRemaining] = await Promise.all([
+    walletService.getBalance(userId),
+    entitlementService.getCredits(userId, 'DIAGNOSE'),
+  ]);
 
   return {
     sessionId: session._id,
     resultStatus: outcome.resultStatus,
     result: outcome.result,
     providerRefId: outcome.providerRefId,
-    wallet: { balance, charged, cost },
+    billing: { source: billingSource, charged, cost: effectiveCost, creditsRemaining },
+    credits: { DIAGNOSE: creditsRemaining },
+    // Kept for app builds that read wallet.* directly. `charged` here means
+    // "tokens were taken", which is false for a credit-billed run.
+    wallet: { balance, charged: charged && !billedInCredits, cost: effectiveCost },
   };
 };
 
@@ -82,7 +111,13 @@ const getHistory = async (userId, { page = 1, limit = 20 } = {}) => {
     imei: (s.input && s.input.imei) || null,
     resultStatus: s.resultStatus,
     status: s.status,
-    charged: !!s.chargeTxnId,
+    // A credit-billed run writes no WalletTransaction, so chargeTxnId alone
+    // would report every one of them as free. A COMPLETED session is billable
+    // by definition — that is what SESSION_STATUS.COMPLETED means here.
+    charged:
+      !!s.chargeTxnId ||
+      (s.billingSource === BILLING_SOURCE.ENTITLEMENT && s.status === SESSION_STATUS.COMPLETED),
+    billingSource: s.billingSource || null,
     createdAt: s.createdAt,
   }));
 

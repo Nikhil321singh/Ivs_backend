@@ -74,6 +74,41 @@ const uploadKycImages = (req, res, next) => {
   });
 };
 
+/**
+ * Auction device photos: several files under one field, unlike the two handlers
+ * above which take one image each. `MAX_AUCTION_PHOTOS` is only multer's hard
+ * ceiling for a single request — the real per-listing limit is the operator's
+ * `auctionMaxPhotos` setting, enforced in auction.service.js where the existing
+ * photo count is known.
+ */
+const MAX_AUCTION_PHOTOS = 20;
+
+const uploadAuctionPhotos = (req, res, next) => {
+  multerUpload.array('photos', MAX_AUCTION_PHOTOS)(req, res, (err) => {
+    if (err instanceof multer.MulterError) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return next(
+          new ApiError(
+            httpStatus.BAD_REQUEST,
+            `Each photo must be smaller than ${env.upload.maxSizeMb}MB.`
+          )
+        );
+      }
+      if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+        return next(
+          new ApiError(
+            httpStatus.BAD_REQUEST,
+            `Send photos in the "photos" field, at most ${MAX_AUCTION_PHOTOS} per request.`
+          )
+        );
+      }
+      return next(new ApiError(httpStatus.BAD_REQUEST, err.message));
+    }
+    if (err) return next(err);
+    next();
+  });
+};
+
 const requireProfileImage = (req, res, next) => {
   if (!req.file) {
     return next(new ApiError(httpStatus.UNPROCESSABLE_ENTITY, MESSAGES.USER.PROFILE_IMAGE_REQUIRED, [
@@ -83,4 +118,9 @@ const requireProfileImage = (req, res, next) => {
   next();
 };
 
-module.exports = { uploadProfileImage, uploadKycImages, requireProfileImage };
+module.exports = {
+  uploadProfileImage,
+  uploadKycImages,
+  uploadAuctionPhotos,
+  requireProfileImage,
+};

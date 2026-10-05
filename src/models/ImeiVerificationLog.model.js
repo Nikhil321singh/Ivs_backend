@@ -55,6 +55,14 @@ const imeiVerificationLogSchema = new Schema(
       type: Number,
       default: null,
     },
+    // Which billing system paid for this check: ENTITLEMENT (one credit from a
+    // pack) or WALLET (tokens). Null on rows written before credit packs
+    // existed, which were all wallet-billed — history reads it that way, so a
+    // legacy row is never re-priced as a credit or vice versa.
+    billingSource: {
+      type: String,
+      default: null,
+    },
     // Whether CEIR actually processed the lookup, which is what decides if the
     // user was billed — a wrong IMEI is billed, an unreachable C-DOT is not.
     // Null on rows written before this field existed; history falls back to the

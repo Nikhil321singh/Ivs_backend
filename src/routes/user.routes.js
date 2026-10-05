@@ -9,6 +9,9 @@ const {
   updateProfileValidator,
   sendAadhaarOtpValidator,
   verifyAadhaarOtpValidator,
+  saveAddressesValidator,
+  addressBookValidator,
+  addressIdValidator,
 } = require('../validators/user.validator');
 
 const router = express.Router();
@@ -167,6 +170,124 @@ router.put(
   updateProfileValidator,
   validateRequest,
   userController.updateProfile
+);
+
+/**
+ * @openapi
+ * /user/addresses:
+ *   post:
+ *     tags: [User]
+ *     summary: Save billing and shipping addresses
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [billingAddress, shippingAddress]
+ *             properties:
+ *               billingAddress:
+ *                 type: object
+ *                 required: [name, phone, line1, city, state, pincode]
+ *                 properties:
+ *                   name: { type: string, example: "John Doe" }
+ *                   phone: { type: string, example: "9876543210" }
+ *                   line1: { type: string, example: "123 Main Street" }
+ *                   line2: { type: string, example: "Apt 4", nullable: true }
+ *                   city: { type: string, example: "Mumbai" }
+ *                   state: { type: string, example: "Maharashtra" }
+ *                   pincode: { type: string, example: "400001" }
+ *                   landmark: { type: string, example: "Near Central Park", nullable: true }
+ *               shippingAddress:
+ *                 type: object
+ *                 required: [name, phone, line1, city, state, pincode]
+ *                 properties:
+ *                   name: { type: string, example: "Jane Doe" }
+ *                   phone: { type: string, example: "9876543210" }
+ *                   line1: { type: string, example: "456 Oak Avenue" }
+ *                   line2: { type: string, example: "Suite 200", nullable: true }
+ *                   city: { type: string, example: "Bangalore" }
+ *                   state: { type: string, example: "Karnataka" }
+ *                   pincode: { type: string, example: "560001" }
+ *                   landmark: { type: string, example: "Near Tech Park", nullable: true }
+ *     responses:
+ *       200: { description: Addresses saved successfully }
+ *       422: { description: Validation failed }
+ */
+router.post(
+  '/addresses',
+  authenticate,
+  saveAddressesValidator,
+  validateRequest,
+  userController.saveAddresses
+);
+
+/**
+ * @openapi
+ * /user/address-book:
+ *   get:
+ *     tags: [User]
+ *     summary: List the user's saved delivery addresses
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Addresses fetched successfully }
+ *   post:
+ *     tags: [User]
+ *     summary: Add a delivery address to the saved book (deduped)
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name, phone, line1, city, state, pincode]
+ *             properties:
+ *               name: { type: string }
+ *               phone: { type: string }
+ *               line1: { type: string }
+ *               line2: { type: string, nullable: true }
+ *               landmark: { type: string, nullable: true }
+ *               city: { type: string }
+ *               state: { type: string }
+ *               pincode: { type: string }
+ *     responses:
+ *       201: { description: Address saved successfully }
+ *       422: { description: Validation failed }
+ */
+router.get('/address-book', authenticate, userController.getAddressBook);
+
+router.post(
+  '/address-book',
+  authenticate,
+  addressBookValidator,
+  validateRequest,
+  userController.addAddressBookEntry
+);
+
+/**
+ * @openapi
+ * /user/address-book/{id}:
+ *   delete:
+ *     tags: [User]
+ *     summary: Remove a saved delivery address by id
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Address removed successfully }
+ *       404: { description: Address not found }
+ */
+router.delete(
+  '/address-book/:id',
+  authenticate,
+  addressIdValidator,
+  validateRequest,
+  userController.removeAddressBookEntry
 );
 
 /**

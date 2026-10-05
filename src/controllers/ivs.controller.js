@@ -7,7 +7,9 @@ const ivsService = require('../services/ivs.service');
 const aadhaarService = require('../services/aadhaar.service');
 const digilockerAadhaarService = require('../services/digilockerAadhaar.service');
 const walletService = require('../services/wallet.service');
+const entitlementService = require('../services/entitlement.service');
 const { TXN_REASON, TXN_REF_TYPE } = require('../constants/walletEnums');
+const { BILLING_SOURCE, ENTITLEMENT_REF_TYPE } = require('../constants/entitlementEnums');
 const { VERIFICATION_SUBJECT } = require('../constants/aadhaarVerification');
 
 /**
@@ -26,12 +28,17 @@ const isBillable = (result) => result.upstreamAnswered === true;
 /**
  * Charge on the answer, not on the attempt.
  *
- * requireBalance checks the wallet up front, so a user without funds never
- * reaches C-DOT. The debit itself runs only AFTER the provider responds, and
- * only when CEIR actually processed the lookup — see isBillable. A wrong IMEI
- * is billed, because C-DOT bills us for it; an unreachable C-DOT is not. There
- * is no refund leg at all, and no window in which someone is charged for a
- * lookup that never happened.
+ * requireFeatureAccess checks up front — a credit balance, or a token balance —
+ * so a customer who cannot pay never reaches C-DOT. The charge itself runs only
+ * AFTER the provider responds, and only when CEIR actually processed the lookup
+ * (see isBillable). A wrong IMEI is billed, because C-DOT bills us for it; an
+ * unreachable C-DOT is not. There is no refund leg at all, and no window in
+ * which someone is charged for a lookup that never happened.
+ *
+ * Which system pays was decided by the middleware and is read from
+ * `req.billingSource` — never re-derived here. Re-reading `billingMode` after
+ * the C-DOT round trip would let an operator flipping the setting mid-request
+ * charge a customer through a system that never approved them.
  *
  * The trade-off is deliberate and worth stating: because the balance is only
  * read before the ~1s C-DOT round trip, two checks fired concurrently by a user
@@ -40,16 +47,19 @@ const isBillable = (result) => result.upstreamAnswered === true;
  * over free. imeiVerificationLimiter bounds how far that can be pushed.
  */
 const verifyImei = asyncHandler(async (req, res) => {
-  // requireBalance already resolved the effective price and checked the wallet
-  // against it. Reuse that exact value rather than re-reading, so an admin
-  // changing the price mid-request can never make us charge more than we
-  // verified the user could afford.
-  const cost = req.featureCost;
+  const source = req.billingSource;
+  const billedInCredits = source === BILLING_SOURCE.ENTITLEMENT;
+
+  // requireFeatureAccess already resolved the effective token price and checked
+  // the wallet against it. Reuse that exact value rather than re-reading, so an
+  // admin changing the price mid-request can never make us charge more than we
+  // verified the user could afford. A credit-billed check has no token price.
+  const cost = billedInCredits ? 0 : req.featureCost;
   const chargeRef = `IVSCHG-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
 
-  // Nothing has been taken from the wallet yet, so a failure here simply
-  // propagates — there is no charge to undo.
-  const result = await ivsService.verifyImei(req.user.id, req.body, cost);
+  // Nothing has been taken yet, so a failure here simply propagates — there is
+  // no charge to undo.
+  const result = await ivsService.verifyImei(req.user.id, req.body, cost, source);
 
   const billable = isBillable(result);
 
@@ -57,26 +67,36 @@ const verifyImei = asyncHandler(async (req, res) => {
 
   if (billable) {
     try {
-      // Atomic conditional decrement, so this still cannot drive the balance
-      // negative. chargeRef goes in metadata, NOT referenceId: that column is an
-      // ObjectId (it points at a Payment/Referral document), so a string there
-      // throws a Mongoose cast error and surfaces as a 422 on every check.
-      await walletService.debit(req.user.id, cost, {
-        reason: TXN_REASON.FEATURE_CHARGE,
-        referenceType: TXN_REF_TYPE.IVS_CHECK,
-        idempotencyKey: `${chargeRef}:charge`,
-        metadata: { feature: 'IVS_CHECK', chargeRef, verificationRef: result.referenceId },
-      });
+      // Both paths are an atomic conditional decrement, so neither can drive a
+      // balance negative. chargeRef goes in metadata, NOT referenceId: that
+      // column is an ObjectId (it points at a Payment/Referral document), so a
+      // string there throws a Mongoose cast error and surfaces as a 422 on
+      // every check.
+      if (billedInCredits) {
+        await entitlementService.consume(req.user.id, 'IVS_CHECK', {
+          referenceType: ENTITLEMENT_REF_TYPE.IVS_CHECK,
+          idempotencyKey: `${chargeRef}:charge`,
+          metadata: { chargeRef, verificationRef: result.referenceId },
+        });
+      } else {
+        await walletService.debit(req.user.id, cost, {
+          reason: TXN_REASON.FEATURE_CHARGE,
+          referenceType: TXN_REF_TYPE.IVS_CHECK,
+          idempotencyKey: `${chargeRef}:charge`,
+          metadata: { feature: 'IVS_CHECK', chargeRef, verificationRef: result.referenceId },
+        });
+      }
       charged = true;
     } catch (err) {
       // The balance passed the check a second ago, so getting here means a
-      // concurrent request spent the tokens in between. We have already paid
-      // C-DOT for this answer; withholding it is the only thing that stops the
-      // race being a way to get unlimited free checks.
+      // concurrent request spent it in between. We have already paid C-DOT for
+      // this answer; withholding it is the only thing that stops the race being
+      // a way to get unlimited free checks.
       // eslint-disable-next-line no-console
       console.error('[IVS] Charge failed after a billed lookup — result withheld', {
         userId: req.user.id,
         chargeRef,
+        source,
         cost,
         verificationRef: result.referenceId,
         error: err.message,
@@ -85,11 +105,18 @@ const verifyImei = asyncHandler(async (req, res) => {
     }
   }
 
-  const balance = await walletService.getBalance(req.user.id);
+  const [balance, creditsRemaining] = await Promise.all([
+    walletService.getBalance(req.user.id),
+    entitlementService.getCredits(req.user.id, 'IVS_CHECK'),
+  ]);
 
   successResponse(res, httpStatus.OK, MESSAGES.IVS.VERIFIED, {
     ...result,
-    wallet: { balance, charged, cost },
+    billing: { source, charged, cost, creditsRemaining },
+    credits: { IVS_CHECK: creditsRemaining },
+    // Kept for app builds that read wallet.* directly. `charged` here means
+    // "tokens were taken", which is false for a credit-billed check.
+    wallet: { balance, charged: charged && !billedInCredits, cost },
   });
 });
 

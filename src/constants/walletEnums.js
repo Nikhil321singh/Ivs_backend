@@ -27,6 +27,7 @@ const TXN_REF_TYPE = Object.freeze({
   IVS_CHECK: 'IVS_CHECK',
   DIAGNOSE: 'DIAGNOSE',
   REFERRAL: 'REFERRAL',
+  AUCTION_LISTING: 'AUCTION_LISTING',
 });
 
 const PAYMENT_STATUS = Object.freeze({
