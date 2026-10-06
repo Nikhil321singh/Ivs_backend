@@ -68,7 +68,15 @@ const buildClient = async () => {
     logins: { [providerName]: idToken },
     clientConfig: { region: cfg.identityPoolRegion },
   });
-  const client = new S3Client({ region: cfg.region, credentials });
+  // Skip the SDK's automatic CRC32 request checksum. For presigned PUTs used by
+  // a browser it otherwise adds x-amz-checksum-crc32 / x-amz-sdk-checksum-algorithm
+  // headers that the browser must send, forcing those into the bucket's CORS
+  // AllowedHeaders. WHEN_REQUIRED keeps the direct-to-S3 upload a plain PUT.
+  const client = new S3Client({
+    region: cfg.region,
+    credentials,
+    requestChecksumCalculation: 'WHEN_REQUIRED',
+  });
   // Rebuild well before the ~1h ID token expires so a refresh never uses a
   // stale login (the login map here is a fixed token, not self-refreshing).
   cached = { client, expiresAt: Date.now() + 50 * 60 * 1000 };
