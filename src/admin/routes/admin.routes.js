@@ -1125,4 +1125,7 @@ router.post(
   adminController.takeDownAuction
 );
 
+router.use('/cdot', cdotRoutes);
+router.use('/blancco', blanccoRoutes);
+
 module.exports = router;
