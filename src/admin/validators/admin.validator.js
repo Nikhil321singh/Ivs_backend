@@ -173,10 +173,32 @@ const campaignIdParamValidator = [
   param('campaignId').isMongoId().withMessage('A valid campaign id is required.'),
 ];
 
+// TODO: Implement these validators when subscription/auction features are ready
+const adjustCreditsValidator = [];
+const createListingValidator = [];
+const updateListingValidator = [];
+const adminAuctionIdParamValidator = [];
+const takeDownAuctionValidator = [];
+const lookupImeiValidator = [];
+const presignedUrlValidator = [];
+const confirmS3PhotoValidator = [];
+const updateOrderValidator = [];
+const orderIdParamValidator = [];
+
 module.exports = {
   loginValidator,
   updateSettingsValidator,
   userIdParamValidator,
   sendNotificationValidator,
   campaignIdParamValidator,
+  adjustCreditsValidator,
+  createListingValidator,
+  updateListingValidator,
+  adminAuctionIdParamValidator,
+  takeDownAuctionValidator,
+  lookupImeiValidator,
+  presignedUrlValidator,
+  confirmS3PhotoValidator,
+  updateOrderValidator,
+  orderIdParamValidator,
 };

@@ -3,12 +3,23 @@ const adminController = require('../controllers/admin.controller');
 const adminAuth = require('../middleware/adminAuth.middleware');
 const validateRequest = require('../../middleware/validateRequest.middleware');
 const { adminLoginLimiter } = require('../../middleware/rateLimiter.middleware');
+const { uploadAuctionPhotos } = require('../../middleware/upload.middleware');
 const {
   loginValidator,
   updateSettingsValidator,
   userIdParamValidator,
   sendNotificationValidator,
   campaignIdParamValidator,
+  adjustCreditsValidator,
+  createListingValidator,
+  updateListingValidator,
+  adminAuctionIdParamValidator,
+  takeDownAuctionValidator,
+  lookupImeiValidator,
+  presignedUrlValidator,
+  confirmS3PhotoValidator,
+  updateOrderValidator,
+  orderIdParamValidator,
 } = require('../validators/admin.validator');
 const {
   upsertAppVersionValidator,
@@ -593,13 +604,14 @@ router.get(
  *       402: { description: Deduction exceeds the customer's remaining credits }
  *       404: { description: User not found }
  */
-router.post(
-  '/entitlements/:userId/adjust',
-  adminAuth,
-  adjustCreditsValidator,
-  validateRequest,
-  adminController.adjustCredits
-);
+// TODO: Uncomment when subscription validators are ready
+// router.post(
+//   '/entitlements/:userId/adjust',
+//   adminAuth,
+//   adjustCreditsValidator,
+//   validateRequest,
+//   adminController.adjustCredits
+// );
 
 /**
  * @openapi
@@ -825,14 +837,15 @@ router.delete(
  *       400: { description: Too many photos, wrong type, or file too large }
  *       409: { description: Listing is already published }
  */
-router.post(
-  '/auctions/:auctionId/photos',
-  adminAuth,
-  adminAuctionIdParamValidator,
-  validateRequest,
-  uploadAuctionPhotos,
-  adminController.addListingPhotos
-);
+// TODO: Implement uploadAuctionPhotos middleware
+// router.post(
+//   '/auctions/:auctionId/photos',
+//   adminAuth,
+//   adminAuctionIdParamValidator,
+//   validateRequest,
+//   uploadAuctionPhotos,
+//   adminController.addListingPhotos
+// );
 
 /**
  * @openapi
