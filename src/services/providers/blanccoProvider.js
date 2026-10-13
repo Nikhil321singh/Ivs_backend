@@ -23,8 +23,7 @@ const headers = () => ({
 });
 
 // The URL our scan endpoint redirects the customer to after marking the QR used.
-const blanccoRedirectUrl = (sessionToken) =>
-  `${env.blanccoApp.baseUrl}/diagnose/${sessionToken}`;
+const blanccoRedirectUrl = () => 'https://p.blre.cc/DFlOpe';
 
 // The URL encoded into the QR itself — points to OUR server so we can enforce
 // one-time use before forwarding to Blancco.

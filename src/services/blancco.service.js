@@ -108,7 +108,7 @@ const scanSession = async (sessionToken) => {
     { $set: { status: SESSION_STATUS.SCANNED, scannedAt: new Date() } }
   );
 
-  return { redirectUrl: blanccoProvider.blanccoRedirectUrl(sessionToken) };
+  return { redirectUrl: blanccoProvider.blanccoRedirectUrl() };
 };
 
 const getSessionById = async (userId, sessionId) => {
