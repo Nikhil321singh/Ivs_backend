@@ -26,7 +26,30 @@ const RESULT_STATUS = Object.freeze({
 
 const REQUEST_TIMEOUT = 15000;
 
-const isConfigured = () => !!env.diagnose.baseUrl && !!env.diagnose.apiKey;
+const isConfigured = () => {
+  // Try Blancco credentials first, fall back to DIAGNOSE env vars
+  const hasBlancco = !!process.env.BLANCCO_API_URL_APP && !!process.env.BLANCCO_API_KEY_APP;
+  const hasDiagnose = !!env.diagnose.baseUrl && !!env.diagnose.apiKey;
+  return hasBlancco || hasDiagnose;
+};
+
+const getProvider = () => {
+  const hasBlancco = !!process.env.BLANCCO_API_URL_APP && !!process.env.BLANCCO_API_KEY_APP;
+
+  if (hasBlancco) {
+    return {
+      baseUrl: process.env.BLANCCO_API_URL_APP,
+      apiKey: process.env.BLANCCO_API_KEY_APP,
+      endpoint: '/v1/diagnose'
+    };
+  }
+
+  return {
+    baseUrl: env.diagnose.baseUrl,
+    apiKey: env.diagnose.apiKey,
+    endpoint: '/diagnose'
+  };
+};
 
 const generateRefId = () => `DIAG-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
 
@@ -39,11 +62,12 @@ const diagnose = async (input) => {
   }
 
   try {
-    const response = await axios.post(`${env.diagnose.baseUrl}/diagnose`, input, {
+    const provider = getProvider();
+    const response = await axios.post(`${provider.baseUrl}${provider.endpoint}`, input, {
       timeout: REQUEST_TIMEOUT,
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${env.diagnose.apiKey}`,
+        Authorization: `Bearer ${provider.apiKey}`,
       },
     });
 
@@ -65,4 +89,4 @@ const diagnose = async (input) => {
   }
 };
 
-module.exports = { diagnose, isConfigured, RESULT_STATUS };
+module.exports = { diagnose, isConfigured, getProvider, RESULT_STATUS };
