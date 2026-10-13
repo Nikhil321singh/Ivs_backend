@@ -14,6 +14,8 @@ const {
   upsertAppVersionValidator,
   notifyUpdateValidator,
 } = require('../../validators/appVersion.validator');
+const cdotRoutes = require('./cdot.routes');
+const blanccoRoutes = require('./blancco.routes');
 
 const router = express.Router();
 
@@ -448,5 +450,8 @@ router.post(
   validateRequest,
   adminController.notifyAppUpdate
 );
+
+router.use('/cdot', cdotRoutes);
+router.use('/blancco', blanccoRoutes);
 
 module.exports = router;

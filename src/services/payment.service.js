@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Payment = require('../models/Payment.model');
 const razorpay = require('./providers/razorpayProvider');
 const walletService = require('./wallet.service');
@@ -107,9 +108,54 @@ const createTopupOrder = async (userId, amountInr) => {
 };
 
 /**
- * Credits tokens for a confirmed payment exactly once. Both the webhook and
+ * When an auction payment is confirmed (via webhook or callback), mark the
+ * auction as SOLD, the winning bid as WON, and link the payment to the order.
+ * Idempotent: skips if the auction is already SOLD.
+ */
+const markAuctionPaid = async (payment) => {
+  const db = mongoose.connection;
+  const now = new Date();
+
+  const auction = await db.collection('auctions').findOne({ _id: payment.auctionId });
+  if (!auction || auction.status === 'SOLD') return;
+
+  await db.collection('auctions').updateOne(
+    { _id: payment.auctionId, status: { $in: ['PAYMENT_PENDING', 'PAYMENT_EXPIRED'] } },
+    {
+      $set: {
+        status: 'SOLD',
+        winnerId: payment.userId,
+        winningBidId: auction.currentBidId || null,
+        salePricePaise: payment.amountPaise,
+        soldAt: now,
+        updatedAt: now,
+      },
+    }
+  );
+
+  if (auction.currentBidId) {
+    await db.collection('bids').updateOne(
+      { _id: auction.currentBidId },
+      { $set: { status: 'WON', updatedAt: now } }
+    );
+  }
+
+  await db.collection('orders').updateOne(
+    { auctionId: payment.auctionId, buyerId: payment.userId },
+    { $set: { paymentId: payment._id, paidAt: now, updatedAt: now } }
+  );
+
+  console.log('[Payment] auction %s marked SOLD for payment %s', payment.auctionId, payment._id);
+};
+
+/**
+ * Marks a confirmed payment as PAID exactly once. Both the webhook and
  * the client /verify path funnel through here; the CREATED→PAID flip is
  * atomic, so whichever arrives first does the work and the other is a no-op.
+ *
+ * For wallet top-ups (`tokens > 0`) it also credits the wallet and triggers
+ * referral rewards. For auction/plan payments (`tokens === 0`) the status
+ * flip and order linkage are all that's needed — no wallet movement.
  */
 const creditForPayment = async (payment, { paymentId, signature }) => {
   const claimed = await Payment.findOneAndUpdate(
@@ -127,23 +173,31 @@ const creditForPayment = async (payment, { paymentId, signature }) => {
     return Payment.findById(payment._id);
   }
 
-  const txn = await walletService.credit(claimed.userId, claimed.tokens, {
-    reason: TXN_REASON.TOPUP,
-    referenceType: TXN_REF_TYPE.PAYMENT,
-    referenceId: claimed._id,
-    idempotencyKey: `payment-${paymentId}`,
-    metadata: { orderId: claimed.razorpayOrderId },
-  });
+  if (claimed.tokens > 0) {
+    const txn = await walletService.credit(claimed.userId, claimed.tokens, {
+      reason: TXN_REASON.TOPUP,
+      referenceType: TXN_REF_TYPE.PAYMENT,
+      referenceId: claimed._id,
+      idempotencyKey: `payment-${paymentId}`,
+      metadata: { orderId: claimed.razorpayOrderId },
+    });
 
-  claimed.creditTxnId = txn._id;
-  await claimed.save();
+    claimed.creditTxnId = txn._id;
+    await claimed.save();
 
-  // A successful top-up unlocks any pending referral reward. Non-fatal:
-  // never fail the credit because a referral payout had trouble.
-  try {
-    await referralService.maybeRewardReferral(claimed.userId);
-  } catch (err) {
-    console.error('[Payment] referral reward failed for', String(claimed._id), err.message);
+    try {
+      await referralService.maybeRewardReferral(claimed.userId);
+    } catch (err) {
+      console.error('[Payment] referral reward failed for', String(claimed._id), err.message);
+    }
+  }
+
+  if (claimed.auctionId) {
+    try {
+      await markAuctionPaid(claimed);
+    } catch (err) {
+      console.error('[Payment] auction fulfillment failed for', String(claimed._id), err.message);
+    }
   }
 
   return claimed;

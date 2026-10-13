@@ -277,6 +277,17 @@ const env = {
     apiKey: process.env.DIAGNOSE_API_KEY,
   },
 
+  // Blancco device diagnosis — two separate integrations. Admin uses Blancco
+  // for the bid/valuation flow; the app uses it for QR-based customer diagnosis.
+  blancco: {
+    baseUrl: (process.env.BLANCCO_BASE_URL || '').replace(/\/+$/, ''),
+    apiKey: process.env.BLANCCO_API_KEY,
+  },
+  blanccoApp: {
+    baseUrl: (process.env.BLANCCO_API_URL_APP || '').replace(/\/+$/, ''),
+    apiKey: process.env.BLANCCO_API_KEY_APP,
+  },
+
   // Firebase Cloud Messaging (HTTP v1). Credentials come from the Firebase
   // console -> Project settings -> Service accounts -> "Generate new private
   // key". Lazy-validated in services/providers/fcmProvider.js like the other

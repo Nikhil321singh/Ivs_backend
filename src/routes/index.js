@@ -5,9 +5,12 @@ const ivsRoutes = require('./ivs.routes');
 const walletRoutes = require('./wallet.routes');
 const referralRoutes = require('./referral.routes');
 const diagnoseRoutes = require('./diagnose.routes');
+const blanccoRoutes = require('./blancco.routes');
 const notificationRoutes = require('./notification.routes');
 const appRoutes = require('./app.routes');
 const wrapperRoutes = require('./wrapper.routes');
+const cdotVendorRoutes = require('./cdotVendor.routes');
+const cdotWrapperRoutes = require('./cdotWrapper.routes');
 // Self-contained admin module — see src/admin/README.md.
 const adminModule = require('../admin');
 const PRICING = require('../constants/pricing');
@@ -88,6 +91,7 @@ router.use('/ivs', ivsRoutes);
 router.use('/wallet', walletRoutes);
 router.use('/referral', referralRoutes);
 router.use('/diagnose', diagnoseRoutes);
+router.use('/blancco', blanccoRoutes);
 router.use('/notifications', notificationRoutes);
 // Client-facing app metadata (the launch-time update check). Unauthenticated —
 // see routes/app.routes.js.
@@ -95,6 +99,10 @@ router.use('/app', appRoutes);
 // Server-to-server only — authenticated by a shared secret in the body, not by
 // a user session. See wrapper.routes.js.
 router.use('/wrapper', wrapperRoutes);
+// C-DOT vendor dashboard (authenticated)
+router.use('/vendor/cdot', cdotVendorRoutes);
+// C-DOT wrapper API (vendor calls with API key)
+router.use('/wrapper/cdot', cdotWrapperRoutes);
 router.use('/admin', adminModule.router);
 
 module.exports = router;
