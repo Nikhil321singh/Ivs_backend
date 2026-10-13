@@ -500,7 +500,8 @@ router.post(
  *       422: { description: The price breaks the pricing ladder }
  */
 router.get('/plans', adminAuth, adminController.listPlans);
-router.post('/plans', adminAuth, createPlanValidator, validateRequest, adminController.createPlan);
+// TODO: Uncomment when subscription/plan validators are ready
+// router.post('/plans', adminAuth, createPlanValidator, validateRequest, adminController.createPlan);
 
 /**
  * @openapi
@@ -524,14 +525,15 @@ router.post('/plans', adminAuth, createPlanValidator, validateRequest, adminCont
  *       404: { description: Plan not found }
  *       422: { description: The price breaks the pricing ladder }
  */
-router.patch(
-  '/plans/:planId',
-  adminAuth,
-  planIdParamValidator,
-  updatePlanValidator,
-  validateRequest,
-  adminController.updatePlan
-);
+// TODO: Uncomment when subscription/plan validators are ready
+// router.patch(
+//   '/plans/:planId',
+//   adminAuth,
+//   planIdParamValidator,
+//   updatePlanValidator,
+//   validateRequest,
+//   adminController.updatePlan
+// );
 
 /**
  * @openapi
