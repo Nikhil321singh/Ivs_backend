@@ -360,8 +360,8 @@ const env = {
   // uploaded. Kept separate from `diagnose` above because that slot belongs to
   // the customer-facing diagnosis flow, which is a different integration.
   blancco: {
-    baseUrl: process.env.BLANCCO_BASE_URL || 'https://api.eu-west-1.blancco.cloud/v1',
-    apiKey: process.env.BLANCCO_API_KEY,
+    baseUrl: process.env.BLANCCO_BASE_URL_APP,
+    apiKey: process.env.BLANCCO_API_KEY_APP,
   },
 
   // Auctions. The sweep closes finished auctions and lapses unpaid sales; how
