@@ -3,14 +3,27 @@ const authRoutes = require('./auth.routes');
 const userRoutes = require('./user.routes');
 const ivsRoutes = require('./ivs.routes');
 const walletRoutes = require('./wallet.routes');
+const planRoutes = require('./plan.routes');
+const entitlementRoutes = require('./entitlement.routes');
+const subscriptionRoutes = require('./subscription.routes');
+const auctionRoutes = require('./auction.routes');
+const orderRoutes = require('./order.routes');
 const referralRoutes = require('./referral.routes');
 const diagnoseRoutes = require('./diagnose.routes');
+<<<<<<< HEAD
 const blanccoRoutes = require('./blancco.routes');
 const notificationRoutes = require('./notification.routes');
 const appRoutes = require('./app.routes');
 const wrapperRoutes = require('./wrapper.routes');
 const cdotVendorRoutes = require('./cdotVendor.routes');
 const cdotWrapperRoutes = require('./cdotWrapper.routes');
+=======
+const assistantRoutes = require('./assistant.routes');
+const notificationRoutes = require('./notification.routes');
+const appRoutes = require('./app.routes');
+const wrapperRoutes = require('./wrapper.routes');
+const repairAnalysisRoutes = require('./repairAnalysis.routes');
+>>>>>>> 563eaf085df3cb272146214d06a181aab153e830
 // Self-contained admin module — see src/admin/README.md.
 const adminModule = require('../admin');
 const PRICING = require('../constants/pricing');
@@ -89,9 +102,26 @@ router.use('/auth', authRoutes);
 router.use('/user', userRoutes);
 router.use('/ivs', ivsRoutes);
 router.use('/wallet', walletRoutes);
+// Credit packs — the catalogue, the customer's credit balance and ledger, and
+// buying. See SUBSCRIPTION_DESIGN.md.
+router.use('/plans', planRoutes);
+router.use('/entitlements', entitlementRoutes);
+router.use('/subscription', subscriptionRoutes);
+// Device bidding. Listing and bidding require KYC; winner payments run through
+// the shared wallet webhook. See AUCTION_DESIGN.md.
+router.use('/auctions', auctionRoutes);
+// Device orders belong to the buyer, so they are mounted separately from the
+// auctions that created them.
+router.use('/orders', orderRoutes);
 router.use('/referral', referralRoutes);
 router.use('/diagnose', diagnoseRoutes);
+<<<<<<< HEAD
 router.use('/blancco', blanccoRoutes);
+=======
+// The in-app "Gia" assistant's free-text answers (Claude-backed). Authenticated
+// and rate-limited — see assistant.routes.js.
+router.use('/assistant', assistantRoutes);
+>>>>>>> 563eaf085df3cb272146214d06a181aab153e830
 router.use('/notifications', notificationRoutes);
 // Client-facing app metadata (the launch-time update check). Unauthenticated —
 // see routes/app.routes.js.
@@ -99,10 +129,15 @@ router.use('/app', appRoutes);
 // Server-to-server only — authenticated by a shared secret in the body, not by
 // a user session. See wrapper.routes.js.
 router.use('/wrapper', wrapperRoutes);
+<<<<<<< HEAD
 // C-DOT vendor dashboard (authenticated)
 router.use('/vendor/cdot', cdotVendorRoutes);
 // C-DOT wrapper API (vendor calls with API key)
 router.use('/wrapper/cdot', cdotWrapperRoutes);
+=======
+// External Repair Analysis API — device diagnostics decision trees and chat.
+router.use('/repair-analysis', repairAnalysisRoutes);
+>>>>>>> 563eaf085df3cb272146214d06a181aab153e830
 router.use('/admin', adminModule.router);
 
 module.exports = router;

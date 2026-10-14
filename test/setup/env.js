@@ -74,3 +74,6 @@ process.env.APP_IOS_STORE_URL = 'https://apps.apple.com/app/id0000000000';
 
 process.env.DEFAULT_COUNTRY_CODE = '+91';
 process.env.UPLOAD_MAX_SIZE_MB = '5';
+
+process.env.BLANCCO_BASE_URL = 'https://api.eu-west-1.blancco.cloud/v1';
+process.env.BLANCCO_API_KEY = 'test-blancco-key';

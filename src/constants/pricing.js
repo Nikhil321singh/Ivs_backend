@@ -19,6 +19,11 @@ module.exports = Object.freeze({
   FEATURES: Object.freeze({
     IVS_CHECK: 19,
     DIAGNOSE: 50,
+    // Charged once, when a seller PUBLISHES an auction — not for creating a
+    // draft, and never again for the same listing however long it runs or
+    // however many bids it draws. Placeholder value; set the real one in the
+    // admin portal.
+    AUCTION_LISTING: 25,
   }),
 
   // Free tokens credited once, when a user completes KYC.

@@ -1,4 +1,4 @@
-const { body } = require('express-validator');
+const { body, param } = require('express-validator');
 const USER_TYPE = require('../constants/userType');
 const MESSAGES = require('../constants/messages');
 
@@ -100,6 +100,11 @@ const strictKycChain = [
     .trim()
     .isLength({ min: 2, max: 150 })
     .withMessage('Business name must be between 2 and 150 characters.'),
+  body('address')
+    .optional({ checkFalsy: true })
+    .trim()
+    .isLength({ min: 5, max: 250 })
+    .withMessage('Address must be between 5 and 250 characters.'),
   body('gstNumber')
     .optional({ checkFalsy: true })
     .trim()
@@ -141,6 +146,11 @@ const relaxedKycChain = [
     .trim()
     .isLength({ min: 2, max: 150 })
     .withMessage('Company name must be between 2 and 150 characters.'),
+  body('address')
+    .optional({ checkFalsy: true })
+    .trim()
+    .isLength({ min: 5, max: 250 })
+    .withMessage('Address must be between 5 and 250 characters.'),
   body('phone')
     .optional({ checkFalsy: true })
     .trim()
@@ -216,6 +226,11 @@ const updateProfileValidator = [
     .isEmail()
     .withMessage('Please provide a valid email address.')
     .normalizeEmail(),
+  body('address')
+    .optional({ checkFalsy: true })
+    .trim()
+    .isLength({ min: 5, max: 250 })
+    .withMessage('Address must be between 5 and 250 characters.'),
 ];
 
 // Same reasoning as the customer/IVS pair in ivs.validator.js: while the
@@ -250,9 +265,82 @@ const verifyAadhaarOtpValidator = [
     .withMessage('OTP must be 6 digits.'),
 ];
 
+// Validates an address block. `prefix` is the body path it lives under
+// (e.g. 'billingAddress'); pass '' to validate a bare address at the body root,
+// which the address-book endpoints use.
+const addressValidator = (prefix) => {
+  const path = (field) => (prefix ? `${prefix}.${field}` : field);
+  const label = (field) => (prefix ? `${prefix} ${field}` : field);
+  return [
+    body(path('name'))
+      .trim()
+      .notEmpty()
+      .withMessage(`${label('name')} is required.`)
+      .isLength({ min: 2, max: 100 })
+      .withMessage(`${label('name')} must be between 2 and 100 characters.`),
+    body(path('phone'))
+      .trim()
+      .notEmpty()
+      .withMessage(`${label('phone')} is required.`)
+      .matches(MOBILE_REGEX)
+      .withMessage('Please provide a valid 10-digit phone number.'),
+    body(path('line1'))
+      .trim()
+      .notEmpty()
+      .withMessage(`${label('line1')} is required.`)
+      .isLength({ min: 5, max: 250 })
+      .withMessage(`${label('line1')} must be between 5 and 250 characters.`),
+    body(path('line2'))
+      .optional({ checkFalsy: true })
+      .trim()
+      .isLength({ min: 1, max: 250 })
+      .withMessage(`${label('line2')} must be between 1 and 250 characters.`),
+    body(path('city'))
+      .trim()
+      .notEmpty()
+      .withMessage(`${label('city')} is required.`)
+      .isLength({ min: 2, max: 100 })
+      .withMessage(`${label('city')} must be between 2 and 100 characters.`),
+    body(path('state'))
+      .trim()
+      .notEmpty()
+      .withMessage(`${label('state')} is required.`)
+      .isLength({ min: 2, max: 100 })
+      .withMessage(`${label('state')} must be between 2 and 100 characters.`),
+    body(path('pincode'))
+      .trim()
+      .notEmpty()
+      .withMessage(`${label('pincode')} is required.`)
+      .isLength({ min: 5, max: 10 })
+      .withMessage(`${label('pincode')} must be between 5 and 10 characters.`),
+    body(path('landmark'))
+      .optional({ checkFalsy: true })
+      .trim()
+      .isLength({ min: 1, max: 250 })
+      .withMessage(`${label('landmark')} must be between 1 and 250 characters.`),
+  ];
+};
+
+const saveAddressesValidator = [
+  ...addressValidator('billingAddress'),
+  ...addressValidator('shippingAddress'),
+];
+
+// A single address at the body root — POST /user/address-book.
+const addressBookValidator = addressValidator('');
+
+// :id path param for DELETE /user/address-book/:id.
+const addressIdValidator = [
+  param('id').isMongoId().withMessage('Invalid address id.'),
+];
+
 module.exports = {
   completeKycValidator,
   updateProfileValidator,
   sendAadhaarOtpValidator,
   verifyAadhaarOtpValidator,
+  addressValidator,
+  saveAddressesValidator,
+  addressBookValidator,
+  addressIdValidator,
 };

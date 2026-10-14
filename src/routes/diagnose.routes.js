@@ -1,7 +1,7 @@
 const express = require('express');
 const diagnoseController = require('../controllers/diagnose.controller');
 const authenticate = require('../middleware/auth.middleware');
-const requireBalance = require('../middleware/requireBalance.middleware');
+const requireFeatureAccess = require('../middleware/requireFeatureAccess.middleware');
 const validateRequest = require('../middleware/validateRequest.middleware');
 const {
   diagnoseValidator,
@@ -35,7 +35,7 @@ const router = express.Router();
 router.post(
   '/',
   authenticate,
-  requireBalance('DIAGNOSE'),
+  requireFeatureAccess('DIAGNOSE'),
   diagnoseValidator,
   validateRequest,
   diagnoseController.diagnose

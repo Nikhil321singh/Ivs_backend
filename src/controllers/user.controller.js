@@ -153,6 +153,30 @@ const getUserDetails = asyncHandler(async (req, res) => {
   successResponse(res, httpStatus.OK, MESSAGES.USER.DETAILS_FETCHED, details);
 });
 
+const saveAddresses = asyncHandler(async (req, res) => {
+  const addresses = await userService.saveAddresses(req.user.id, req.body);
+
+  successResponse(res, httpStatus.OK, 'Addresses saved successfully', addresses);
+});
+
+const getAddressBook = asyncHandler(async (req, res) => {
+  const result = await userService.getAddresses(req.user.id);
+
+  successResponse(res, httpStatus.OK, MESSAGES.USER.ADDRESSES_FETCHED, result);
+});
+
+const addAddressBookEntry = asyncHandler(async (req, res) => {
+  const result = await userService.addAddress(req.user.id, req.body);
+
+  successResponse(res, httpStatus.CREATED, MESSAGES.USER.ADDRESS_ADDED, result);
+});
+
+const removeAddressBookEntry = asyncHandler(async (req, res) => {
+  const result = await userService.removeAddress(req.user.id, req.params.id);
+
+  successResponse(res, httpStatus.OK, MESSAGES.USER.ADDRESS_REMOVED, result);
+});
+
 module.exports = {
   sendAadhaarOtp,
   verifyAadhaarOtp,
@@ -161,6 +185,10 @@ module.exports = {
   updateProfile,
   getProfile,
   getUserDetails,
+  saveAddresses,
+  getAddressBook,
+  addAddressBookEntry,
+  removeAddressBookEntry,
   startDigilockerAadhaar,
   digilockerAadhaarCallback,
   getDigilockerAadhaarVerification,
