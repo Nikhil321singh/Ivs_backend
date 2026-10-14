@@ -359,7 +359,7 @@ const env = {
   // portal: the IMEI is looked up against reports Blancco's app already
   // uploaded. Kept separate from `diagnose` above because that slot belongs to
   // the customer-facing diagnosis flow, which is a different integration.
-  blancco: {
+  blanccoAdmin: {
     baseUrl: process.env.BLANCCO_BASE_URL_APP,
     apiKey: process.env.BLANCCO_API_KEY_APP,
   },

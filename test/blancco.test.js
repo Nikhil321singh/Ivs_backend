@@ -2,8 +2,9 @@ const nock = require('nock');
 const fixture = require('./fixtures/blancco-report.json');
 const blancco = require('../src/services/providers/blanccoProvider');
 const env = require('../src/config/env');
-const { createAdmin, request, app } = require('./helpers/factory');
+const { createAdmin, createUser, asUser, request, app } = require('./helpers/factory');
 const Auction = require('../src/models/Auction.model');
+const BlanccoSession = require('../src/models/BlanccoSession.model');
 const { AUCTION_STATUS } = require('../src/constants/auctionEnums');
 
 const BASE = 'https://api.eu-west-1.blancco.cloud';
@@ -250,6 +251,51 @@ describe('admin device lookup', () => {
     expect(res.status).toBe(201);
     const auction = await Auction.findById(res.body.data.auction.id);
     expect(auction.diagnosisReport).toBeNull();
+  });
+});
+
+describe('QR session report endpoint', () => {
+  afterEach(() => nock.cleanAll());
+
+  it('returns the Diagnostic report and marks the session completed', async () => {
+    const { token } = await createUser();
+    const created = await asUser(token)
+      .post('/api/v1/blancco/sessions')
+      .send({
+        customerName: 'Test Customer',
+        customerPhone: '9003748031',
+        imei: IMEI,
+        price: 499,
+      });
+
+    expect(created.status).toBe(201);
+    const sessionId = created.body.data.id;
+    const scannedAt = new Date();
+    await BlanccoSession.updateOne(
+      { _id: sessionId },
+      { $set: { status: 'SCANNED', scannedAt } }
+    );
+
+    nock(BASE)
+      .post('/v1/reports/export', (body) => body.category === 'Diagnostic')
+      .reply(200, {
+        reports: [{
+          uuid: 'diagnostic-test-01',
+          date: new Date(Date.now() + 1000).toISOString(),
+          tests: [{ name: 'wifi', result: 'PASSED' }],
+          properties: { make: 'Apple', model: 'iPhone 13', imei: IMEI },
+        }],
+      });
+
+    const res = await asUser(token).get(`/api/v1/blancco/sessions/${sessionId}/report`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.diagnoseCompleted).toBe(true);
+    expect(res.body.data.report.reportId).toBe('diagnostic-test-01');
+    expect(res.body.data.report.tests).toEqual([{ name: 'Wifi', result: 'PASSED' }]);
+
+    const session = await BlanccoSession.findById(sessionId).lean();
+    expect(session.status).toBe('COMPLETED');
   });
 });
 

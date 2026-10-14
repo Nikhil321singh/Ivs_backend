@@ -35,7 +35,7 @@ const REQUEST_TIMEOUT = 20000;
 // enough back to include every report that could exist for a device.
 const EARLIEST_REPORT = '2015-01-01T00:00:00Z';
 
-const isConfigured = () => !!env.blancco.baseUrl && !!env.blancco.apiKey;
+const isConfigured = (config = env.blancco) => !!config.baseUrl && !!config.apiKey;
 
 /**
  * Blancco returns every section as an array of single-key objects, each also
@@ -332,9 +332,17 @@ const DIAGNOSTIC_CATEGORY = 'Diagnostic';
 // absorbs server/Blancco clock skew and reports stamped at diagnosis start.
 const SCAN_GRACE_MS = 10 * 60 * 1000;
 
+const maskedImei = (imei) => {
+  const value = String(imei || '');
+  return value.length > 4 ? `${'*'.repeat(value.length - 4)}${value.slice(-4)}` : '(missing)';
+};
+
 const fetchDiagnosticReports = async (imei) => {
+  const baseUrl = env.blanccoApp.baseUrl.replace(/\/+$/, '');
+  const versionedBaseUrl = /\/v1$/i.test(baseUrl) ? baseUrl : `${baseUrl}/v1`;
+  console.log('[Blancco] requesting Diagnostic reports', 'IMEI', maskedImei(imei));
   const response = await axios.post(
-    `${env.blancco.baseUrl}/reports/export`,
+    `${versionedBaseUrl}/reports/export`,
     {
       category: DIAGNOSTIC_CATEGORY,
       filter: {
@@ -347,10 +355,17 @@ const fetchDiagnosticReports = async (imei) => {
     },
     {
       timeout: REQUEST_TIMEOUT,
-      headers: { 'Content-Type': 'application/json', 'X-BLANCCO-API-KEY': env.blancco.apiKey },
+      headers: { 'Content-Type': 'application/json', 'X-BLANCCO-API-KEY': env.blanccoApp.apiKey },
     }
   );
-  return response.data?.reports || [];
+  const reports = response.data?.reports || [];
+  console.log(
+    '[Blancco] Diagnostic reports response',
+    'status', response.status,
+    'count', reports.length,
+    'IMEI', maskedImei(imei)
+  );
+  return reports;
 };
 
 // Map a raw Diagnostic report into the shape the vendor/c2b DiagnosisReport
@@ -389,17 +404,31 @@ const toScreenFromDiagnostic = (r) => {
 // produced at/after the scan. `since` (the session's scannedAt) rejects a stale
 // earlier report for the same handset so we never complete on a previous run.
 const getReport = async ({ imei, since } = {}) => {
-  if (!isConfigured()) return { success: false, report: null, error: 'NOT_CONFIGURED' };
-  if (!imei) return { success: false, report: null, error: 'NO_REPORT' };
+  if (!isConfigured(env.blanccoApp)) {
+    console.warn('[Blancco] report lookup skipped: app provider is not configured');
+    return { success: false, report: null, error: 'NOT_CONFIGURED' };
+  }
+  if (!imei) {
+    console.warn('[Blancco] report lookup skipped: session has no IMEI');
+    return { success: false, report: null, error: 'NO_REPORT' };
+  }
 
   let reports;
   try {
     reports = await fetchDiagnosticReports(imei);
   } catch (err) {
-    console.error('[Blancco] diagnostic lookup failed', imei, err.response?.status, err.message);
+    console.error(
+      '[Blancco] diagnostic lookup failed',
+      'IMEI', maskedImei(imei),
+      'status', err.response?.status || '(no response)',
+      'error', err.message
+    );
     return { success: false, report: null, error: 'FETCH_ERROR' };
   }
-  if (!reports.length) return { success: false, report: null, error: 'NO_REPORT' };
+  if (!reports.length) {
+    console.log('[Blancco] no Diagnostic reports found', 'IMEI', maskedImei(imei));
+    return { success: false, report: null, error: 'NO_REPORT' };
+  }
 
   // Newest first by report date, then keep only reports at/after the scan.
   // The floor is scannedAt minus a grace margin: our server clock and Blancco's
@@ -417,7 +446,15 @@ const getReport = async ({ imei, since } = {}) => {
   const picked = (floor && sorted.find((r) => !r.date || new Date(r.date) >= floor)) || sorted[0];
   if (!picked) return { success: false, report: null, error: 'NO_REPORT' };
 
-  return { success: true, report: toScreenFromDiagnostic(picked), error: null };
+  const report = toScreenFromDiagnostic(picked);
+  console.log(
+    '[Blancco] Diagnostic report selected',
+    'IMEI', maskedImei(imei),
+    'report', report.reportId || '(no report id)',
+    'date', report.diagnosedAt || '(unknown)',
+    'tests', report.total
+  );
+  return { success: true, report, error: null };
 };
 
 // Thin "is it done?" wrapper over getReport, for callers that only poll status.

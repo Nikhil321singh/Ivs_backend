@@ -77,3 +77,5 @@ process.env.UPLOAD_MAX_SIZE_MB = '5';
 
 process.env.BLANCCO_BASE_URL = 'https://api.eu-west-1.blancco.cloud/v1';
 process.env.BLANCCO_API_KEY = 'test-blancco-key';
+process.env.BLANCCO_API_URL_APP = 'https://api.eu-west-1.blancco.cloud';
+process.env.BLANCCO_API_KEY_APP = 'test-blancco-app-key';

@@ -23,12 +23,19 @@ const getSession = asyncHandler(async (req, res) => {
 });
 
 const getReport = asyncHandler(async (req, res) => {
+  console.log('[Blancco API] report request started', 'session', req.params.id);
   const result = await blanccoService.getReport(req.user.id, req.params.id);
 
   if (!result.diagnoseCompleted) {
+    console.log('[Blancco API] report is pending', 'session', req.params.id);
     return successResponse(res, httpStatus.OK, MESSAGES.BLANCCO.DIAGNOSIS_PENDING, result);
   }
 
+  console.log(
+    '[Blancco API] report returned',
+    'session', req.params.id,
+    'report', result.report?.reportId || '(no report id)'
+  );
   successResponse(res, httpStatus.OK, MESSAGES.BLANCCO.REPORT_FETCHED, result);
 });
 

@@ -125,20 +125,26 @@ const getSessionById = async (userId, sessionId) => {
 };
 
 const getReport = async (userId, sessionId) => {
+  console.log('[Blancco] loading report session', String(sessionId));
+
   if (!mongoose.isValidObjectId(sessionId)) {
+    console.warn('[Blancco] report session id is invalid', String(sessionId));
     throw new ApiError(httpStatus.NOT_FOUND, MESSAGES.BLANCCO.SESSION_NOT_FOUND);
   }
 
   const session = await BlanccoSession.findOne({ _id: sessionId, userId }).lean();
   if (!session) {
+    console.warn('[Blancco] report session not found for caller', String(sessionId));
     throw new ApiError(httpStatus.NOT_FOUND, MESSAGES.BLANCCO.SESSION_NOT_FOUND);
   }
 
   if (session.status === SESSION_STATUS.EXPIRED) {
+    console.warn('[Blancco] report requested for expired session', String(session._id));
     throw new ApiError(httpStatus.GONE, MESSAGES.BLANCCO.SESSION_EXPIRED);
   }
 
   if (session.status === SESSION_STATUS.PENDING) {
+    console.log('[Blancco] report pending: QR not scanned', 'session', String(session._id));
     return {
       session: serializeSession(session),
       diagnoseCompleted: false,
@@ -173,7 +179,6 @@ const getReport = async (userId, sessionId) => {
     console.warn(
       '[Blancco] diagnose not completed yet',
       'session', String(session._id),
-      'imei', session.imei || '(none on session)',
       'reason', reportResult.error
     );
     return {
@@ -188,8 +193,15 @@ const getReport = async (userId, sessionId) => {
       { _id: session._id },
       { $set: { status: SESSION_STATUS.COMPLETED } }
     );
+    console.log('[Blancco] session marked completed', String(session._id));
   }
 
+  console.log(
+    '[Blancco] report ready',
+    'session', String(session._id),
+    'report', reportResult.report?.reportId || '(no report id)',
+    'tests', reportResult.report?.total ?? 0
+  );
   return {
     session: serializeSession({ ...session, status: SESSION_STATUS.COMPLETED }),
     diagnoseCompleted: true,
