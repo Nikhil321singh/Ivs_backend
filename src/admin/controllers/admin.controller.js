@@ -7,6 +7,8 @@ const settingsService = require('../../services/settings.service');
 const notificationService = require('../../services/notification.service');
 const appVersionService = require('../../services/appVersion.service');
 const fcmProvider = require('../../services/providers/fcmProvider');
+const auctionAdminService = require('../services/auction.admin.service');
+const orderService = require('../../services/order.service');
 const { SETTING_DEFINITIONS } = require('../../constants/settings');
 const { CAMPAIGN_STATUS } = require('../../constants/notification');
 
