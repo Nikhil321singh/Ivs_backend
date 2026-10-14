@@ -410,9 +410,11 @@ const getReport = async ({ imei, since } = {}) => {
   // let a truly stale earlier run through.
   const sorted = [...reports].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
   const floor = since ? new Date(new Date(since).getTime() - SCAN_GRACE_MS) : null;
-  const picked = floor
-    ? sorted.find((r) => !r.date || new Date(r.date) >= floor)
-    : sorted[0];
+  // Prefer the fresh run — a report at/after the scan (minus the skew grace).
+  // But never strand the partner on "not finished": if nothing is newer than the
+  // scan (a device already diagnosed earlier, or a re-check), fall back to the
+  // newest report on file for this IMEI. The report carries its own date.
+  const picked = (floor && sorted.find((r) => !r.date || new Date(r.date) >= floor)) || sorted[0];
   if (!picked) return { success: false, report: null, error: 'NO_REPORT' };
 
   return { success: true, report: toScreenFromDiagnostic(picked), error: null };
