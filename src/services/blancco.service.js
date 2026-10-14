@@ -147,20 +147,32 @@ const getReport = async (userId, sessionId) => {
     };
   }
 
-  const statusCheck = await blanccoProvider.checkStatus(session.sessionToken);
+  // Reconcile by IMEI, the way c2b does. The QR is a static Blancco org link
+  // that carries no session id, so Blancco never sees our sessionToken — the
+  // only key shared with the diagnosis it ran is the device IMEI. We ask for the
+  // latest report for this IMEI produced AFTER the scan (`scannedAt`), so a stale
+  // earlier report for the same handset is never mistaken for this run.
+  const reportResult = await blanccoProvider.getReport({
+    imei: session.imei,
+    since: session.scannedAt,
+  });
 
-  if (!statusCheck.completed) {
+  // Anything short of a mapped report means "not finished yet" — keep polling
+  // quietly. That covers NO_REPORT and NOT_CONFIGURED, and for now also any
+  // Blancco transport/auth error (e.g. 403): the report-search contract is still
+  // unconfirmed (see blanccoProvider.fetchLatestReportByImei), so a failure there
+  // is expected and must not spam the client with 502s. Once that contract is
+  // verified, re-raise a genuine outage as BLANCCO.REPORT_FETCH_FAILED (502) so
+  // "still running" stays distinguishable from "broken".
+  if (!reportResult.success) {
+    if (reportResult.error && reportResult.error !== 'NO_REPORT' && reportResult.error !== 'NOT_CONFIGURED') {
+      console.warn('[Blancco] report lookup not successful yet:', reportResult.error);
+    }
     return {
       session: serializeSession(session),
       diagnoseCompleted: false,
       report: null,
     };
-  }
-
-  const reportResult = await blanccoProvider.getReport(session.sessionToken);
-
-  if (!reportResult.success) {
-    throw new ApiError(httpStatus.BAD_GATEWAY, MESSAGES.BLANCCO.REPORT_FETCH_FAILED);
   }
 
   if (session.status !== SESSION_STATUS.COMPLETED) {

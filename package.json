@@ -26,6 +26,7 @@
     "@aws-sdk/client-cognito-identity-provider": "^3.1113.0",
     "@aws-sdk/client-s3": "^3.1113.0",
     "@aws-sdk/credential-providers": "^3.1113.0",
+    "@aws-sdk/s3-request-presigner": "^3.1113.0",
     "axios": "^1.7.9",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.5",

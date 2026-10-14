@@ -28,6 +28,19 @@ const {
 const cdotRoutes = require('./cdot.routes');
 const blanccoRoutes = require('./blancco.routes');
 
+// Merge resolution: the validators above are imported from
+// ../validators/admin.validator. A parallel branch had also stubbed them here as
+// pass-throughs (from when they "were never written"), which double-declared
+// every name and threw a SyntaxError at boot. Those duplicate stubs are removed;
+// only the plan validators below — not exported by admin.validator and used only
+// by the (currently commented-out) plan routes — remain stubbed. Write real
+// input validation before those routes are exposed in any shared/prod env.
+const noValidation = (req, res, next) => next();
+const createPlanValidator = noValidation;
+const PhotoValidator = noValidation;
+const planIdParamValidator = noValidation;
+const updatePlanValidator = noValidation;
+
 const router = express.Router();
 
 /**

@@ -4,70 +4,426 @@ const env = require('../../config/env');
 /* eslint-disable no-console */
 
 /**
- * Blancco device-diagnosis provider (app side).
+ * Blancco Mobile Diagnostics — the device diagnosis vendor.
  *
- * CONTRACT TBD — the URL patterns, auth mechanism and response shapes below
- * are placeholders. Once the Blancco API is documented, adjust:
- *   - blanccoRedirectUrl()  — where the customer lands after scanning the QR
- *   - checkStatus()         — how to ask whether a diagnosis finished
- *   - getReport()           — how to pull the diagnosis results
+ * IMPORTANT: this is a REPORT LOOKUP, not a "run a diagnosis" call. Blancco's
+ * app runs the tests on the handset itself and uploads the report to Blancco's
+ * cloud; we fetch what is already there, by IMEI. So a device that has never
+ * been through the Blancco app has no report, and no amount of retrying will
+ * produce one — that is a NOT FOUND, not an outage.
+ *
+ * Follows the same contract as cdotIvsProvider: it NEVER throws for an expected
+ * failure (unconfigured, timeout, service down, no report). It returns an
+ * ERROR/UNKNOWN status so the caller can log the attempt and NOT charge the
+ * customer. Only a SUCCESS is billable.
+ *
+ * API:  POST {base}/reports/export
+ *       header X-BLANCCO-API-KEY
+ *       body   { category, filter: { date, fields:[{name:'@imei', like}] },
+ *                cursor, format, container }
  */
 
-const REQUEST_TIMEOUT = 15000;
-
-const isConfigured = () => !!env.blanccoApp.baseUrl && !!env.blanccoApp.apiKey;
-
-const headers = () => ({
-  'Content-Type': 'application/json',
-  Authorization: `Bearer ${env.blanccoApp.apiKey}`,
+const RESULT_STATUS = Object.freeze({
+  SUCCESS: 'SUCCESS',
+  ERROR: 'ERROR',
+  UNKNOWN: 'UNKNOWN',
 });
 
-// The URL our scan endpoint redirects the customer to after marking the QR used.
+const REQUEST_TIMEOUT = 20000;
+
+// Blancco filters by date and has no "any" option, so we pass a floor far
+// enough back to include every report that could exist for a device.
+const EARLIEST_REPORT = '2015-01-01T00:00:00Z';
+
+const isConfigured = () => !!env.blancco.baseUrl && !!env.blancco.apiKey;
+
+/**
+ * Blancco returns every section as an array of single-key objects, each also
+ * carrying an `@type` tag:
+ *
+ *   [ { "@type": "string", "imei": "3563…" }, { "@type": "uint", "ram": 6 } ]
+ *
+ * which is unusable for lookups. This collapses a section into a plain object
+ * and drops the type tags.
+ */
+const flatten = (section) =>
+  Object.assign(
+    {},
+    ...(Array.isArray(section) ? section : []).map((entry) => {
+      const copy = { ...entry };
+      delete copy['@type'];
+      return copy;
+    })
+  );
+
+/**
+ * `hardware_tests` is a bag of test → outcome, EXCEPT for one entry that is not
+ * a test at all: `testing_duration` holds a clock value like "00:07:59".
+ * Counting it as a result would inflate every tally by one and label a duration
+ * as a failed test.
+ */
+const NON_TEST_KEYS = new Set(['testing_duration']);
+
+// Blancco's vocabulary. Anything unrecognised is treated as a failure rather
+// than silently passing — an unknown outcome on a device someone is about to
+// buy should read as a problem, not a clean bill of health.
+const PASS_VALUES = new Set(['successful', 'passed', 'pass', 'ok']);
+const SKIPPED_VALUES = new Set(['not available', 'not performed', 'skipped', 'n/a']);
+
+const humanise = (key) =>
+  key
+    .replace(/_/g, ' ')
+    .replace(/\bthreed\b/i, '3D')
+    .replace(/\bwi fi\b/i, 'Wi-Fi')
+    .replace(/\bagps\b/i, 'A-GPS')
+    .replace(/\bsim\b/i, 'SIM')
+    .replace(/^\w/, (c) => c.toUpperCase());
+
+const classify = (value) => {
+  const v = String(value || '').toLowerCase().trim();
+  if (PASS_VALUES.has(v)) return 'PASS';
+  if (SKIPPED_VALUES.has(v)) return 'SKIPPED';
+  return 'FAIL';
+};
+
+/**
+ * Grading thresholds. Deliberately data, not scattered literals, because this
+ * is a commercial judgement that will be tuned once real stock goes through.
+ */
+const GRADE_RULES = Object.freeze({
+  A: { maxFailures: 0, minBatteryHealth: 85 },
+  B: { maxFailures: 0, minBatteryHealth: 75 },
+  C: { maxFailures: 2, minBatteryHealth: 60 },
+});
+
+/**
+ * A single letter for the listing card.
+ *
+ * LOCKED is not a grade on the same scale as A–D — it is a hard stop. A handset
+ * still tied to an iCloud account or an MDM enrolment cannot be used by whoever
+ * buys it, so it must never be presented as merely "lower grade".
+ */
+const gradeFor = ({ failed, battery, locks }) => {
+  if (locks.findMyIphone === 'LOCKED' || locks.mdmStatus === 'LOCKED') return 'LOCKED';
+
+  const health = battery.healthPercent;
+
+  if (failed <= GRADE_RULES.A.maxFailures && health >= GRADE_RULES.A.minBatteryHealth) return 'A';
+  if (failed <= GRADE_RULES.B.maxFailures && health >= GRADE_RULES.B.minBatteryHealth) return 'B';
+  if (failed <= GRADE_RULES.C.maxFailures && health >= GRADE_RULES.C.minBatteryHealth) return 'C';
+  return 'D';
+};
+
+const normaliseLock = (value) => {
+  const v = String(value || '').toLowerCase();
+  if (!v) return null;
+  if (v.includes('unlock') || v === 'off' || v === 'disabled') return 'UNLOCKED';
+  if (v.includes('lock') || v === 'on' || v === 'enabled') return 'LOCKED';
+  return String(value).toUpperCase();
+};
+
+/**
+ * Turns one Blancco report into the shape the rest of this system speaks:
+ * device identity, the locks that decide resaleability, battery health, and a
+ * flat list of tests with a pass/fail tally.
+ *
+ * Every field is optional on the way in. Blancco's payload varies by handset
+ * and by app version, so a missing section must degrade to null rather than
+ * throw — losing the battery block should not lose the whole report.
+ */
+const normalise = (report) => {
+  const data = report?.blancco_data || {};
+  const hardware = data.blancco_hardware_report || {};
+
+  const system = flatten(hardware.system);
+  const battery = flatten(hardware.mobile_battery);
+  const rawTests = flatten(hardware.hardware_tests);
+  const components = flatten(hardware.device_components);
+
+  const tests = Object.entries(rawTests)
+    .filter(([key]) => !NON_TEST_KEYS.has(key))
+    .map(([key, value]) => ({
+      key,
+      name: humanise(key),
+      raw: String(value),
+      result: classify(value),
+    }));
+
+  const passed = tests.filter((t) => t.result === 'PASS').length;
+  const failed = tests.filter((t) => t.result === 'FAIL').length;
+  const skipped = tests.filter((t) => t.result === 'SKIPPED').length;
+
+  const locks = {
+    findMyIphone: normaliseLock(system.find_my_iphone),
+    mdmStatus: normaliseLock(system.mdm_status),
+    // "false" means at least one part has been swapped for a non-original —
+    // material to a buyer, and the reason this is surfaced rather than buried.
+    componentsAuthentic:
+      components.all_authenticated === undefined
+        ? null
+        : String(components.all_authenticated) === 'true',
+  };
+
+  const batteryOut = {
+    healthPercent: Number(battery.battery_health_metric ?? battery.battery_capacity_health_level) || null,
+    cycles: Number(battery.battery_cycles) || null,
+    designCapacityMah: Number(battery.battery_capacity_design) || null,
+    currentCapacityMah: Number(battery.battery_capacity_current) || null,
+    chargeLevelPercent: Number(battery.battery_charge_level) || null,
+  };
+
+  const log = data.description?.document_log?.[0] || {};
+
+  return {
+    reportId: data.description?.document_id || null,
+    diagnosedAt: log.date || null,
+    source: log.author?.product_name?.value || 'Blancco',
+    sourceVersion: log.author?.product_version || null,
+
+    device: {
+      manufacturer: system.manufacturer || null,
+      marketName: system.market_name || null,
+      model: system.model || system.name || null,
+      color: system.device_color || null,
+      ram: system.ram || null,
+      serial: system.serial || null,
+      imei: system.imei || null,
+      imei2: system.imei_two || null,
+      firmwareVersion: system.firmware_version || null,
+      modelNumber: system.a_model_number || null,
+    },
+
+    locks,
+    battery: batteryOut,
+
+    tests,
+    passed,
+    failed,
+    skipped,
+    total: tests.length,
+
+    grade: gradeFor({ failed, battery: batteryOut, locks }),
+  };
+};
+
+/**
+ * Fetches the most recent Blancco report for an IMEI.
+ *
+ * `category` is a parameter because Blancco partitions reports by what produced
+ * them: a device that was diagnosed but not wiped lives under "Diagnostics",
+ * one that was wiped lives under "Erasure". Callers that want "whatever exists"
+ * try both.
+ */
+const fetchReports = async (imei, category = 'Erasure') => {
+  const response = await axios.post(
+    `${env.blancco.baseUrl}/reports/export`,
+    {
+      category,
+      filter: {
+        date: { gt: EARLIEST_REPORT },
+        fields: [{ name: '@imei', like: String(imei) }],
+      },
+      cursor: '',
+      format: 'JSON',
+      container: 'NONE',
+    },
+    {
+      timeout: REQUEST_TIMEOUT,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-BLANCCO-API-KEY': env.blancco.apiKey,
+      },
+    }
+  );
+
+  return response.data?.reports || [];
+};
+
+/**
+ * The provider contract the diagnose service consumes.
+ *
+ * Returns SUCCESS only when a report actually came back. "No report for this
+ * IMEI" is UNKNOWN, not ERROR: nothing is broken, the device has simply never
+ * been through the Blancco app — and either way the customer is not charged.
+ */
+const diagnose = async ({ imei } = {}) => {
+  if (!isConfigured()) {
+    console.warn('[Blancco] not configured — set BLANCCO_API_KEY');
+    return { resultStatus: RESULT_STATUS.UNKNOWN, providerRefId: null, result: null, rawResponse: null };
+  }
+
+  if (!imei) {
+    return { resultStatus: RESULT_STATUS.UNKNOWN, providerRefId: null, result: null, rawResponse: null };
+  }
+
+  try {
+    // Erasure first: a wiped device is the common case for resale stock, and a
+    // device that was both diagnosed and wiped has the fuller report there.
+    let reports = await fetchReports(imei, 'Erasure');
+    // "Diagnostic" (singular) is the valid category — this account rejects
+    // "Diagnostics" with a 400 "Invalid category".
+    if (reports.length === 0) reports = await fetchReports(imei, 'Diagnostic');
+
+    if (reports.length === 0) {
+      return {
+        resultStatus: RESULT_STATUS.UNKNOWN,
+        providerRefId: null,
+        result: null,
+        rawResponse: null,
+      };
+    }
+
+    // Newest first, so a device diagnosed more than once reports its current
+    // condition rather than whatever it was in months ago.
+    const sorted = [...reports].sort((a, b) => {
+      const da = a?.blancco_data?.description?.document_log?.[0]?.date || '';
+      const db = b?.blancco_data?.description?.document_log?.[0]?.date || '';
+      return db.localeCompare(da);
+    });
+
+    const result = normalise(sorted[0]);
+
+    return {
+      resultStatus: RESULT_STATUS.SUCCESS,
+      providerRefId: result.reportId,
+      result,
+      // The untouched payload is kept so a parsing gap can be reconstructed
+      // later without re-querying a vendor that may have rotated the report.
+      rawResponse: sorted[0],
+    };
+  } catch (err) {
+    console.error('[Blancco] report lookup failed', imei, err.response?.status, err.message);
+    return {
+      resultStatus: RESULT_STATUS.ERROR,
+      providerRefId: null,
+      result: null,
+      rawResponse: err.response?.data || null,
+    };
+  }
+};
+
+/* ====================================================================== *
+ * QR customer-diagnosis flow (blancco.service.js).
+ *
+ * The admin listing flow above fetches a report by IMEI directly. The QR flow
+ * wraps the SAME `diagnose()` lookup for the one-time-QR journey: the partner
+ * creates a session, the customer scans and runs Blancco on their handset, and
+ * we poll for the report that run uploads — keyed, as always, by IMEI.
+ * ====================================================================== */
+
+// The page Blancco opens after the scan. Our /scan endpoint 302-redirects here.
 const blanccoRedirectUrl = () => 'https://p.blre.cc/DFlOpe';
 
-// The URL encoded into the QR itself — points to OUR server so we can enforce
-// one-time use before forwarding to Blancco.
+// The URL encoded into the QR. The server hop: it points at our own one-time
+// /scan endpoint, which marks the session SCANNED (off PENDING) and then
+// redirects to blanccoRedirectUrl(). Must be reachable by the test phone — on
+// device via `adb reverse tcp:9000`.
 const buildScanUrl = (sessionToken) =>
   `${env.apiBaseUrl}/api/v1/blancco/scan/${sessionToken}`;
 
-const checkStatus = async (sessionToken) => {
-  if (!isConfigured()) {
-    console.warn('[Blancco Provider] not configured');
-    return { completed: false, error: 'NOT_CONFIGURED' };
-  }
+// The QR customer-diagnosis journey produces reports under the "Diagnostic"
+// category, whose shape differs from the Erasure hardware report `normalise`
+// handles: each is { date, uuid, tests:[{name,result}], properties:{...} }, and
+// crucially the test results already use the PASSED/FAILED/INDETERMINATE
+// vocabulary the DiagnosisReport screen renders.
+const DIAGNOSTIC_CATEGORY = 'Diagnostic';
 
-  try {
-    const { data } = await axios.get(
-      `${env.blanccoApp.baseUrl}/status/${sessionToken}`,
-      { timeout: REQUEST_TIMEOUT, headers: headers() }
-    );
-
-    // TODO: map real response shape.
-    return { completed: !!data?.completed, raw: data };
-  } catch (err) {
-    console.error('[Blancco Provider] status check failed', err.message);
-    return { completed: false, error: err.message };
-  }
+const fetchDiagnosticReports = async (imei) => {
+  const response = await axios.post(
+    `${env.blancco.baseUrl}/reports/export`,
+    {
+      category: DIAGNOSTIC_CATEGORY,
+      filter: {
+        date: { gt: EARLIEST_REPORT },
+        fields: [{ name: '@imei', like: String(imei) }],
+      },
+      cursor: '',
+      format: 'JSON',
+      container: 'NONE',
+    },
+    {
+      timeout: REQUEST_TIMEOUT,
+      headers: { 'Content-Type': 'application/json', 'X-BLANCCO-API-KEY': env.blancco.apiKey },
+    }
+  );
+  return response.data?.reports || [];
 };
 
-const getReport = async (sessionToken) => {
-  if (!isConfigured()) {
-    console.warn('[Blancco Provider] not configured');
-    return { success: false, report: null, error: 'NOT_CONFIGURED' };
-  }
-
-  try {
-    const { data } = await axios.get(
-      `${env.blanccoApp.baseUrl}/report/${sessionToken}`,
-      { timeout: REQUEST_TIMEOUT, headers: headers() }
-    );
-
-    // TODO: map the real response shape once the Blancco contract is known.
-    return { success: true, report: data, error: null };
-  } catch (err) {
-    console.error('[Blancco Provider] report fetch failed', err.message);
-    return { success: false, report: null, error: err.message };
-  }
+// Map a raw Diagnostic report into the shape the vendor/c2b DiagnosisReport
+// screen reads: tests[].{name,result} and properties.{model_name,…}.
+const toScreenFromDiagnostic = (r) => {
+  const tests = (r.tests || []).map((t) => ({
+    name: humanise(String(t.name || '').replace(/-/g, ' ')),
+    result: String(t.result || 'INDETERMINATE').toUpperCase(),
+  }));
+  const p = r.properties || {};
+  return {
+    tests,
+    properties: {
+      model_name: p.model_name || [p.make, p.model].filter(Boolean).join(' ') || null,
+      manufacturer: p.make || null,
+      storage_capacity: p.capacity || null,
+      imei: p.imei || null,
+    },
+    device: {
+      manufacturer: p.make || null,
+      marketName: p.model_name || null,
+      model: p.model || null,
+      color: p.color || null,
+      imei: p.imei || null,
+    },
+    passed: tests.filter((t) => t.result === 'PASSED').length,
+    failed: tests.filter((t) => t.result === 'FAILED').length,
+    skipped: tests.filter((t) => t.result !== 'PASSED' && t.result !== 'FAILED').length,
+    total: tests.length,
+    reportId: r.uuid || r.blancco_asset_id || null,
+    diagnosedAt: r.date || null,
+  };
 };
 
-module.exports = { isConfigured, buildScanUrl, blanccoRedirectUrl, checkStatus, getReport };
+// Fetch this session's report: the newest Diagnostic report for the IMEI
+// produced at/after the scan. `since` (the session's scannedAt) rejects a stale
+// earlier report for the same handset so we never complete on a previous run.
+const getReport = async ({ imei, since } = {}) => {
+  if (!isConfigured()) return { success: false, report: null, error: 'NOT_CONFIGURED' };
+  if (!imei) return { success: false, report: null, error: 'NO_REPORT' };
+
+  let reports;
+  try {
+    reports = await fetchDiagnosticReports(imei);
+  } catch (err) {
+    console.error('[Blancco] diagnostic lookup failed', imei, err.response?.status, err.message);
+    return { success: false, report: null, error: 'FETCH_ERROR' };
+  }
+  if (!reports.length) return { success: false, report: null, error: 'NO_REPORT' };
+
+  // Newest first by report date, then keep only reports at/after the scan.
+  const sorted = [...reports].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+  const picked = since
+    ? sorted.find((r) => !r.date || new Date(r.date) >= new Date(since))
+    : sorted[0];
+  if (!picked) return { success: false, report: null, error: 'NO_REPORT' };
+
+  return { success: true, report: toScreenFromDiagnostic(picked), error: null };
+};
+
+// Thin "is it done?" wrapper over getReport, for callers that only poll status.
+const checkStatus = async ({ imei, since } = {}) => {
+  const r = await getReport({ imei, since });
+  return { completed: r.success, raw: r.report };
+};
+
+module.exports = {
+  diagnose,
+  isConfigured,
+  RESULT_STATUS,
+  // QR customer-diagnosis flow (blancco.service.js).
+  buildScanUrl,
+  blanccoRedirectUrl,
+  getReport,
+  checkStatus,
+  // Exported for the specs, which assert on the parsing rather than the network.
+  normalise,
+  flatten,
+  gradeFor,
+};
