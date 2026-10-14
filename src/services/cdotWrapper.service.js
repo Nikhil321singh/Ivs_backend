@@ -36,7 +36,7 @@ const checkImei = async ({ apiKey, imei, ipAddress, userAgent }) => {
 
   let result;
   try {
-    result = await ivsService.checkImei({ imei });
+    result = await ivsService.verifyImei(imei);
   } catch (error) {
     throw new ApiError(
       httpStatus.BAD_GATEWAY,
