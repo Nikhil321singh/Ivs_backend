@@ -2,7 +2,7 @@ const CDOTVendor = require('../models/CDOTVendor.model');
 const CDOTAPIKey = require('../models/CDOTAPIKey.model');
 const CDOTCallLog = require('../models/CDOTCallLog.model');
 const CDOTTransaction = require('../models/CDOTTransaction.model');
-const ivsProvider = require('./providers/ivsProvider');
+const cdotIvsProvider = require('./providers/cdotIvsProvider');
 const ApiError = require('../utils/apiError');
 const httpStatus = require('../constants/httpStatus');
 
@@ -36,7 +36,7 @@ const checkImei = async ({ apiKey, imei, ipAddress, userAgent }) => {
 
   let result;
   try {
-    result = await ivsProvider.verifyImei({ imei1: imei });
+    result = await cdotIvsProvider.verifyImei(imei);
   } catch (error) {
     throw new ApiError(
       httpStatus.BAD_GATEWAY,
