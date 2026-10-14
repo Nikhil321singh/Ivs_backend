@@ -165,9 +165,17 @@ const getReport = async (userId, sessionId) => {
   // verified, re-raise a genuine outage as BLANCCO.REPORT_FETCH_FAILED (502) so
   // "still running" stays distinguishable from "broken".
   if (!reportResult.success) {
-    if (reportResult.error && reportResult.error !== 'NO_REPORT' && reportResult.error !== 'NOT_CONFIGURED') {
-      console.warn('[Blancco] report lookup not successful yet:', reportResult.error);
-    }
+    // Always log why a poll did not complete — NO_REPORT included. Without this
+    // a session that can never finish (no IMEI on the session, a mistyped IMEI,
+    // or the handset never ran Blancco) is indistinguishable from one that is
+    // still in progress, which is exactly what makes "stuck not completed"
+    // impossible to diagnose from the outside.
+    console.warn(
+      '[Blancco] diagnose not completed yet',
+      'session', String(session._id),
+      'imei', session.imei || '(none on session)',
+      'reason', reportResult.error
+    );
     return {
       session: serializeSession(session),
       diagnoseCompleted: false,

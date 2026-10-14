@@ -328,6 +328,10 @@ const buildScanUrl = (sessionToken) =>
 // vocabulary the DiagnosisReport screen renders.
 const DIAGNOSTIC_CATEGORY = 'Diagnostic';
 
+// Grace window subtracted from scannedAt when matching a report to this run —
+// absorbs server/Blancco clock skew and reports stamped at diagnosis start.
+const SCAN_GRACE_MS = 10 * 60 * 1000;
+
 const fetchDiagnosticReports = async (imei) => {
   const response = await axios.post(
     `${env.blancco.baseUrl}/reports/export`,
@@ -398,9 +402,16 @@ const getReport = async ({ imei, since } = {}) => {
   if (!reports.length) return { success: false, report: null, error: 'NO_REPORT' };
 
   // Newest first by report date, then keep only reports at/after the scan.
+  // The floor is scannedAt minus a grace margin: our server clock and Blancco's
+  // cloud are not in lockstep, and a report can be stamped at diagnosis start
+  // (before our /scan hop recorded scannedAt), so a strict `>= scannedAt` drops
+  // a genuinely fresh report and the session then "never completes". The margin
+  // is far smaller than the time it takes to run a diagnosis, so it still can't
+  // let a truly stale earlier run through.
   const sorted = [...reports].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
-  const picked = since
-    ? sorted.find((r) => !r.date || new Date(r.date) >= new Date(since))
+  const floor = since ? new Date(new Date(since).getTime() - SCAN_GRACE_MS) : null;
+  const picked = floor
+    ? sorted.find((r) => !r.date || new Date(r.date) >= floor)
     : sorted[0];
   if (!picked) return { success: false, report: null, error: 'NO_REPORT' };
 
