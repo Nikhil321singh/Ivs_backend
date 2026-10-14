@@ -277,7 +277,6 @@ const env = {
     apiKey: process.env.DIAGNOSE_API_KEY,
   },
 
-<<<<<<< HEAD
   // Blancco device diagnosis — two separate integrations. Admin uses Blancco
   // for the bid/valuation flow; the app uses it for QR-based customer diagnosis.
   blancco: {
@@ -287,7 +286,8 @@ const env = {
   blanccoApp: {
     baseUrl: (process.env.BLANCCO_API_URL_APP || '').replace(/\/+$/, ''),
     apiKey: process.env.BLANCCO_API_KEY_APP,
-=======
+  },
+
   // Anthropic (Claude) — powers the in-app "Gia" assistant's free-text answers.
   // Lazy-validated in assistant.service.js like the other providers, so the
   // server boots fine before the key is provisioned (the assistant simply
@@ -303,7 +303,6 @@ const env = {
     model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
     version: process.env.ANTHROPIC_VERSION || '2023-06-01',
     maxTokens: parseInt(process.env.ANTHROPIC_MAX_TOKENS, 10) || 1024,
->>>>>>> 563eaf085df3cb272146214d06a181aab153e830
   },
 
   // Firebase Cloud Messaging (HTTP v1). Credentials come from the Firebase

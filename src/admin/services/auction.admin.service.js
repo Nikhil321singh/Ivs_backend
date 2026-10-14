@@ -515,7 +515,6 @@ const removePhoto = async (auctionId, photoId) => {
   return auctionService.decorate(auction, { viewerId: auction.sellerId });
 };
 
-<<<<<<< HEAD
 /**
  * Deletes a draft outright, along with its stored photo objects.
  *
@@ -545,8 +544,6 @@ const deleteListing = async (auctionId) => {
   await auction.deleteOne();
 };
 
-=======
->>>>>>> 563eaf085df3cb272146214d06a181aab153e830
 /** Edits a draft. Published terms stay frozen, exactly as for a vendor. */
 const updateListing = async (auctionId, payload) => {
   const auction = await Auction.findById(auctionId);
@@ -675,10 +672,7 @@ module.exports = {
   confirmS3Photo,
   removePhoto,
   updateListing,
-<<<<<<< HEAD
   deleteListing,
-=======
->>>>>>> 563eaf085df3cb272146214d06a181aab153e830
   publishListing,
   relist,
   listAuctions,
