@@ -1,6 +1,16 @@
 const { app, request, createUser, createFundedUser, asUser, balanceOf } = require('./helpers/factory');
 const { stubCreateOrder, checkoutSignature, buildWebhook } = require('./helpers/razorpay');
 const walletService = require('../src/services/wallet.service');
+const settings = require('../src/services/settings.service');
+
+// This file specifies the token wallet, which is no longer the default billing
+// system — billingMode ships as SUBSCRIPTION, under which top-ups are refused
+// because nothing spends tokens. The wallet remains supported (it is the
+// rollback and the cutover mode), so these specs declare the mode they
+// describe. Credit-pack billing is specified in subscription.test.js.
+beforeEach(async () => {
+  await settings.update({ billingMode: 'WALLET' });
+});
 
 describe('wallet', () => {
   it('creates a wallet on first read', async () => {

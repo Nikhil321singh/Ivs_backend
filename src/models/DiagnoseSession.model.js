@@ -52,6 +52,12 @@ const diagnoseSessionSchema = new Schema(
       ref: 'WalletTransaction',
       default: null,
     },
+    // Which billing system paid for this diagnosis: ENTITLEMENT (one credit)
+    // or WALLET (tokens). Null on rows predating credit packs.
+    billingSource: {
+      type: String,
+      default: null,
+    },
     status: {
       type: String,
       enum: Object.values(SESSION_STATUS),

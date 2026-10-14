@@ -34,6 +34,13 @@ const coerce = (key, value) => {
 
   if (definition.type === 'boolean') return value === true || value === 'true';
 
+  // A string setting with a fixed vocabulary (billingMode). An unrecognised
+  // stored value must never reach a billing branch — fall back to the default.
+  if (definition.type === 'string') {
+    if (definition.enum && !definition.enum.includes(value)) return definition.default;
+    return value;
+  }
+
   if (definition.type === 'integer') {
     const parsed = parseInt(value, 10);
     // A malformed stored value must never become NaN and propagate into a

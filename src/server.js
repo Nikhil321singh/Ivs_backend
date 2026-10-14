@@ -1,6 +1,7 @@
 const env = require('./config/env');
 const connectDB = require('./config/database');
 const app = require('./app');
+const auctionCloser = require('./services/auctionCloser.service');
 
 let server;
 
@@ -42,6 +43,18 @@ const start = async () => {
   }
 
   await connectDB();
+
+  // Closes auctions whose end time has passed, activates scheduled ones, and
+  // lapses sales the winner never paid for.
+  //
+  // This is a LIVENESS mechanism, not the correctness one: an expired auction
+  // is also closed lazily the moment anyone reads or bids on it, so a dead
+  // sweeper can delay a winner's notification but can never let a bid land on a
+  // finished auction. Every transition it makes is an atomic conditional
+  // update, so running it here (PM2 `instances: 1`) is safe today and stays
+  // safe under cluster mode. `scripts/auction-sweep.js` runs the same pass from
+  // cron for anyone who would rather schedule it outside the web process.
+  auctionCloser.startSweeper({ intervalMs: env.auction.sweepIntervalMs });
 
   server = app.listen(env.port, () => {
     // eslint-disable-next-line no-console

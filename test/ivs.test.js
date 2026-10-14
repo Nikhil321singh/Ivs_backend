@@ -11,6 +11,15 @@ const IMEI = '355301083783251';
 const COST = PRICING.FEATURES.IVS_CHECK;
 
 describe('POST /ivs/verify', () => {
+  // This file specifies the token-wallet billing path, which is no longer the
+  // default — billingMode ships as SUBSCRIPTION. The wallet is still fully
+  // supported (it is the rollback and the cutover mode), so these specs say so
+  // explicitly rather than relying on a default that has moved. Credit-pack
+  // billing is specified in subscription.test.js.
+  beforeEach(async () => {
+    await settings.update({ billingMode: 'WALLET' });
+  });
+
   it('returns CLEAN and charges the configured price', async () => {
     const { user, token } = await createFundedUser(500);
     stubCdot(IMEI, 'non-blocked');

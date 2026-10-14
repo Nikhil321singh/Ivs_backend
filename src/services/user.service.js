@@ -134,7 +134,7 @@ const assertFieldNotTaken = async (field, value, excludeUserId, conflictMessage)
  */
 const completeKyc = async (
   userId,
-  { userType, name, phone, companyName, email, panNumber, gstNumber, aadhaarNumber, businessProofType },
+  { userType, name, phone, companyName, address, email, panNumber, gstNumber, aadhaarNumber, businessProofType },
   { profileImage, businessProofImage } = {}
 ) => {
   const user = await getUserById(userId);
@@ -166,6 +166,7 @@ const completeKyc = async (
   set('phone', phone);
   set('email', email);
   set('panNumber', panNumber);
+  set('address', address);
 
   // Profile photo applies to BOTH types — a vendor's owner photo and an
   // individual's profile photo are the same field. Persist it in the common
@@ -248,7 +249,7 @@ const skipKyc = async (userId) => {
   return user;
 };
 
-const updateProfile = async (userId, { name, companyName, email }, profileImage) => {
+const updateProfile = async (userId, { name, companyName, email, address }, profileImage) => {
   const user = await getUserById(userId);
 
   await assertFieldNotTaken('email', email, userId, MESSAGES.USER.EMAIL_ALREADY_EXISTS);
@@ -256,6 +257,7 @@ const updateProfile = async (userId, { name, companyName, email }, profileImage)
   if (name !== undefined) user.name = name;
   if (companyName !== undefined) user.companyName = companyName;
   if (email !== undefined) user.email = email;
+  if (address !== undefined) user.address = address;
   if (profileImage) {
     user.profileImage = profileImage.url;
     user.profileImagePublicId = profileImage.publicId;
@@ -264,6 +266,75 @@ const updateProfile = async (userId, { name, companyName, email }, profileImage)
   await user.save();
 
   return user;
+};
+
+const saveAddresses = async (userId, { billingAddress, shippingAddress }) => {
+  const user = await getUserById(userId);
+
+  if (billingAddress !== undefined) {
+    user.billingAddress = billingAddress;
+  }
+  if (shippingAddress !== undefined) {
+    user.shippingAddress = shippingAddress;
+  }
+
+  await user.save();
+
+  return {
+    id: user._id,
+    billingAddress: user.billingAddress,
+    shippingAddress: user.shippingAddress,
+  };
+};
+
+// --- Delivery address book (multiple saved addresses) --------------------------
+
+const onlyDigits = (s) => String(s ?? '').replace(/\D/g, '');
+
+// Two entries are "the same" address when their significant fields match — used
+// to keep the book from piling up duplicate copies (e.g. the client migrating the
+// same local address on more than one device).
+const sameAddress = (a, b) =>
+  a &&
+  b &&
+  String(a.line1 || '').trim() === String(b.line1 || '').trim() &&
+  onlyDigits(a.pincode) === onlyDigits(b.pincode) &&
+  onlyDigits(a.phone) === onlyDigits(b.phone);
+
+const getAddresses = async (userId) => {
+  const user = await getUserById(userId);
+  return { addresses: user.addresses || [] };
+};
+
+// Adds an address to the book, deduped. Returns the whole list plus the stored
+// entry (the existing match when it was a duplicate, so the client can select it).
+const addAddress = async (userId, address) => {
+  const user = await getUserById(userId);
+
+  const existing = (user.addresses || []).find((a) => sameAddress(a, address));
+  if (existing) {
+    return { addresses: user.addresses, entry: existing };
+  }
+
+  user.addresses.push(address);
+  await user.save();
+
+  const entry = user.addresses[user.addresses.length - 1];
+  return { addresses: user.addresses, entry };
+};
+
+const removeAddress = async (userId, addressId) => {
+  const user = await getUserById(userId);
+
+  const entry = user.addresses.id(addressId);
+  if (!entry) {
+    throw new ApiError(httpStatus.NOT_FOUND, MESSAGES.USER.ADDRESS_NOT_FOUND);
+  }
+
+  entry.deleteOne();
+  await user.save();
+
+  return { addresses: user.addresses };
 };
 
 /**
@@ -527,5 +598,9 @@ module.exports = {
   completeKyc,
   skipKyc,
   updateProfile,
+  saveAddresses,
+  getAddresses,
+  addAddress,
+  removeAddress,
   deleteAccount,
 };
