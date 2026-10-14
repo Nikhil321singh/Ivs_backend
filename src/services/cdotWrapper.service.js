@@ -2,7 +2,7 @@ const CDOTVendor = require('../models/CDOTVendor.model');
 const CDOTAPIKey = require('../models/CDOTAPIKey.model');
 const CDOTCallLog = require('../models/CDOTCallLog.model');
 const CDOTTransaction = require('../models/CDOTTransaction.model');
-const ivsService = require('./ivs.service');
+const ivsProvider = require('./providers/ivsProvider');
 const ApiError = require('../utils/apiError');
 const httpStatus = require('../constants/httpStatus');
 
@@ -36,7 +36,7 @@ const checkImei = async ({ apiKey, imei, ipAddress, userAgent }) => {
 
   let result;
   try {
-    result = await ivsService.verifyImei(imei);
+    result = await ivsProvider.verifyImei({ imei1: imei });
   } catch (error) {
     throw new ApiError(
       httpStatus.BAD_GATEWAY,
@@ -53,10 +53,10 @@ const checkImei = async ({ apiKey, imei, ipAddress, userAgent }) => {
     apiKeyId: key._id,
     imei,
     result: {
-      imeiStatus: result.imeiStatus,
-      deviceStatus: result.deviceStatus,
-      blockingReason: result.blockingReason,
-      lastCheckedDate: result.checkedAt,
+      imeiStatus: result.imei1Status,
+      cdotStatus: result.imei1CdotStatus,
+      allowTransaction: result.allowTransaction,
+      lastCheckedDate: result.verifiedAt,
     },
     costPaise: CDOT_COST_PAISE,
     walletBalanceBefore: walletBefore,
@@ -88,15 +88,15 @@ const checkImei = async ({ apiKey, imei, ipAddress, userAgent }) => {
 
   return {
     success: true,
-    imeiStatus: result.imeiStatus,
-    deviceStatus: result.deviceStatus,
-    blockingReason: result.blockingReason,
+    imeiStatus: result.imei1Status,
+    cdotStatus: result.imei1CdotStatus,
+    allowTransaction: result.allowTransaction,
     costDeducted: CDOT_COST_PAISE,
     walletBalance: walletAfter,
     checksRemaining,
     details: {
       imei,
-      checkedAt: result.checkedAt,
+      checkedAt: result.verifiedAt,
     },
   };
 };
