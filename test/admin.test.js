@@ -3,6 +3,7 @@ const { stubCdot } = require('./helpers/providers');
 const settings = require('../src/services/settings.service');
 const Auction = require('../src/models/Auction.model');
 const uploadService = require('../src/services/upload.service');
+const env = require('../src/config/env');
 
 const asAdmin = (token) => ({
   get: (p) => request(app).get(p).set('Authorization', `Bearer ${token}`),
@@ -97,6 +98,40 @@ describe('admin data views', () => {
   });
 
   describe('admin auction photo uploads', () => {
+    it('uses the configured auction prefix for presigned S3 photo uploads', async () => {
+      const { token } = await createAdmin();
+      const { user } = await createUser();
+      const auction = await Auction.create({
+        sellerId: user._id,
+        status: 'DRAFT',
+        device: { brand: 'Apple', model: 'iPhone 13' },
+        condition: 'A',
+        startPricePaise: 100000,
+        bidIncrementPaise: 5000,
+        startAt: new Date(Date.now() + 60_000),
+        endAt: new Date(Date.now() + 3_600_000),
+      });
+      const presignSpy = jest.spyOn(uploadService, 'getPresignedUploadUrl').mockResolvedValue({
+        url: 'https://s3.example.test/presigned',
+        expiresIn: 900,
+      });
+
+      try {
+        const res = await request(app)
+          .post(`/api/v1/admin/auctions/${auction._id}/photos/presigned-url`)
+          .set('Authorization', `Bearer ${token}`)
+          .send({ filename: 'device.jpg', contentType: 'image/jpeg' });
+
+        expect(res.status).toBe(200);
+        expect(res.body.data.key).toMatch(
+          new RegExp(`^${env.storage.auctionFolder}/${auction._id}/`)
+        );
+        expect(presignSpy).toHaveBeenCalledWith(res.body.data.key, 'image/jpeg');
+      } finally {
+        presignSpy.mockRestore();
+      }
+    });
+
     it('accepts multipart photos on the legacy route and stores them on the draft', async () => {
       const { token } = await createAdmin();
       const { user } = await createUser();

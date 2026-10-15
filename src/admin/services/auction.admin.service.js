@@ -11,6 +11,7 @@ const { SETTING_KEYS } = require('../../constants/settings');
 const notificationService = require('../../services/notification.service');
 const { NOTIFICATION_TYPE } = require('../../constants/notification');
 const { AUCTION_STATUS, CLOSED_STATUSES, SELLER_TYPE } = require('../../constants/auctionEnums');
+const env = require('../../config/env');
 const ApiError = require('../../utils/apiError');
 const httpStatus = require('../../constants/httpStatus');
 const MESSAGES = require('../../constants/messages');
@@ -434,11 +435,13 @@ const getPresignedUrl = async (auctionId, { filename, contentType }) => {
     ]);
   }
 
-  // Generate S3 key: auctions/{auctionId}/{timestamp}-{randomId}.{ext}
+  // Keep direct uploads under the same prefix used by server-mediated uploads
+  // so both flows follow the configured S3 role policy.
   const timestamp = Date.now();
   const randomId = crypto.randomBytes(6).toString('hex');
   const ext = filename.split('.').pop() || 'jpg';
-  const s3Key = `auctions/${auctionId}/${timestamp}-${randomId}.${ext}`;
+  const auctionFolder = env.storage.auctionFolder.replace(/^\/+|\/+$/g, '');
+  const s3Key = `${auctionFolder}/${auctionId}/${timestamp}-${randomId}.${ext}`;
 
   // Generate presigned URL valid for 15 minutes
   const presignedUrl = await uploadService.getPresignedUploadUrl(s3Key, contentType);
