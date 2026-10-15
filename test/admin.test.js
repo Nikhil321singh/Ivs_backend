@@ -1,6 +1,8 @@
 const { app, request, createAdmin, createUser, createFundedUser, asUser } = require('./helpers/factory');
 const { stubCdot } = require('./helpers/providers');
 const settings = require('../src/services/settings.service');
+const Auction = require('../src/models/Auction.model');
+const uploadService = require('../src/services/upload.service');
 
 const asAdmin = (token) => ({
   get: (p) => request(app).get(p).set('Authorization', `Bearer ${token}`),
@@ -92,6 +94,51 @@ describe('admin data views', () => {
     const res = await asAdmin(token).get('/api/v1/admin/transactions?page=1&limit=5');
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body.data.items)).toBe(true);
+  });
+
+  describe('admin auction photo uploads', () => {
+    it('accepts multipart photos on the legacy route and stores them on the draft', async () => {
+      const { token } = await createAdmin();
+      const { user } = await createUser();
+      const auction = await Auction.create({
+        sellerId: user._id,
+        status: 'DRAFT',
+        device: { brand: 'Apple', model: 'iPhone 13' },
+        condition: 'A',
+        startPricePaise: 100000,
+        bidIncrementPaise: 5000,
+        startAt: new Date(Date.now() + 60_000),
+        endAt: new Date(Date.now() + 3_600_000),
+      });
+      const uploadSpy = jest.spyOn(uploadService, 'uploadAuctionPhoto').mockResolvedValue({
+        url: 'https://example.test/auction-photo.jpg',
+        publicId: 'auctions/test-photo.jpg',
+      });
+
+      try {
+        const res = await request(app)
+          .post(`/api/v1/admin/auctions/${auction._id}/photos`)
+          .set('Authorization', `Bearer ${token}`)
+          .attach('photos', Buffer.from('fake image'), {
+            filename: 'device.jpg',
+            contentType: 'image/jpeg',
+          });
+
+        expect(res.status).toBe(201);
+        expect(uploadSpy).toHaveBeenCalledWith(
+          expect.any(Buffer),
+          expect.any(String),
+          'image/jpeg'
+        );
+        expect(res.body.data.auction.photos).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ url: 'https://example.test/auction-photo.jpg' }),
+          ])
+        );
+      } finally {
+        uploadSpy.mockRestore();
+      }
+    });
   });
 
   it('lists IMEI checks made by users', async () => {

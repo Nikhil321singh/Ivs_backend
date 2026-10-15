@@ -833,8 +833,7 @@ router.delete(
  *     description: >
  *       Multipart, field name `photos`, up to 20 files per request and at most
  *       `auctionMaxPhotos` on the listing. JPG, PNG or WEBP, each under the
- *       configured size limit. The portal posts the files and this server puts
- *       them in S3 — the browser never needs AWS credentials.
+ *       configured size limit. The server uploads the files to S3.
  *     security: [{ bearerAuth: [] }]
  *     requestBody:
  *       content:
@@ -850,15 +849,14 @@ router.delete(
  *       400: { description: Too many photos, wrong type, or file too large }
  *       409: { description: Listing is already published }
  */
-// TODO: Implement uploadAuctionPhotos middleware
-// router.post(
-//   '/auctions/:auctionId/photos',
-//   adminAuth,
-//   adminAuctionIdParamValidator,
-//   validateRequest,
-//   uploadAuctionPhotos,
-//   adminController.addListingPhotos
-// );
+router.post(
+  '/auctions/:auctionId/photos',
+  adminAuth,
+  adminAuctionIdParamValidator,
+  validateRequest,
+  uploadAuctionPhotos,
+  adminController.addListingPhotos
+);
 
 /**
  * @openapi
