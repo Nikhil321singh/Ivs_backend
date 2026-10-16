@@ -286,21 +286,13 @@ const STATUS_GROUPS = Object.freeze({
   lost: [BID_STATUS.LOST],
 });
 
-// shortcut: the shipped app's grade parser only understands a bare A–E letter,
-// so "B-" shows as "Grade A". Strip the suffix for the DTO; remove once the
-// suffix-aware app build ships. Mirrors baseGrade in auction.service.js.
-const baseGrade = (condition) => {
-  const c = String(condition || '').toUpperCase();
-  return /^[A-E][+-]?$/.test(c) ? c[0] : condition;
-};
-
 /** Shapes one auction document for a "my bids" row. Includes the sale price so
  *  a won/paid device can show what the buyer actually paid. */
 const mapAuction = (auction, now) => ({
   id: String(auction._id),
   status: auction.status,
   device: auction.device,
-  condition: baseGrade(auction.condition),
+  condition: auction.condition,
   photo: auction.photos?.[0]?.url || null,
   currentBidPaise: auction.currentBidPaise,
   bidCount: auction.bidCount,

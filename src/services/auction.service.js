@@ -89,16 +89,6 @@ const secondsRemaining = (endAt, now) => Math.max(0, Math.floor((endAt - now) / 
  * the seller and the winner see each other's contact details once a sale is
  * pending, and nobody else ever does.
  */
-// shortcut: the shipped partner app's grade parser (gradeOf in auctionFormat.js)
-// only understands a bare A–E letter, so a suffixed grade like "B-" renders as
-// "Grade A". Strip the suffix in the DTO so the live app shows the right letter.
-// Remove once the suffix-aware app build is released (then it can show "B-").
-// Legacy word enums (GOOD/FAIR/…) pass through unchanged for the app to map.
-const baseGrade = (condition) => {
-  const c = String(condition || '').toUpperCase();
-  return /^[A-E][+-]?$/.test(c) ? c[0] : condition;
-};
-
 const decorate = (auction, { viewerId = null, diagnosis = null, verification = null } = {}) => {
   const now = new Date();
   const isSeller = viewerId && String(auction.sellerId?._id || auction.sellerId) === String(viewerId);
@@ -111,7 +101,7 @@ const decorate = (auction, { viewerId = null, diagnosis = null, verification = n
     id: String(auction._id),
     status: auction.status,
     device: auction.device,
-    condition: baseGrade(auction.condition),
+    condition: auction.condition,
     conditionNotes: auction.conditionNotes,
     photos: (auction.photos || []).map((photo) => ({
       id: String(photo._id),

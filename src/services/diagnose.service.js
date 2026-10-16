@@ -105,21 +105,33 @@ const getHistory = async (userId, { page = 1, limit = 20 } = {}) => {
     DiagnoseSession.countDocuments({ userId }),
   ]);
 
-  const items = sessions.map((s) => ({
-    id: String(s._id),
-    deviceModel: (s.input && s.input.deviceModel) || null,
-    imei: (s.input && s.input.imei) || null,
-    resultStatus: s.resultStatus,
-    status: s.status,
+  // The Records screen shows paid diagnoses like an IVS check: a downloadable
+  // report and a GST invoice. Both need data the list otherwise omits — the
+  // report payload and the price — so attach them, but only on a paid run.
+  const diagnoseCost = await settingsService.getFeatureCost('DIAGNOSE');
+
+  const items = sessions.map((s) => {
     // A credit-billed run writes no WalletTransaction, so chargeTxnId alone
     // would report every one of them as free. A COMPLETED session is billable
     // by definition — that is what SESSION_STATUS.COMPLETED means here.
-    charged:
+    const charged =
       !!s.chargeTxnId ||
-      (s.billingSource === BILLING_SOURCE.ENTITLEMENT && s.status === SESSION_STATUS.COMPLETED),
-    billingSource: s.billingSource || null,
-    createdAt: s.createdAt,
-  }));
+      (s.billingSource === BILLING_SOURCE.ENTITLEMENT && s.status === SESSION_STATUS.COMPLETED);
+    return {
+      id: String(s._id),
+      deviceModel: (s.input && s.input.deviceModel) || null,
+      imei: (s.input && s.input.imei) || null,
+      resultStatus: s.resultStatus,
+      status: s.status,
+      charged,
+      billingSource: s.billingSource || null,
+      createdAt: s.createdAt,
+      // shortcut: `cost` is the CURRENT DIAGNOSE price, not the price charged at
+      // diagnosis time (the session doesn't persist it); upgrade = store cost on
+      // the session when charging, like ImeiVerificationLog already does.
+      ...(charged ? { cost: diagnoseCost, result: s.result || null } : {}),
+    };
+  });
 
   return {
     items,
