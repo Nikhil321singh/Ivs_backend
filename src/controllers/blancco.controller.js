@@ -5,7 +5,13 @@ const MESSAGES = require('../constants/messages');
 const blanccoService = require('../services/blancco.service');
 
 const createSession = asyncHandler(async (req, res) => {
-  const result = await blanccoService.createSession(req.user.id, req.body);
+  // requireFeatureAccess('DIAGNOSE') already 402'd anyone who can't pay and set
+  // which system pays + the price it checked. Both pass through so a setting
+  // changed mid-request can't alter the charge — same contract as /diagnose.
+  const result = await blanccoService.createSession(req.user.id, req.body, {
+    billingSource: req.billingSource,
+    cost: req.featureCost,
+  });
 
   successResponse(res, httpStatus.CREATED, MESSAGES.BLANCCO.SESSION_CREATED, result);
 });

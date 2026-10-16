@@ -1,6 +1,7 @@
 const express = require('express');
 const blanccoController = require('../controllers/blancco.controller');
 const authenticate = require('../middleware/auth.middleware');
+const requireFeatureAccess = require('../middleware/requireFeatureAccess.middleware');
 const validateRequest = require('../middleware/validateRequest.middleware');
 const { createSessionValidator } = require('../validators/blancco.validator');
 
@@ -62,6 +63,7 @@ router.get('/scan/:sessionToken', blanccoController.scanQr);
 router.post(
   '/sessions',
   authenticate,
+  requireFeatureAccess('DIAGNOSE'),
   createSessionValidator,
   validateRequest,
   blanccoController.createSession

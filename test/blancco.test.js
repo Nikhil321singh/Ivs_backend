@@ -2,10 +2,24 @@ const nock = require('nock');
 const fixture = require('./fixtures/blancco-report.json');
 const blancco = require('../src/services/providers/blanccoProvider');
 const env = require('../src/config/env');
-const { createAdmin, createUser, asUser, request, app } = require('./helpers/factory');
+const {
+  createAdmin,
+  createUser,
+  createFundedUser,
+  createCreditedUser,
+  asUser,
+  balanceOf,
+  request,
+  app,
+} = require('./helpers/factory');
+const settings = require('../src/services/settings.service');
+const Entitlement = require('../src/models/Entitlement.model');
 const Auction = require('../src/models/Auction.model');
 const BlanccoSession = require('../src/models/BlanccoSession.model');
+const PRICING = require('../src/constants/pricing');
 const { AUCTION_STATUS } = require('../src/constants/auctionEnums');
+
+const DIAGNOSE_COST = PRICING.FEATURES.DIAGNOSE;
 
 const BASE = 'https://api.eu-west-1.blancco.cloud';
 const IMEI = '356370162838962';
@@ -254,11 +268,52 @@ describe('admin device lookup', () => {
   });
 });
 
+describe('creating a QR session charges DIAGNOSE', () => {
+  const sessionBody = {
+    customerName: 'Test Customer',
+    customerPhone: '9003748031',
+    imei: IMEI,
+    price: 499,
+  };
+
+  it('debits tokens on the wallet path', async () => {
+    await settings.update({ billingMode: 'WALLET' });
+    const { user, token } = await createFundedUser(500);
+
+    const res = await asUser(token).post('/api/v1/blancco/sessions').send(sessionBody);
+
+    expect(res.status).toBe(201);
+    expect(await balanceOf(user._id)).toBe(500 - DIAGNOSE_COST);
+  });
+
+  it('consumes a credit on the subscription path, leaving tokens untouched', async () => {
+    await settings.update({ billingMode: 'SUBSCRIPTION' });
+    const { user, token } = await createCreditedUser({ DIAGNOSE: 2 });
+
+    const res = await asUser(token).post('/api/v1/blancco/sessions').send(sessionBody);
+
+    expect(res.status).toBe(201);
+    const ent = await Entitlement.findOne({ userId: user._id }).lean();
+    expect(ent.credits.DIAGNOSE).toBe(1);
+  });
+
+  it('402s and creates no session when the customer cannot pay', async () => {
+    await settings.update({ billingMode: 'WALLET' });
+    const { user, token } = await createFundedUser(DIAGNOSE_COST - 1);
+
+    const res = await asUser(token).post('/api/v1/blancco/sessions').send(sessionBody);
+
+    expect(res.status).toBe(402);
+    expect(await BlanccoSession.countDocuments({ userId: user._id })).toBe(0);
+  });
+});
+
 describe('QR session report endpoint', () => {
   afterEach(() => nock.cleanAll());
 
   it('returns the Diagnostic report and marks the session completed', async () => {
-    const { token } = await createUser();
+    await settings.update({ billingMode: 'WALLET' });
+    const { token } = await createFundedUser(500);
     const created = await asUser(token)
       .post('/api/v1/blancco/sessions')
       .send({

@@ -3,6 +3,9 @@ const mongoose = require('mongoose');
 const QRCode = require('qrcode');
 const BlanccoSession = require('../models/BlanccoSession.model');
 const blanccoProvider = require('./providers/blanccoProvider');
+const featureBilling = require('./featureBilling.service');
+const { TXN_REF_TYPE } = require('../constants/walletEnums');
+const { BILLING_SOURCE, ENTITLEMENT_REF_TYPE } = require('../constants/entitlementEnums');
 const { maskAadhaar } = require('../utils/mask.util');
 const ApiError = require('../utils/apiError');
 const httpStatus = require('../constants/httpStatus');
@@ -33,7 +36,7 @@ const serializeSession = (s) => ({
   createdAt: s.createdAt,
 });
 
-const createSession = async (userId, payload) => {
+const createSession = async (userId, payload, { billingSource = null, cost = null } = {}) => {
   const {
     customerName,
     customerPhone,
@@ -70,6 +73,27 @@ const createSession = async (userId, payload) => {
     qrData,
     expiresAt,
   });
+
+  // Creating the QR is the billable moment — the guard already approved the
+  // payer. Charge DIAGNOSE through whichever system it picked; if the charge
+  // fails, delete the session so no unpaid QR is left behind (mirrors how
+  // auction publishing rolls back to DRAFT).
+  try {
+    await featureBilling.chargeFeature(userId, 'DIAGNOSE', {
+      billingSource,
+      cost,
+      referenceType:
+        billingSource === BILLING_SOURCE.ENTITLEMENT
+          ? ENTITLEMENT_REF_TYPE.DIAGNOSE
+          : TXN_REF_TYPE.DIAGNOSE,
+      referenceId: session._id,
+      idempotencyKey: `blancco-session:${session._id}`,
+      metadata: { sessionToken, imei: imei || null },
+    });
+  } catch (err) {
+    await BlanccoSession.deleteOne({ _id: session._id });
+    throw err;
+  }
 
   return {
     ...serializeSession(session.toObject()),
