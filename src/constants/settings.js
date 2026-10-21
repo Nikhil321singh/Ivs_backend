@@ -195,7 +195,7 @@ const SETTING_DEFINITIONS = Object.freeze({
   },
   [SETTING_KEYS.AUCTION_ANTI_SNIPE_WINDOW_SECONDS]: {
     type: 'integer',
-    default: 120,
+    default: 300,
     min: 10,
     max: 3600,
     public: true,
@@ -204,7 +204,7 @@ const SETTING_DEFINITIONS = Object.freeze({
   },
   [SETTING_KEYS.AUCTION_ANTI_SNIPE_EXTEND_SECONDS]: {
     type: 'integer',
-    default: 120,
+    default: 300,
     min: 10,
     max: 3600,
     public: true,

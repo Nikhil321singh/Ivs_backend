@@ -110,8 +110,23 @@ const creditForPayment = async (payment, { paymentId, signature }) => {
   );
 
   if (!claimed) {
-    // Already processed by the other path — return current state.
-    return Payment.findById(payment._id);
+    const existing = await Payment.findById(payment._id);
+    // If an auction payment was marked PAID but completeSale failed on a
+    // previous attempt (DB timeout, network blip), the auction may still
+    // need completing. Retry it — completeSale uses atomic conditional
+    // updates, so a redundant call is a safe no-op.
+    if (
+      existing?.status === PAYMENT_STATUS.PAID &&
+      existing?.purpose === PAYMENT_PURPOSE.AUCTION &&
+      existing?.auctionId
+    ) {
+      try {
+        await auctionSale.completeSale(existing);
+      } catch (err) {
+        console.error('[Payment] completeSale retry failed for', String(existing._id), err.message);
+      }
+    }
+    return existing;
   }
 
   if (claimed.purpose === PAYMENT_PURPOSE.AUCTION) {

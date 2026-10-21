@@ -125,6 +125,39 @@ const completeSale = async (payment) => {
       { new: true }
     );
 
+    // Fallback: the sweeper may have closed the auction between checkout and
+    // capture. The buyer's money is already captured — if no competing payment
+    // has completed, this captured payment takes priority over an unpaid window.
+    if (!sold) {
+      sold = await Auction.findOneAndUpdate(
+        {
+          _id: payment.auctionId,
+          status: {
+            $in: [
+              AUCTION_STATUS.PAYMENT_PENDING,
+              AUCTION_STATUS.ENDED_NO_BIDS,
+              AUCTION_STATUS.PAYMENT_EXPIRED,
+            ],
+          },
+          buyNowPricePaise: { $ne: null },
+        },
+        [
+          {
+            $set: {
+              status: AUCTION_STATUS.SOLD,
+              winnerId: payment.userId,
+              winningBidId: null,
+              salePricePaise: '$buyNowPricePaise',
+              soldAt: now,
+              closedAt: { $ifNull: ['$closedAt', now] },
+              paymentId: payment._id,
+            },
+          },
+        ],
+        { new: true }
+      );
+    }
+
     if (!sold) {
       await refundLostBuyNow(payment);
       return Auction.findById(payment.auctionId);
@@ -147,15 +180,22 @@ const completeSale = async (payment) => {
     );
   } else {
     sold = await Auction.findOneAndUpdate(
-      { _id: payment.auctionId, status: AUCTION_STATUS.PAYMENT_PENDING },
-      { status: AUCTION_STATUS.SOLD, soldAt: now, paymentId: payment._id },
+      {
+        _id: payment.auctionId,
+        status: { $in: [AUCTION_STATUS.PAYMENT_PENDING, AUCTION_STATUS.PAYMENT_EXPIRED] },
+      },
+      {
+        status: AUCTION_STATUS.SOLD,
+        winnerId: payment.userId,
+        soldAt: now,
+        paymentId: payment._id,
+      },
       { new: true }
     );
 
     if (!sold) {
-      // Either already sold (a duplicate webhook) or expired before the money
-      // arrived. Both need a human: the buyer has paid for something the system
-      // no longer considers for sale.
+      // Either already sold (a duplicate webhook) or cancelled. The buyer has
+      // paid for something the system no longer considers for sale.
       const current = await Auction.findById(payment.auctionId);
       if (current && current.status !== AUCTION_STATUS.SOLD) {
         console.error(
