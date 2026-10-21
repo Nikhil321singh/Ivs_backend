@@ -183,6 +183,14 @@ const env = {
     appReturnUrl: process.env.DIGILOCKER_APP_RETURN_URL || process.env.CLIENT_URL,
     // A session is useless once the user has wandered off; TTL-purged after this.
     sessionTtlMinutes: parseInt(process.env.DIGILOCKER_SESSION_TTL_MINUTES || '15', 10),
+    // Force a fresh DigiLocker login on every session. Revoking the provider
+    // token logs out our GRANT, but the user's meripehchaan SSO cookie survives
+    // in the browser's Custom Tab (which the app cannot clear) — so the next
+    // "Verify again" silently reuses the previous person's login. Appending the
+    // standard OIDC `prompt=login` to the authorize URL makes meripehchaan
+    // re-prompt for authentication instead, which is what the IMEI flow needs to
+    // verify a different seller each time. ON unless explicitly set to "false".
+    forceLogin: process.env.DIGILOCKER_FORCE_LOGIN !== 'false',
   },
 
   // Server-to-server wrapper around the provider's DigiLocker endpoints, for
