@@ -83,6 +83,7 @@ const createOrder = async (userId, auctionId, { shippingAddress = null } = {}) =
     userId,
     purpose: PAYMENT_PURPOSE.AUCTION,
     status: PAYMENT_STATUS.CREATED,
+    'notes.source': { $ne: ORDER_SOURCE.BUY_NOW },
   });
 
   if (open) {
