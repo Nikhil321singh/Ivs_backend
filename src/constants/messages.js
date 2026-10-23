@@ -77,6 +77,7 @@ module.exports = {
     XML_FAILED: 'Could not download the document.',
     TOKEN_REVOKED: 'DigiLocker session revoked.',
     REVOKE_FAILED: 'Could not revoke the DigiLocker session.',
+    IMEI_CHECKED: 'IMEI verification completed.',
   },
 
   IVS: {

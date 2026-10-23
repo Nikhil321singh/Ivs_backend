@@ -162,4 +162,30 @@ router.post('/digilocker/download-xml', wrapperController.downloadXml);
  */
 router.post('/digilocker/revoke-token', wrapperController.revokeToken);
 
+/**
+ * @openapi
+ * /wrapper/check-imei:
+ *   post:
+ *     tags: [Wrapper]
+ *     summary: Check an IMEI against C-DOT's CEIR blocklist on behalf of a caller without a stable IP
+ *     description: >
+ *       Unauthenticated server-to-server endpoint. Lends this server's fixed
+ *       source IP to a caller whose egress address rotates. Returns the CEIR
+ *       result verbatim, including upstreamAnswered:false cases — the caller
+ *       decides whether to bill and whether to allow the transaction.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [imei1]
+ *             properties:
+ *               imei1: { type: string, example: "123456789012345" }
+ *               imei2: { type: string, example: "123456789012346", description: "Optional second IMEI for dual-SIM devices." }
+ *     responses:
+ *       200: { description: "CEIR result — check upstreamAnswered and allowTransaction in the response body" }
+ */
+router.post('/check-imei', wrapperController.checkImei);
+
 module.exports = router;

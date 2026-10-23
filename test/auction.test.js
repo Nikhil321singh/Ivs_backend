@@ -35,7 +35,7 @@ const ADDRESS = {
 
 const draftBody = (overrides = {}) => ({
   device: { brand: 'Apple', model: 'iPhone 13', storageGb: 128 },
-  condition: 'GOOD',
+  condition: 'B',
   startPricePaise: 1000000,
   bidIncrementPaise: 50000,
   startAt: new Date(Date.now() + 60 * 1000).toISOString(),
@@ -1016,7 +1016,7 @@ describe('cancelling and moderation', () => {
 describe('admin listings and orders', () => {
   const listingBody = (overrides = {}) => ({
     device: { brand: 'Apple', model: 'iPhone 14', storageGb: 256 },
-    condition: 'EXCELLENT',
+    condition: 'A',
     photos: [{ url: 'https://example.test/a.jpg', publicId: 'auctions/a.jpg' }],
     startPricePaise: 1500000,
     bidIncrementPaise: 50000,
