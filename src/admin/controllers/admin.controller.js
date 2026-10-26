@@ -5,6 +5,7 @@ const MESSAGES = require('../../constants/messages');
 const adminService = require('../services/admin.service');
 const subscriptionAdminService = require('../services/subscription.admin.service');
 const auctionAdminService = require('../services/auction.admin.service');
+const biddingKycAdminService = require('../services/biddingKyc.admin.service');
 const orderService = require('../../services/order.service');
 const settingsService = require('../../services/settings.service');
 const notificationService = require('../../services/notification.service');
@@ -375,6 +376,38 @@ const getAuctionStats = asyncHandler(async (req, res) => {
   successResponse(res, httpStatus.OK, MESSAGES.ADMIN.STATS_FETCHED, stats);
 });
 
+/* ---------------------------------------------------------------- *
+ * Bidding KYC review
+ * ---------------------------------------------------------------- */
+
+const listBiddingKyc = asyncHandler(async (req, res) => {
+  const data = await biddingKycAdminService.list(req.query);
+
+  successResponse(res, httpStatus.OK, MESSAGES.BIDDING_KYC.LIST_FETCHED, data);
+});
+
+const getBiddingKyc = asyncHandler(async (req, res) => {
+  const application = await biddingKycAdminService.getOne(req.params.id);
+
+  successResponse(res, httpStatus.OK, MESSAGES.BIDDING_KYC.FETCHED, { application });
+});
+
+const approveBiddingKyc = asyncHandler(async (req, res) => {
+  const application = await biddingKycAdminService.approve(req.params.id, req.admin._id);
+
+  successResponse(res, httpStatus.OK, MESSAGES.BIDDING_KYC.APPROVED, { application });
+});
+
+const rejectBiddingKyc = asyncHandler(async (req, res) => {
+  const application = await biddingKycAdminService.reject(
+    req.params.id,
+    req.body.reason,
+    req.admin._id
+  );
+
+  successResponse(res, httpStatus.OK, MESSAGES.BIDDING_KYC.REJECTED, { application });
+});
+
 module.exports = {
   login,
   me,
@@ -414,4 +447,8 @@ module.exports = {
   listOrders,
   updateOrder,
   vendorSettlement,
+  listBiddingKyc,
+  getBiddingKyc,
+  approveBiddingKyc,
+  rejectBiddingKyc,
 };

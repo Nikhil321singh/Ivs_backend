@@ -57,6 +57,16 @@ const getPresignedUploadUrl = async (s3Key, contentType) => {
 };
 
 /**
+ * Uploads one of the four bidding-KYC document photos. Uses a deterministic
+ * publicId (`${userId}-bk-{type}`) so re-submission overwrites rather than
+ * orphaning assets.
+ */
+const uploadBiddingKycImage = async (buffer, publicId, contentType) => {
+  const storage = getStorageProvider();
+  return storage.uploadImage(buffer, { publicId, contentType });
+};
+
+/**
  * Deletes a previously uploaded image (profile, business proof or auction
  * photo) by its stored public_id. No-op for a falsy id.
  */
@@ -69,6 +79,7 @@ module.exports = {
   uploadProfileImage,
   uploadBusinessProofImage,
   uploadAuctionPhoto,
+  uploadBiddingKycImage,
   getPresignedUploadUrl,
   deleteProfileImage,
 };

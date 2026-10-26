@@ -22,6 +22,8 @@ const {
   updateOrderValidator,
   presignedUrlValidator,
   confirmS3PhotoValidator,
+  biddingKycIdParamValidator,
+  rejectBiddingKycValidator,
 } = require('../validators/admin.validator');
 const {
   upsertAppVersionValidator,
@@ -1110,6 +1112,104 @@ router.post(
   takeDownAuctionValidator,
   validateRequest,
   adminController.takeDownAuction
+);
+
+/* ------------------------------------------------------------------ *
+ * Bidding KYC review — individuals who want to bid submit a shop/GST  *
+ * form; admin approves or rejects. Approved users get biddingKycStatus *
+ * 'approved' and can then place bids.                                  *
+ * ------------------------------------------------------------------ */
+
+/**
+ * @openapi
+ * /admin/bidding-kyc:
+ *   get:
+ *     tags: [Admin]
+ *     summary: List bidding KYC applications from individual users
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: query, name: page, schema: { type: integer, default: 1 } }
+ *       - { in: query, name: limit, schema: { type: integer, default: 20, maximum: 100 } }
+ *       - { in: query, name: status, schema: { type: string, enum: [pending, approved, rejected] } }
+ *     responses:
+ *       200: { description: Applications fetched successfully }
+ */
+router.get('/bidding-kyc', adminAuth, adminController.listBiddingKyc);
+
+/**
+ * @openapi
+ * /admin/bidding-kyc/{id}:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Get one bidding KYC application with all document photos
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: string } }
+ *     responses:
+ *       200: { description: Application fetched successfully }
+ *       404: { description: Application not found }
+ */
+router.get(
+  '/bidding-kyc/:id',
+  adminAuth,
+  biddingKycIdParamValidator,
+  validateRequest,
+  adminController.getBiddingKyc
+);
+
+/**
+ * @openapi
+ * /admin/bidding-kyc/{id}/approve:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Approve a pending bidding KYC application
+ *     description: The user's biddingKycStatus is set to 'approved' and they can immediately bid.
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: string } }
+ *     responses:
+ *       200: { description: Application approved }
+ *       409: { description: Application is not in pending state }
+ *       404: { description: Application not found }
+ */
+router.post(
+  '/bidding-kyc/:id/approve',
+  adminAuth,
+  biddingKycIdParamValidator,
+  validateRequest,
+  adminController.approveBiddingKyc
+);
+
+/**
+ * @openapi
+ * /admin/bidding-kyc/{id}/reject:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Reject a pending bidding KYC application
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: string } }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [reason]
+ *             properties:
+ *               reason: { type: string, example: "GST number does not match the uploaded certificate." }
+ *     responses:
+ *       200: { description: Application rejected }
+ *       409: { description: Application is not in pending state }
+ *       404: { description: Application not found }
+ */
+router.post(
+  '/bidding-kyc/:id/reject',
+  adminAuth,
+  biddingKycIdParamValidator,
+  rejectBiddingKycValidator,
+  validateRequest,
+  adminController.rejectBiddingKyc
 );
 
 module.exports = router;
