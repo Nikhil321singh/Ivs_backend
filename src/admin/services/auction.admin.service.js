@@ -607,6 +607,59 @@ const relist = async (auctionId, adminId) => {
   return auctionService.decorate(copy, { viewerId: copy.sellerId });
 };
 
+/**
+ * Re-opens the payment window for the current winner of a PAYMENT_PENDING auction.
+ *
+ * Used by support when a bidder needs extra time — network issue, bank problem,
+ * anything that stopped them paying within the original window. The window is
+ * reset to a fresh `paymentWindowHours` from now, exactly as if the auction
+ * had just closed.
+ *
+ * Only works while the auction still has an active winner: once the offer has
+ * cascaded or the auction has moved to PAYMENT_EXPIRED, there is nothing to
+ * extend.
+ */
+const reopenPayment = async (auctionId, adminId) => {
+  const auction = await Auction.findById(auctionId);
+  if (!auction) throw new ApiError(httpStatus.NOT_FOUND, MESSAGES.AUCTION.NOT_FOUND);
+
+  if (auction.status !== AUCTION_STATUS.PAYMENT_PENDING || !auction.winnerId) {
+    throw new ApiError(httpStatus.CONFLICT, MESSAGES.AUCTION.NO_PENDING_WINNER);
+  }
+
+  const paymentWindowHours = await settingsService.get(SETTING_KEYS.AUCTION_PAYMENT_WINDOW_HOURS);
+  const now = new Date();
+  const newDueAt = new Date(now.getTime() + paymentWindowHours * 60 * 60 * 1000);
+
+  const updated = await Auction.findOneAndUpdate(
+    { _id: auctionId, status: AUCTION_STATUS.PAYMENT_PENDING, winnerId: auction.winnerId },
+    { paymentDueAt: newDueAt },
+    { new: true }
+  );
+
+  if (!updated) throw new ApiError(httpStatus.CONFLICT, MESSAGES.AUCTION.NO_PENDING_WINNER);
+
+  const label = `${updated.device?.brand || ''} ${updated.device?.model || ''}`.trim() || 'your device';
+
+  try {
+    await notificationService.notifyUser(updated.winnerId, {
+      title: 'Payment window extended',
+      body: `Your payment window for ${label} has been extended. You now have ${paymentWindowHours} hours to complete the purchase.`,
+      type: NOTIFICATION_TYPE.AUCTION,
+      data: {
+        auctionId: String(updated._id),
+        paymentDueAt: newDueAt.toISOString(),
+      },
+    });
+  } catch (err) {
+    console.error('[Auction] reopen-payment notification failed', String(updated.winnerId), err.message);
+  }
+
+  console.warn('[Auction] payment window reopened', String(auctionId), 'winner', String(updated.winnerId), 'by admin', String(adminId));
+
+  return auctionService.decorate(updated, {});
+};
+
 /** Dashboard counters for the auctions tab. */
 const getStats = async () => {
   const now = new Date();
@@ -645,6 +698,7 @@ module.exports = {
   updateListing,
   publishListing,
   relist,
+  reopenPayment,
   listAuctions,
   getAuction,
   getBids,

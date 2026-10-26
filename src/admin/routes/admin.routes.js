@@ -225,6 +225,34 @@ router.get(
 
 /**
  * @openapi
+ * /admin/users/{userId}/reset-kyc:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Reset a user's KYC so they can redo the full onboarding flow
+ *     description: >-
+ *       Clears kycCompleted, aadhaarVerified, aadhaarNumberHash, PAN, email and
+ *       userType. Use when a user is stuck — for example their Aadhaar is verified
+ *       but the app's KYC button is unreachable in that state. Wallet balance,
+ *       IMEI history and financial records are untouched.
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: path, name: userId, required: true, schema: { type: string }, description: Mongo id of the user }
+ *     responses:
+ *       200: { description: KYC reset successfully }
+ *       404: { description: User not found }
+ *       409: { description: User has no KYC data to reset }
+ *       422: { description: Malformed user id }
+ */
+router.post(
+  '/users/:userId/reset-kyc',
+  adminAuth,
+  userIdParamValidator,
+  validateRequest,
+  adminController.resetUserKyc
+);
+
+/**
+ * @openapi
  * /admin/notifications/send:
  *   post:
  *     tags: [Admin]
@@ -954,6 +982,32 @@ router.post(
   adminAuctionIdParamValidator,
   validateRequest,
   adminController.relistAuction
+);
+
+/**
+ * @openapi
+ * /admin/auctions/{auctionId}/reopen-payment:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Extend the payment window for the current winner
+ *     description: >-
+ *       Resets paymentDueAt to now + the configured payment window. Use when the
+ *       winning bidder ran into a payment issue and needs extra time. The auction
+ *       must be PAYMENT_PENDING with an active winner. The winner is notified.
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: path, name: auctionId, required: true, schema: { type: string } }
+ *     responses:
+ *       200: { description: Payment window extended }
+ *       404: { description: Auction not found }
+ *       409: { description: No winner currently waiting to pay }
+ */
+router.post(
+  '/auctions/:auctionId/reopen-payment',
+  adminAuth,
+  adminAuctionIdParamValidator,
+  validateRequest,
+  adminController.reopenAuctionPayment
 );
 
 /* ---- Orders: the fulfilment queue -------------------------------- */

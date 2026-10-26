@@ -190,6 +190,8 @@ module.exports = {
     LOOKUP_OK: 'Device report fetched successfully.',
     NOT_RELISTABLE: 'Only an auction that ended unsold, unpaid or cancelled can be relisted.',
     RELISTED: 'Listing recreated as a new draft.',
+    NO_PENDING_WINNER: 'This auction does not have a winner waiting to pay.',
+    PAYMENT_REOPENED: 'Payment window extended. The bidder has been notified.',
   },
   ORDER: {
     CREATED: 'Order created successfully.',
@@ -274,6 +276,7 @@ module.exports = {
     USERS_FETCHED: 'Users fetched successfully.',
     USER_FETCHED: 'User details fetched successfully.',
     STATS_FETCHED: 'Dashboard stats fetched successfully.',
+    KYC_RESET: 'User KYC reset successfully. The user can now redo the KYC flow.',
   },
   BIDDING_KYC: {
     SUBMITTED: 'Bidding KYC application submitted successfully.',

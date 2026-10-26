@@ -248,6 +248,42 @@ const getStats = async () => {
   };
 };
 
+/**
+ * Clears a user's KYC and Aadhaar verification state so they can redo the
+ * full onboarding flow. Used by support when the user is stuck — e.g. Aadhaar
+ * verified but the app's KYC button is unreachable in that state.
+ *
+ * Wallet balance, IMEI history and financial records are untouched.
+ */
+const resetUserKyc = async (userId) => {
+  const user = await userService.getUserById(userId);
+
+  // Nothing to reset — guard so the admin doesn't get a silent no-op.
+  if (!user.kycCompleted && !user.aadhaarVerified) {
+    throw new ApiError(httpStatus.CONFLICT, 'This user has no KYC data to reset.');
+  }
+
+  user.kycCompleted = false;
+  user.aadhaarVerified = false;
+  user.aadhaarNumber = null;
+  user.aadhaarNumberHash = undefined; // sparse-unique index: undefined excludes the row
+  user.userType = null;
+  user.name = null;
+  user.phone = null;
+  user.companyName = null;
+  user.email = undefined;
+  user.panNumber = undefined;
+  user.gstNumber = undefined;
+  user.isGstRegistered = false;
+  user.businessProofType = null;
+
+  await user.save();
+
+  console.warn('[Admin] KYC reset', { userId: String(userId) });
+
+  return user;
+};
+
 module.exports = {
   login,
   getAdminById,
@@ -258,4 +294,5 @@ module.exports = {
   listUsers,
   getUserDetail,
   getStats,
+  resetUserKyc,
 };

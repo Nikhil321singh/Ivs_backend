@@ -76,6 +76,12 @@ const getUser = asyncHandler(async (req, res) => {
   successResponse(res, httpStatus.OK, MESSAGES.ADMIN.USER_FETCHED, data);
 });
 
+const resetUserKyc = asyncHandler(async (req, res) => {
+  const user = await adminService.resetUserKyc(req.params.userId);
+
+  successResponse(res, httpStatus.OK, MESSAGES.ADMIN.KYC_RESET, { user });
+});
+
 /* ------------------------------------------------------------------ *
  * Notifications
  * ------------------------------------------------------------------ */
@@ -346,6 +352,12 @@ const relistAuction = asyncHandler(async (req, res) => {
   successResponse(res, httpStatus.CREATED, MESSAGES.AUCTION.RELISTED, { auction });
 });
 
+const reopenAuctionPayment = asyncHandler(async (req, res) => {
+  const auction = await auctionAdminService.reopenPayment(req.params.auctionId, req.admin._id);
+
+  successResponse(res, httpStatus.OK, MESSAGES.AUCTION.PAYMENT_REOPENED, { auction });
+});
+
 /* ---- Orders ------------------------------------------------------- */
 
 const listOrders = asyncHandler(async (req, res) => {
@@ -444,6 +456,7 @@ module.exports = {
   updateListing,
   publishListing,
   relistAuction,
+  reopenAuctionPayment,
   listOrders,
   updateOrder,
   vendorSettlement,
@@ -451,4 +464,5 @@ module.exports = {
   getBiddingKyc,
   approveBiddingKyc,
   rejectBiddingKyc,
+  resetUserKyc,
 };
