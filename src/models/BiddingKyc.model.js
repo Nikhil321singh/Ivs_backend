@@ -25,30 +25,29 @@ const biddingKycSchema = new Schema(
     },
     shopVisitingCardNumber: {
       type: String,
-      required: true,
       trim: true,
     },
     googleMapLink: {
       type: String,
-      required: true,
       trim: true,
     },
     gstNumber: {
       type: String,
-      required: true,
       trim: true,
       uppercase: true,
     },
-    // Hosted URLs for the four required document photos.
-    shopVisitingCardPhotoUrl: { type: String, required: true },
-    gstPhotoUrl: { type: String, required: true },
-    udyamAadhaarPhotoUrl: { type: String, required: true },
-    shopPhotoUrl: { type: String, required: true },
+    // Hosted URLs for the document photos. The app sends at least one (its type
+    // chosen from the dropdown); the rest stay null. "At least one" is enforced
+    // in the upload middleware, not here, so a re-submission can swap one photo.
+    shopVisitingCardPhotoUrl: { type: String, default: null },
+    gstPhotoUrl: { type: String, default: null },
+    udyamAadhaarPhotoUrl: { type: String, default: null },
+    shopPhotoUrl: { type: String, default: null },
     // Storage public_ids — kept for deletion/replacement, stripped in toJSON.
-    shopVisitingCardPhotoPublicId: { type: String, required: true, select: false },
-    gstPhotoPublicId: { type: String, required: true, select: false },
-    udyamAadhaarPhotoPublicId: { type: String, required: true, select: false },
-    shopPhotoPublicId: { type: String, required: true, select: false },
+    shopVisitingCardPhotoPublicId: { type: String, default: null, select: false },
+    gstPhotoPublicId: { type: String, default: null, select: false },
+    udyamAadhaarPhotoPublicId: { type: String, default: null, select: false },
+    shopPhotoPublicId: { type: String, default: null, select: false },
 
     status: {
       type: String,

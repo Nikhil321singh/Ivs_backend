@@ -147,18 +147,15 @@ const uploadBiddingKycImages = (req, res, next) => {
 
 const requireBiddingKycPhotos = (req, res, next) => {
   const files = req.files || {};
-  const required = [
-    ['shopVisitingCardPhoto', MESSAGES.BIDDING_KYC.VISITING_CARD_PHOTO_REQUIRED],
-    ['gstPhoto', MESSAGES.BIDDING_KYC.GST_PHOTO_REQUIRED],
-    ['udyamAadhaarPhoto', MESSAGES.BIDDING_KYC.UDYAM_AADHAAR_PHOTO_REQUIRED],
-    ['shopPhoto', MESSAGES.BIDDING_KYC.SHOP_PHOTO_REQUIRED],
-  ];
-  const errors = required
-    .filter(([field]) => !files[field] || !files[field].length)
-    .map(([field, message]) => ({ field, message }));
+  // The app uploads a single document (its type chosen from the dropdown), so
+  // require at least ONE of the four — not all of them.
+  const fields = ['shopVisitingCardPhoto', 'gstPhoto', 'udyamAadhaarPhoto', 'shopPhoto'];
+  const hasOne = fields.some((field) => files[field]?.length);
 
-  if (errors.length) {
-    return next(new ApiError(httpStatus.UNPROCESSABLE_ENTITY, errors[0].message, errors));
+  if (!hasOne) {
+    return next(new ApiError(httpStatus.UNPROCESSABLE_ENTITY, MESSAGES.BIDDING_KYC.SHOP_PHOTO_REQUIRED, [
+      { field: 'document', message: MESSAGES.BIDDING_KYC.SHOP_PHOTO_REQUIRED },
+    ]));
   }
   next();
 };
