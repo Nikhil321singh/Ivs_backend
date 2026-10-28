@@ -104,8 +104,6 @@ const placeBid = asyncHandler(async (req, res) => {
     // True when this request was a retry of one already recorded — the client
     // can treat it as success without showing "bid placed" twice.
     duplicate: result.duplicate,
-    // True when the bid landed late enough to push the end time out.
-    extended: !!result.extended,
   });
 });
 

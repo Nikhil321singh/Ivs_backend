@@ -101,12 +101,6 @@ const completeSale = async (payment) => {
         status: AUCTION_STATUS.LIVE,
         endAt: { $gt: now },
         buyNowPricePaise: { $ne: null },
-        $expr: {
-          $or: [
-            { $eq: [{ $ifNull: ['$currentBidPaise', null] }, null] },
-            { $lt: ['$currentBidPaise', '$buyNowPricePaise'] },
-          ],
-        },
       },
       [
         {
