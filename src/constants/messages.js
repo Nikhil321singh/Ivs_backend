@@ -182,6 +182,7 @@ module.exports = {
     NO_BUY_NOW: 'This listing does not have an instant buy price.',
     BUY_NOW_PASSED:
       'Bidding has already passed the instant buy price, so this device can only be won by bidding now.',
+    BUY_NOW_CLOSING_SOON: 'Instant buy is not available in the last 2 minutes of an auction.',
     BUY_NOW_SUCCESS: 'Device reserved. Complete the payment to confirm your purchase.',
     DIAGNOSIS_NOT_CONFIGURED: 'Device diagnostics are not configured. Please contact support.',
     DIAGNOSIS_LOOKUP_FAILED: 'Could not reach the diagnostics service. Please try again in a moment.',

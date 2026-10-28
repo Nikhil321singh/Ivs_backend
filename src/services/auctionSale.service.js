@@ -2,7 +2,6 @@ const Auction = require('../models/Auction.model');
 const Bid = require('../models/Bid.model');
 const notificationService = require('./notification.service');
 const orderService = require('./order.service');
-const razorpay = require('./providers/razorpayProvider');
 const { NOTIFICATION_TYPE } = require('../constants/notification');
 const { AUCTION_STATUS, BID_STATUS, ORDER_SOURCE } = require('../constants/auctionEnums');
 
@@ -37,29 +36,11 @@ const isBuyNow = (payment) => payment?.notes?.source === ORDER_SOURCE.BUY_NOW;
  */
 const refundLostBuyNow = async (payment) => {
   console.error(
-    '[Auction] buy-now payment captured but device unavailable — refunding',
-    'auction:',
-    String(payment.auctionId),
-    'paymentId:',
-    String(payment._id)
+    '[Auction] buy-now payment captured but device unavailable — manual refund required',
+    'auction:', String(payment.auctionId),
+    'paymentId:', String(payment._id),
+    'razorpayPaymentId:', payment.razorpayPaymentId || 'not set'
   );
-
-  if (payment.razorpayPaymentId) {
-    try {
-      await razorpay.refund(payment.razorpayPaymentId, {
-        amountPaise: payment.amountPaise,
-        notes: { reason: 'buy_now_unavailable', auctionId: String(payment.auctionId) },
-      });
-    } catch (err) {
-      console.error(
-        '[Auction] buy-now refund failed — needs manual refund',
-        String(payment._id),
-        err.response?.data || err.message
-      );
-    }
-  } else {
-    console.error('[Auction] cannot auto-refund — no razorpayPaymentId on', String(payment._id));
-  }
 
   try {
     await orderService.cancelUnpaidForBuyer(payment.auctionId, payment.userId);
@@ -69,7 +50,7 @@ const refundLostBuyNow = async (payment) => {
 
   await notifySafely(payment.userId, {
     title: 'Buy Now could not be completed',
-    body: 'This device was no longer available, so your payment is being refunded.',
+    body: 'This device was no longer available. Our team will reach out to process your refund.',
     data: { auctionId: String(payment.auctionId), outcome: 'REFUNDED' },
   });
 };
@@ -126,14 +107,16 @@ const completeSale = async (payment) => {
       sold = await Auction.findOneAndUpdate(
         {
           _id: payment.auctionId,
-          status: {
-            $in: [
-              AUCTION_STATUS.PAYMENT_PENDING,
-              AUCTION_STATUS.ENDED_NO_BIDS,
-              AUCTION_STATUS.PAYMENT_EXPIRED,
-            ],
-          },
           buyNowPricePaise: { $ne: null },
+          $or: [
+            // Expired in the DB but sweeper hasn't run yet (up to 30-sec window).
+            { status: AUCTION_STATUS.LIVE, endAt: { $lte: now } },
+            { status: { $in: [AUCTION_STATUS.ENDED_NO_BIDS, AUCTION_STATUS.PAYMENT_EXPIRED] } },
+            // PAYMENT_PENDING with no current winner: the previous winner's window
+            // lapsed and passOfferDown cleared winnerId before finding the next
+            // candidate. Safe to take — nobody has been told they won yet.
+            { status: AUCTION_STATUS.PAYMENT_PENDING, winnerId: null },
+          ],
         },
         [
           {
@@ -153,8 +136,17 @@ const completeSale = async (payment) => {
     }
 
     if (!sold) {
+      // Guard: if this payment already completed the sale (duplicate webhook /
+      // verify race), the auction is SOLD with our paymentId — nothing to do.
+      const current = await Auction.findById(payment.auctionId);
+      if (
+        current?.status === AUCTION_STATUS.SOLD &&
+        String(current.paymentId) === String(payment._id)
+      ) {
+        return current;
+      }
       await refundLostBuyNow(payment);
-      return Auction.findById(payment.auctionId);
+      return current;
     }
 
     // The device went to an instant buyer — everyone who bid has lost.

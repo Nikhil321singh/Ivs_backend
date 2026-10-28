@@ -190,6 +190,9 @@ const buyNow = async (userId, auctionId, { shippingAddress = null } = {}) => {
   if (auction.currentBidPaise != null && auction.currentBidPaise >= auction.buyNowPricePaise) {
     throw new ApiError(httpStatus.CONFLICT, MESSAGES.AUCTION.BUY_NOW_PASSED);
   }
+  if (auction.endAt - new Date() < 2 * 60 * 1000) {
+    throw new ApiError(httpStatus.CONFLICT, MESSAGES.AUCTION.BUY_NOW_CLOSING_SOON);
+  }
 
   const salePricePaise = auction.buyNowPricePaise;
 
