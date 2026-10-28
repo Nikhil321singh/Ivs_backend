@@ -1,10 +1,11 @@
 const Auction = require('../models/Auction.model');
 const Bid = require('../models/Bid.model');
+const Order = require('../models/Order.model');
 const notificationService = require('./notification.service');
 const settingsService = require('./settings.service');
 const { SETTING_KEYS } = require('../constants/settings');
 const { NOTIFICATION_TYPE } = require('../constants/notification');
-const { AUCTION_STATUS, BID_STATUS } = require('../constants/auctionEnums');
+const { AUCTION_STATUS, BID_STATUS, ORDER_SOURCE, FULFILMENT_STATUS } = require('../constants/auctionEnums');
 
 /* eslint-disable no-console */
 
@@ -366,17 +367,51 @@ const expireUnpaid = async (limit = BATCH_LIMIT) => {
   return expired;
 };
 
+// shortcut: fixed 60-min abandon window; promote to a setting if ops need to tune it.
+const BUY_NOW_ABANDON_MINUTES = 60;
+
+/**
+ * Cancel abandoned Buy Now orders.
+ *
+ * A Buy Now order is created at click time (unpaid, PENDING) to capture the
+ * shipping address, before payment. It is normally resolved by a payment event:
+ * marked paid on capture (auctionSale.completeSale) or cancelled if a captured
+ * payment loses the race (refundLostBuyNow). But if the buyer simply abandons
+ * the Razorpay checkout, NO payment event ever fires and nothing resolves the
+ * order — it sits Unpaid/PENDING forever (the auction is left LIVE, so the
+ * payment-expiry sweep above, which only touches PAYMENT_PENDING auctions, never
+ * sees it). This closes that gap: any Buy Now order still unpaid an hour after it
+ * was opened is a dead checkout, so cancel it.
+ *
+ * The `paidAt: null` filter makes this safe against a capture that lands
+ * concurrently — markPaid sets paidAt, so a paid order can never match here.
+ */
+const cancelAbandonedBuyNow = async () => {
+  const cutoff = new Date(Date.now() - BUY_NOW_ABANDON_MINUTES * 60 * 1000);
+  const res = await Order.updateMany(
+    {
+      source: ORDER_SOURCE.BUY_NOW,
+      paidAt: null,
+      fulfilmentStatus: FULFILMENT_STATUS.PENDING,
+      createdAt: { $lte: cutoff },
+    },
+    { $set: { fulfilmentStatus: FULFILMENT_STATUS.CANCELLED } }
+  );
+  return res.modifiedCount || 0;
+};
+
 /** One full pass. Safe to run concurrently with itself and with live traffic. */
 const sweep = async () => {
   const [activated, closed, expired] = [await activateDue(), await closeExpired(), await expireUnpaid()];
+  const buyNowCancelled = await cancelAbandonedBuyNow();
 
-  if (activated || closed || expired) {
+  if (activated || closed || expired || buyNowCancelled) {
     console.log(
-      `[Auction] sweep: ${activated} activated, ${closed} closed, ${expired} payment-expired`
+      `[Auction] sweep: ${activated} activated, ${closed} closed, ${expired} payment-expired, ${buyNowCancelled} buy-now-abandoned`
     );
   }
 
-  return { activated, closed, expired };
+  return { activated, closed, expired, buyNowCancelled };
 };
 
 let timer = null;
@@ -415,6 +450,7 @@ module.exports = {
   activateDue,
   closeExpired,
   expireUnpaid,
+  cancelAbandonedBuyNow,
   sweep,
   startSweeper,
   stopSweeper,

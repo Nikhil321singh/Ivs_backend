@@ -3,6 +3,7 @@ const Admin = require('../models/Admin.model');
 const WalletTransaction = require('../../models/WalletTransaction.model');
 const ImeiVerificationLog = require('../../models/ImeiVerificationLog.model');
 const Payment = require('../../models/Payment.model');
+const Order = require('../../models/Order.model');
 const User = require('../../models/User.model');
 const userService = require('../../services/user.service');
 const { verifyPassword, hashPassword } = require('../utils/password.util');
@@ -228,7 +229,7 @@ const getUserDetail = async (userId) => {
 const getStats = async () => {
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-  const [totalUsers, kycCompleted, totalChecks, checksToday, spentAgg] = await Promise.all([
+  const [totalUsers, kycCompleted, totalChecks, checksToday, spentAgg, salesAgg] = await Promise.all([
     User.countDocuments({}),
     User.countDocuments({ kycCompleted: true }),
     ImeiVerificationLog.countDocuments({}),
@@ -236,6 +237,11 @@ const getStats = async () => {
     WalletTransaction.aggregate([
       { $match: { type: 'DEBIT' } },
       { $group: { _id: null, total: { $sum: '$amount' } } },
+    ]),
+    // True total device sales — every paid order, not just a recent sample.
+    Order.aggregate([
+      { $match: { paidAt: { $ne: null } } },
+      { $group: { _id: null, total: { $sum: '$amountPaise' }, count: { $sum: 1 } } },
     ]),
   ]);
 
@@ -245,6 +251,8 @@ const getStats = async () => {
     totalImeiChecks: totalChecks,
     imeiChecksToday: checksToday,
     tokensSpent: spentAgg[0]?.total || 0,
+    salesTotalPaise: salesAgg[0]?.total || 0,
+    paidOrdersCount: salesAgg[0]?.count || 0,
   };
 };
 
