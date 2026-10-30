@@ -218,9 +218,7 @@ const buyNow = async (userId, auctionId, { shippingAddress = null } = {}) => {
 
   const salePricePaise = auction.buyNowPricePaise;
   const now = new Date();
-  const buyNowWindowMinutes = await settingsService.get(
-    SETTING_KEYS.AUCTION_BUY_NOW_WINDOW_MINUTES
-  );
+  const buyNowWindowMinutes = await settingsService.get(SETTING_KEYS.AUCTION_BUY_NOW_WINDOW_MINUTES);
   const reserved = await Auction.findOneAndUpdate(
     {
       _id: auction._id,

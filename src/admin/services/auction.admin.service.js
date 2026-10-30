@@ -633,10 +633,10 @@ const reopenPayment = async (auctionId, adminId) => {
       : SETTING_KEYS.AUCTION_PAYMENT_WINDOW_HOURS
   );
   const now = new Date();
-  const newDueAt = new Date(
-    now.getTime() +
-      paymentWindow * (auction.buyNowReservation ? 60 * 1000 : 60 * 60 * 1000)
-  );
+  const paymentWindowMs = auction.buyNowReservation
+    ? paymentWindow * 60 * 1000
+    : paymentWindow * 60 * 60 * 1000;
+  const newDueAt = new Date(now.getTime() + paymentWindowMs);
 
   const filter = {
     _id: auctionId,
@@ -657,9 +657,7 @@ const reopenPayment = async (auctionId, adminId) => {
   try {
     await notificationService.notifyUser(updated.winnerId, {
       title: 'Payment window extended',
-      body: auction.buyNowReservation
-        ? `Your reservation for ${label} has been extended. You now have ${paymentWindow} minutes to complete the purchase.`
-        : `Your payment window for ${label} has been extended. You now have ${paymentWindow} hours to complete the purchase.`,
+      body: `Your payment window for ${label} has been extended. You now have ${paymentWindowHours} hours to complete the purchase.`,
       type: NOTIFICATION_TYPE.AUCTION,
       data: {
         auctionId: String(updated._id),
