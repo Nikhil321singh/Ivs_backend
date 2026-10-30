@@ -419,11 +419,12 @@ router.post(
  *     tags: [Auctions]
  *     summary: Buy the device instantly at the listed price
  *     description: >
- *       Ends the auction immediately at buyNowPricePaise and opens checkout.
- *       Offered only while the current bid is still below that price — once
- *       bidding passes it, selling at it would be selling below the book, and
- *       the call is refused with 409. Everyone who bid is marked LOST and
- *       notified. The delivery address is required up front.
+ *       Atomically reserves the listing for the first buyer and opens checkout
+ *       at buyNowPricePaise. Other buyers and bids are blocked until payment
+ *       succeeds, fails, or the configured payment window expires. Existing
+ *       bidders are marked LOST only after successful capture. Offered only
+ *       while the current bid is below the instant price. The delivery address
+ *       is required up front.
  *     security: [{ bearerAuth: [] }]
  *     requestBody:
  *       required: true
@@ -439,7 +440,7 @@ router.post(
  *     responses:
  *       201: { description: Device reserved; open Razorpay Checkout to confirm }
  *       403: { description: You cannot buy your own listing }
- *       409: { description: Not live, no instant price, or bidding has passed it }
+ *       409: { description: Not live, already reserved, no instant price, or bidding has passed it }
  */
 router.post(
   '/:auctionId/buy-now',

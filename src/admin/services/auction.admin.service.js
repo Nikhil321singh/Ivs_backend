@@ -627,12 +627,22 @@ const reopenPayment = async (auctionId, adminId) => {
     throw new ApiError(httpStatus.CONFLICT, MESSAGES.AUCTION.NO_PENDING_WINNER);
   }
 
-  const paymentWindowHours = await settingsService.get(SETTING_KEYS.AUCTION_PAYMENT_WINDOW_HOURS);
+  const paymentWindowHours = await settingsService.get(
+    auction.buyNowReservation
+      ? SETTING_KEYS.AUCTION_BUY_NOW_WINDOW_HOURS
+      : SETTING_KEYS.AUCTION_PAYMENT_WINDOW_HOURS
+  );
   const now = new Date();
   const newDueAt = new Date(now.getTime() + paymentWindowHours * 60 * 60 * 1000);
 
+  const filter = {
+    _id: auctionId,
+    status: AUCTION_STATUS.PAYMENT_PENDING,
+    winnerId: auction.winnerId,
+    buyNowReservation: auction.buyNowReservation ? true : { $ne: true },
+  };
   const updated = await Auction.findOneAndUpdate(
-    { _id: auctionId, status: AUCTION_STATUS.PAYMENT_PENDING, winnerId: auction.winnerId },
+    filter,
     { paymentDueAt: newDueAt },
     { new: true }
   );
