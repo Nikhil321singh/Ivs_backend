@@ -1,10 +1,14 @@
 const Auction = require('../models/Auction.model');
 const Bid = require('../models/Bid.model');
+const Order = require('../models/Order.model');
+const Payment = require('../models/Payment.model');
+const auctionSale = require('./auctionSale.service');
 const notificationService = require('./notification.service');
 const settingsService = require('./settings.service');
 const { SETTING_KEYS } = require('../constants/settings');
 const { NOTIFICATION_TYPE } = require('../constants/notification');
-const { AUCTION_STATUS, BID_STATUS } = require('../constants/auctionEnums');
+const { AUCTION_STATUS, BID_STATUS, ORDER_SOURCE, FULFILMENT_STATUS } = require('../constants/auctionEnums');
+const { PAYMENT_STATUS } = require('../constants/walletEnums');
 
 /* eslint-disable no-console */
 
@@ -348,6 +352,7 @@ const expireUnpaid = async (limit = BATCH_LIMIT) => {
 
   const due = await Auction.find({
     status: AUCTION_STATUS.PAYMENT_PENDING,
+    buyNowReservation: { $ne: true },
     paymentDueAt: { $lte: now },
   })
     .limit(limit)
@@ -366,17 +371,110 @@ const expireUnpaid = async (limit = BATCH_LIMIT) => {
   return expired;
 };
 
+/** Releases an unpaid instant-buy reservation when its configured window ends. */
+const expireBuyNowReservations = async (limit = BATCH_LIMIT) => {
+  const now = new Date();
+  const due = await Auction.find({
+    status: AUCTION_STATUS.PAYMENT_PENDING,
+    buyNowReservation: true,
+    paymentDueAt: { $lte: now },
+  })
+    .limit(limit)
+    .lean();
+
+  let releasedCount = 0;
+  for (const auction of due) {
+    if (auction.paymentId) {
+      const failed = await Payment.findOneAndUpdate(
+        { _id: auction.paymentId, status: PAYMENT_STATUS.CREATED },
+        { $set: { status: PAYMENT_STATUS.FAILED } },
+        { new: true }
+      );
+      if (!failed) {
+        const payment = await Payment.findById(auction.paymentId);
+        if (payment?.status === PAYMENT_STATUS.PAID) {
+          await auctionSale.completeSale(payment);
+        }
+      }
+    }
+
+    const released = await auctionSale.releaseBuyNowReservation({
+      auctionId: auction._id,
+      buyerId: auction.winnerId,
+      paymentId: auction.paymentId || null,
+    });
+    if (!released) continue;
+
+    releasedCount += 1;
+    if (released.endAt <= now) {
+      await closeAuction(released._id);
+    }
+  }
+
+  return releasedCount;
+};
+
+// shortcut: fixed 60-min abandon window; promote to a setting if ops need to tune it.
+const BUY_NOW_ABANDON_MINUTES = 60;
+
+/**
+ * Cancel abandoned Buy Now orders.
+ *
+ * Legacy Buy Now orders may have no reservation to expire. Cancel those that
+ * remain unpaid after the old one-hour abandon window; reserved checkouts are
+ * left alone here and released by expireBuyNowReservations at their configured
+ * payment deadline.
+ *
+ * The `paidAt: null` filter makes this safe against a capture that lands
+ * concurrently — markPaid sets paidAt, so a paid order can never match here.
+ */
+const cancelAbandonedBuyNow = async () => {
+  const cutoff = new Date(Date.now() - BUY_NOW_ABANDON_MINUTES * 60 * 1000);
+  const candidates = await Order.find({
+      source: ORDER_SOURCE.BUY_NOW,
+      paidAt: null,
+      fulfilmentStatus: FULFILMENT_STATUS.PENDING,
+      createdAt: { $lte: cutoff },
+    })
+    .select('_id auctionId buyerId')
+    .limit(BATCH_LIMIT)
+    .lean();
+  let cancelled = 0;
+  for (const order of candidates) {
+    const reserved = await Auction.exists({
+      _id: order.auctionId,
+      status: AUCTION_STATUS.PAYMENT_PENDING,
+      buyNowReservation: true,
+      winnerId: order.buyerId,
+    });
+    if (reserved) continue;
+
+    const result = await Order.updateOne(
+      {
+        _id: order._id,
+        paidAt: null,
+        fulfilmentStatus: FULFILMENT_STATUS.PENDING,
+      },
+      { $set: { fulfilmentStatus: FULFILMENT_STATUS.CANCELLED } }
+    );
+    cancelled += result.modifiedCount || 0;
+  }
+  return cancelled;
+};
+
 /** One full pass. Safe to run concurrently with itself and with live traffic. */
 const sweep = async () => {
   const [activated, closed, expired] = [await activateDue(), await closeExpired(), await expireUnpaid()];
+  const buyNowExpired = await expireBuyNowReservations();
+  const buyNowCancelled = await cancelAbandonedBuyNow();
 
-  if (activated || closed || expired) {
+  if (activated || closed || expired || buyNowExpired || buyNowCancelled) {
     console.log(
-      `[Auction] sweep: ${activated} activated, ${closed} closed, ${expired} payment-expired`
+      `[Auction] sweep: ${activated} activated, ${closed} closed, ${expired} payment-expired, ${buyNowExpired} buy-now-released, ${buyNowCancelled} buy-now-abandoned`
     );
   }
 
-  return { activated, closed, expired };
+  return { activated, closed, expired, buyNowExpired, buyNowCancelled };
 };
 
 let timer = null;
@@ -415,6 +513,8 @@ module.exports = {
   activateDue,
   closeExpired,
   expireUnpaid,
+  expireBuyNowReservations,
+  cancelAbandonedBuyNow,
   sweep,
   startSweeper,
   stopSweeper,

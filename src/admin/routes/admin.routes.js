@@ -22,6 +22,8 @@ const {
   updateOrderValidator,
   presignedUrlValidator,
   confirmS3PhotoValidator,
+  biddingKycIdParamValidator,
+  rejectBiddingKycValidator,
 } = require('../validators/admin.validator');
 const {
   upsertAppVersionValidator,
@@ -219,6 +221,34 @@ router.get(
   userIdParamValidator,
   validateRequest,
   adminController.getUser
+);
+
+/**
+ * @openapi
+ * /admin/users/{userId}/reset-kyc:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Reset a user's KYC so they can redo the full onboarding flow
+ *     description: >-
+ *       Clears kycCompleted, aadhaarVerified, aadhaarNumberHash, PAN, email and
+ *       userType. Use when a user is stuck — for example their Aadhaar is verified
+ *       but the app's KYC button is unreachable in that state. Wallet balance,
+ *       IMEI history and financial records are untouched.
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: path, name: userId, required: true, schema: { type: string }, description: Mongo id of the user }
+ *     responses:
+ *       200: { description: KYC reset successfully }
+ *       404: { description: User not found }
+ *       409: { description: User has no KYC data to reset }
+ *       422: { description: Malformed user id }
+ */
+router.post(
+  '/users/:userId/reset-kyc',
+  adminAuth,
+  userIdParamValidator,
+  validateRequest,
+  adminController.resetUserKyc
 );
 
 /**
@@ -954,6 +984,32 @@ router.post(
   adminController.relistAuction
 );
 
+/**
+ * @openapi
+ * /admin/auctions/{auctionId}/reopen-payment:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Extend the payment window for the current winner
+ *     description: >-
+ *       Resets paymentDueAt to now + the configured payment window. Use when the
+ *       winning bidder ran into a payment issue and needs extra time. The auction
+ *       must be PAYMENT_PENDING with an active winner. The winner is notified.
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: path, name: auctionId, required: true, schema: { type: string } }
+ *     responses:
+ *       200: { description: Payment window extended }
+ *       404: { description: Auction not found }
+ *       409: { description: No winner currently waiting to pay }
+ */
+router.post(
+  '/auctions/:auctionId/reopen-payment',
+  adminAuth,
+  adminAuctionIdParamValidator,
+  validateRequest,
+  adminController.reopenAuctionPayment
+);
+
 /* ---- Orders: the fulfilment queue -------------------------------- */
 
 /**
@@ -1110,6 +1166,104 @@ router.post(
   takeDownAuctionValidator,
   validateRequest,
   adminController.takeDownAuction
+);
+
+/* ------------------------------------------------------------------ *
+ * Bidding KYC review — individuals who want to bid submit a shop/GST  *
+ * form; admin approves or rejects. Approved users get biddingKycStatus *
+ * 'approved' and can then place bids.                                  *
+ * ------------------------------------------------------------------ */
+
+/**
+ * @openapi
+ * /admin/bidding-kyc:
+ *   get:
+ *     tags: [Admin]
+ *     summary: List bidding KYC applications from individual users
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: query, name: page, schema: { type: integer, default: 1 } }
+ *       - { in: query, name: limit, schema: { type: integer, default: 20, maximum: 100 } }
+ *       - { in: query, name: status, schema: { type: string, enum: [pending, approved, rejected] } }
+ *     responses:
+ *       200: { description: Applications fetched successfully }
+ */
+router.get('/bidding-kyc', adminAuth, adminController.listBiddingKyc);
+
+/**
+ * @openapi
+ * /admin/bidding-kyc/{id}:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Get one bidding KYC application with all document photos
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: string } }
+ *     responses:
+ *       200: { description: Application fetched successfully }
+ *       404: { description: Application not found }
+ */
+router.get(
+  '/bidding-kyc/:id',
+  adminAuth,
+  biddingKycIdParamValidator,
+  validateRequest,
+  adminController.getBiddingKyc
+);
+
+/**
+ * @openapi
+ * /admin/bidding-kyc/{id}/approve:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Approve a pending bidding KYC application
+ *     description: The user's biddingKycStatus is set to 'approved' and they can immediately bid.
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: string } }
+ *     responses:
+ *       200: { description: Application approved }
+ *       409: { description: Application is not in pending state }
+ *       404: { description: Application not found }
+ */
+router.post(
+  '/bidding-kyc/:id/approve',
+  adminAuth,
+  biddingKycIdParamValidator,
+  validateRequest,
+  adminController.approveBiddingKyc
+);
+
+/**
+ * @openapi
+ * /admin/bidding-kyc/{id}/reject:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Reject a pending bidding KYC application
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: string } }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [reason]
+ *             properties:
+ *               reason: { type: string, example: "GST number does not match the uploaded certificate." }
+ *     responses:
+ *       200: { description: Application rejected }
+ *       409: { description: Application is not in pending state }
+ *       404: { description: Application not found }
+ */
+router.post(
+  '/bidding-kyc/:id/reject',
+  adminAuth,
+  biddingKycIdParamValidator,
+  rejectBiddingKycValidator,
+  validateRequest,
+  adminController.rejectBiddingKyc
 );
 
 module.exports = router;

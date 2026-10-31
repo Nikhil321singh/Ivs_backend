@@ -3,6 +3,7 @@ const { successResponse } = require('../helpers/apiResponse');
 const httpStatus = require('../constants/httpStatus');
 const MESSAGES = require('../constants/messages');
 const provider = require('../services/providers/digiLockerProvider');
+const ivsProvider = require('../services/providers/ivsProvider');
 const ProviderRequestLog = require('../models/ProviderRequestLog.model');
 const { PROVIDER_OPERATION } = require('../constants/aadhaarVerification');
 
@@ -242,4 +243,22 @@ const revokeToken = asyncHandler(async (req, res) => {
   });
 });
 
-module.exports = { initiateSession, accessToken, issuedFiles, downloadXml, revokeToken };
+/**
+ * IMEI blocklist check via C-DOT CEIR, on behalf of a caller without a stable
+ * egress IP. Same rationale as the DigiLocker routes above: the provider is
+ * believed to allowlist source addresses, so this server lends its fixed IP.
+ *
+ * The response is passed through verbatim — including upstreamAnswered:false
+ * cases — so the caller can decide whether to bill and whether to allow the
+ * transaction. HTTP 200 always: the IVS provider never throws for expected
+ * failure modes, and a service-unavailable result is still a valid answer, not
+ * a gateway error.
+ */
+const checkImei = asyncHandler(async (req, res) => {
+  const { imei1, imei2 } = req.body;
+  const result = await ivsProvider.verifyImei({ imei1, imei2 });
+
+  return successResponse(res, httpStatus.OK, MESSAGES.WRAPPER.IMEI_CHECKED, result);
+});
+
+module.exports = { initiateSession, accessToken, issuedFiles, downloadXml, revokeToken, checkImei };

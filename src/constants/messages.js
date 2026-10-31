@@ -77,6 +77,7 @@ module.exports = {
     XML_FAILED: 'Could not download the document.',
     TOKEN_REVOKED: 'DigiLocker session revoked.',
     REVOKE_FAILED: 'Could not revoke the DigiLocker session.',
+    IMEI_CHECKED: 'IMEI verification completed.',
   },
 
   IVS: {
@@ -181,6 +182,7 @@ module.exports = {
     NO_BUY_NOW: 'This listing does not have an instant buy price.',
     BUY_NOW_PASSED:
       'Bidding has already passed the instant buy price, so this device can only be won by bidding now.',
+    BUY_NOW_CLOSING_SOON: 'Instant buy is not available in the last 2 minutes of an auction.',
     BUY_NOW_SUCCESS: 'Device reserved. Complete the payment to confirm your purchase.',
     DIAGNOSIS_NOT_CONFIGURED: 'Device diagnostics are not configured. Please contact support.',
     DIAGNOSIS_LOOKUP_FAILED: 'Could not reach the diagnostics service. Please try again in a moment.',
@@ -189,6 +191,8 @@ module.exports = {
     LOOKUP_OK: 'Device report fetched successfully.',
     NOT_RELISTABLE: 'Only an auction that ended unsold, unpaid or cancelled can be relisted.',
     RELISTED: 'Listing recreated as a new draft.',
+    NO_PENDING_WINNER: 'This auction does not have a winner waiting to pay.',
+    PAYMENT_REOPENED: 'Payment window extended. The bidder has been notified.',
   },
   ORDER: {
     CREATED: 'Order created successfully.',
@@ -273,6 +277,25 @@ module.exports = {
     USERS_FETCHED: 'Users fetched successfully.',
     USER_FETCHED: 'User details fetched successfully.',
     STATS_FETCHED: 'Dashboard stats fetched successfully.',
+    KYC_RESET: 'User KYC reset successfully. The user can now redo the KYC flow.',
+  },
+  BIDDING_KYC: {
+    SUBMITTED: 'Bidding KYC application submitted successfully.',
+    FETCHED: 'Bidding KYC status fetched successfully.',
+    NOT_FOUND: 'Bidding KYC application not found.',
+    ALREADY_PENDING: 'Your bidding KYC application is already under review.',
+    ALREADY_APPROVED: 'Your bidding KYC has already been approved.',
+    NOT_PENDING: 'Only a pending application can be reviewed.',
+    APPROVED: 'Bidding KYC approved. The user can now bid.',
+    REJECTED: 'Bidding KYC rejected.',
+    LIST_FETCHED: 'Bidding KYC applications fetched successfully.',
+    VENDOR_NOT_ELIGIBLE: 'Vendors are already eligible to bid after completing KYC.',
+    BIDDING_KYC_REQUIRED: 'You need an approved bidding KYC to place bids. Please submit the bidding KYC form.',
+    VISITING_CARD_PHOTO_REQUIRED: 'Shop visiting card photo is required.',
+    GST_PHOTO_REQUIRED: 'GST photo is required.',
+    UDYAM_AADHAAR_PHOTO_REQUIRED: 'Udyam Aadhaar photo is required.',
+    SHOP_PHOTO_REQUIRED: 'Shop photo is required.',
+    REJECTION_REASON_REQUIRED: 'A reason is required when rejecting an application.',
   },
   VALIDATION: {
     FAILED: 'Validation failed. Please check your input.',
