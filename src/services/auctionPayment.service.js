@@ -274,13 +274,11 @@ const buyNow = async (userId, auctionId, { shippingAddress = null } = {}) => {
       amountPaise: reserved.salePricePaise,
       currency: 'INR',
       receipt,
-      expiresAt,
       notes: {
         userId: String(userId),
         purpose: PAYMENT_PURPOSE.AUCTION,
         auctionId: String(reserved._id),
         source: ORDER_SOURCE.BUY_NOW,
-        reserved: true,
       },
     });
   } catch (err) {
