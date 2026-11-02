@@ -1,5 +1,6 @@
 const Payment = require('../models/Payment.model');
 const Auction = require('../models/Auction.model');
+const vendorPaymentService = require('./vendorPayment.service');
 const razorpay = require('./providers/razorpayProvider');
 const walletService = require('./wallet.service');
 const entitlementService = require('./entitlement.service');
@@ -250,12 +251,19 @@ const handleWebhook = async (rawBody, signature) => {
     const payment = await Payment.findOne({ razorpayOrderId: entity.order_id });
     if (payment) {
       await creditForPayment(payment, { paymentId: entity.id, signature: null });
+    } else {
+      await vendorPaymentService.handleWebhookEvent(entity, event.event);
     }
   } else if (event.event === 'payment.failed' && entity?.order_id) {
-    await Payment.findOneAndUpdate(
-      { razorpayOrderId: entity.order_id, status: PAYMENT_STATUS.CREATED },
-      { status: PAYMENT_STATUS.FAILED, razorpayPaymentId: entity.id }
-    );
+    const payment = await Payment.findOne({ razorpayOrderId: entity.order_id });
+    if (payment) {
+      await Payment.findOneAndUpdate(
+        { razorpayOrderId: entity.order_id, status: PAYMENT_STATUS.CREATED },
+        { status: PAYMENT_STATUS.FAILED, razorpayPaymentId: entity.id }
+      );
+    } else {
+      await vendorPaymentService.handleWebhookEvent(entity, event.event);
+    }
   }
 
   return { event: event.event };

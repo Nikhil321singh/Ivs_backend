@@ -1,0 +1,18 @@
+const VENDOR_TXN_TYPE = Object.freeze({
+  CREDIT: 'CREDIT',
+  DEBIT: 'DEBIT',
+});
+
+const VENDOR_TXN_REASON = Object.freeze({
+  ADMIN_GRANT: 'ADMIN_GRANT',
+  ADMIN_ADJUSTMENT: 'ADMIN_ADJUSTMENT',
+  API_CALL: 'API_CALL',
+  PURCHASE: 'PURCHASE',
+});
+
+const VENDOR_REF_TYPE = Object.freeze({
+  IVS_CHECK: 'IVS_CHECK',
+  PAYMENT: 'PAYMENT',
+});
+
+module.exports = { VENDOR_TXN_TYPE, VENDOR_TXN_REASON, VENDOR_REF_TYPE };

@@ -394,6 +394,66 @@ const confirmS3PhotoValidator = [
     }),
 ];
 
+const biddingKycIdParamValidator = [
+  param('id').isMongoId().withMessage('A valid application id is required.'),
+];
+
+const rejectBiddingKycValidator = [
+  ...biddingKycIdParamValidator,
+  body('reason')
+    .trim()
+    .notEmpty()
+    .withMessage('A reason is required when rejecting an application.')
+    .isLength({ max: 500 })
+    .withMessage('reason must be 500 characters or fewer.'),
+];
+
+const vendorIdParamValidator = [
+  param('vendorId').isMongoId().withMessage('A valid vendor id is required.'),
+];
+
+const createVendorValidator = [
+  body('name').trim().notEmpty().withMessage('name is required.').isLength({ max: 120 }),
+  body('email')
+    .trim()
+    .notEmpty()
+    .withMessage('email is required.')
+    .isEmail()
+    .withMessage('Please provide a valid email address.')
+    .normalizeEmail(),
+];
+
+const updateVendorValidator = [
+  ...vendorIdParamValidator,
+  body('name').optional().trim().notEmpty().isLength({ max: 120 }),
+  body('email').optional().trim().isEmail().withMessage('Please provide a valid email address.').normalizeEmail(),
+  body('isActive').optional().isBoolean().toBoolean(),
+  body().custom((_v, { req }) => {
+    if (req.body.name === undefined && req.body.email === undefined && req.body.isActive === undefined) {
+      throw new Error('Provide at least one field to update.');
+    }
+    return true;
+  }),
+];
+
+/**
+ * `note` is required — same rationale as adjustCreditsValidator: admin has no
+ * role separation, so the note + adminId is the entire audit story for a grant.
+ */
+const grantLicencesValidator = [
+  ...vendorIdParamValidator,
+  body('amount')
+    .isInt({ min: 1 })
+    .withMessage('amount must be a positive integer.')
+    .toInt(),
+  body('note')
+    .trim()
+    .notEmpty()
+    .withMessage('A note is required so the grant is explainable later.')
+    .isLength({ max: 500 })
+    .withMessage('note must be 500 characters or fewer.'),
+];
+
 module.exports = {
   loginValidator,
   updateSettingsValidator,
@@ -413,4 +473,10 @@ module.exports = {
   updateOrderValidator,
   presignedUrlValidator,
   confirmS3PhotoValidator,
+  biddingKycIdParamValidator,
+  rejectBiddingKycValidator,
+  vendorIdParamValidator,
+  createVendorValidator,
+  updateVendorValidator,
+  grantLicencesValidator,
 };

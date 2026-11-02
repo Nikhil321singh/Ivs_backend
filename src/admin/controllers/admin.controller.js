@@ -3,6 +3,7 @@ const { successResponse } = require('../../helpers/apiResponse');
 const httpStatus = require('../../constants/httpStatus');
 const MESSAGES = require('../../constants/messages');
 const adminService = require('../services/admin.service');
+const vendorAdminService = require('../services/vendor.admin.service');
 const subscriptionAdminService = require('../services/subscription.admin.service');
 const auctionAdminService = require('../services/auction.admin.service');
 const orderService = require('../../services/order.service');
@@ -375,6 +376,76 @@ const getAuctionStats = asyncHandler(async (req, res) => {
   successResponse(res, httpStatus.OK, MESSAGES.ADMIN.STATS_FETCHED, stats);
 });
 
+/* ---------------------------------------------------------------- *
+ * Bidding KYC review
+ * ---------------------------------------------------------------- */
+
+const listBiddingKyc = asyncHandler(async (req, res) => {
+  const data = await biddingKycAdminService.list(req.query);
+
+  successResponse(res, httpStatus.OK, MESSAGES.BIDDING_KYC.LIST_FETCHED, data);
+});
+
+const getBiddingKyc = asyncHandler(async (req, res) => {
+  const application = await biddingKycAdminService.getOne(req.params.id);
+
+  successResponse(res, httpStatus.OK, MESSAGES.BIDDING_KYC.FETCHED, { application });
+});
+
+const approveBiddingKyc = asyncHandler(async (req, res) => {
+  const application = await biddingKycAdminService.approve(req.params.id, req.admin._id);
+
+  successResponse(res, httpStatus.OK, MESSAGES.BIDDING_KYC.APPROVED, { application });
+});
+
+const rejectBiddingKyc = asyncHandler(async (req, res) => {
+  const application = await biddingKycAdminService.reject(
+    req.params.id,
+    req.body.reason,
+    req.admin._id
+  );
+
+  successResponse(res, httpStatus.OK, MESSAGES.BIDDING_KYC.REJECTED, { application });
+});
+
+/* ---- Vendor licence management ------------------------------------ */
+
+const createVendor = asyncHandler(async (req, res) => {
+  const { vendor, apiKey } = await vendorAdminService.createVendor(req.body);
+  console.warn('[Admin] Vendor created', { vendorId: vendor.id, email: vendor.email, adminId: req.admin._id });
+  successResponse(res, httpStatus.CREATED, MESSAGES.VENDOR.CREATED, { vendor, apiKey });
+});
+
+const listVendors = asyncHandler(async (req, res) => {
+  const data = await vendorAdminService.listVendors(req.query);
+  successResponse(res, httpStatus.OK, MESSAGES.VENDOR.LIST_FETCHED, data);
+});
+
+const getVendor = asyncHandler(async (req, res) => {
+  const data = await vendorAdminService.getVendor(req.params.vendorId);
+  successResponse(res, httpStatus.OK, MESSAGES.VENDOR.FETCHED, data);
+});
+
+const updateVendor = asyncHandler(async (req, res) => {
+  const data = await vendorAdminService.updateVendor(req.params.vendorId, req.body);
+  console.warn('[Admin] Vendor updated', { vendorId: req.params.vendorId, adminId: req.admin._id });
+  successResponse(res, httpStatus.OK, MESSAGES.VENDOR.UPDATED, data);
+});
+
+const grantVendorLicences = asyncHandler(async (req, res) => {
+  const data = await vendorAdminService.grantLicences(req.params.vendorId, req.body.amount, {
+    adminId: req.admin._id,
+    note: req.body.note,
+  });
+  console.warn('[Admin] Vendor licences granted', { vendorId: req.params.vendorId, amount: req.body.amount, adminId: req.admin._id });
+  successResponse(res, httpStatus.OK, MESSAGES.VENDOR.LICENCES_GRANTED, data);
+});
+
+const getVendorLedger = asyncHandler(async (req, res) => {
+  const data = await vendorAdminService.getLedger(req.params.vendorId, req.query);
+  successResponse(res, httpStatus.OK, MESSAGES.VENDOR.LEDGER_FETCHED, data);
+});
+
 module.exports = {
   login,
   me,
@@ -414,4 +485,15 @@ module.exports = {
   listOrders,
   updateOrder,
   vendorSettlement,
+  listBiddingKyc,
+  getBiddingKyc,
+  approveBiddingKyc,
+  rejectBiddingKyc,
+  resetUserKyc,
+  createVendor,
+  listVendors,
+  getVendor,
+  updateVendor,
+  grantVendorLicences,
+  getVendorLedger,
 };
