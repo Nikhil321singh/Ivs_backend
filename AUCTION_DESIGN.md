@@ -28,13 +28,10 @@ winner pays through Razorpay.
 
 ### Two things to know before launch
 
-**Buy Now is a time-limited reservation.** The first checkout atomically takes
-the listing off the market, blocking other Buy Now attempts and bids while
-payment is pending. A failed payment releases it immediately; an abandoned
-checkout releases it after the 10-minute `auctionBuyNowWindowMinutes` default
-(admin-configurable up to 24 hours). This prevents
-duplicate purchases, but a buyer can still hold stock until the configured
-deadline, so shorten that window if reservation abuse becomes a problem.
+**Buy Now checkout is time-limited.** A payment order expires after 10 minutes.
+The auction remains live until a payment is captured, so an abandoned checkout
+does not reserve the listing. If a payment is captured after its deadline, it
+is refunded and does not complete the sale.
 
 **Vendor payout does not exist.** On a vendor sale Grest collects the buyer's
 money and owes the vendor; nothing in the system discharges that debt.

@@ -32,7 +32,6 @@ const SETTING_KEYS = Object.freeze({
   AUCTION_ANTI_SNIPE_WINDOW_SECONDS: 'auctionAntiSnipeWindowSeconds',
   AUCTION_ANTI_SNIPE_EXTEND_SECONDS: 'auctionAntiSnipeExtendSeconds',
   AUCTION_PAYMENT_WINDOW_HOURS: 'auctionPaymentWindowHours',
-  AUCTION_BUY_NOW_WINDOW_MINUTES: 'auctionBuyNowWindowMinutes',
   AUCTION_SECOND_CHANCE_ENABLED: 'auctionSecondChanceEnabled',
   AUCTION_REQUIRE_DIAGNOSIS: 'auctionRequireDiagnosis',
 });
@@ -220,16 +219,6 @@ const SETTING_DEFINITIONS = Object.freeze({
     label: 'Winner payment window (hours)',
     description:
       'How long the winning bidder has to pay. If they miss it the device is offered to the next highest bidder, who gets a fresh window of the same length.',
-  },
-  [SETTING_KEYS.AUCTION_BUY_NOW_WINDOW_MINUTES]: {
-    type: 'integer',
-    default: 10,
-    min: 1,
-    max: 1440,
-    public: true,
-    label: 'Buy Now reservation window (minutes)',
-    description:
-      'How long the first buyer has to complete Buy Now payment before the listing is released. Default: 10 minutes.',
   },
   [SETTING_KEYS.AUCTION_SECOND_CHANCE_ENABLED]: {
     type: 'boolean',

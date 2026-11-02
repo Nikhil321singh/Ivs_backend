@@ -94,6 +94,10 @@ const decorate = (auction, { viewerId = null, diagnosis = null, verification = n
   const isSeller = viewerId && String(auction.sellerId?._id || auction.sellerId) === String(viewerId);
   const isWinner = viewerId && String(auction.winnerId || '') === String(viewerId);
   const live = auction.status === AUCTION_STATUS.LIVE;
+  const reserved = auction.status === AUCTION_STATUS.BUY_NOW_RESERVED;
+  // Countdown makes sense while the auction clock is running, whether it's open
+  // to bids or temporarily reserved for a Buy Now buyer.
+  const counting = live || reserved;
 
   const seller = auction.sellerId?.name !== undefined ? auction.sellerId : null;
 
@@ -141,6 +145,9 @@ const decorate = (auction, { viewerId = null, diagnosis = null, verification = n
       (auction.currentBidPaise === null ||
         auction.currentBidPaise === undefined ||
         auction.currentBidPaise < auction.buyNowPricePaise),
+    // Non-null while a buyer holds a reservation. The client can show
+    // "Available again in X mins" to other users browsing the listing.
+    buyNowReservedUntil: reserved ? auction.paymentDueAt : null,
 
     startAt: auction.startAt,
     endAt: auction.endAt,
@@ -148,7 +155,7 @@ const decorate = (auction, { viewerId = null, diagnosis = null, verification = n
     // clock: it takes secondsRemaining and ticks down locally, re-syncing on
     // the next request rather than computing from endAt against device time.
     serverTime: now,
-    secondsRemaining: live ? secondsRemaining(auction.endAt, now) : 0,
+    secondsRemaining: counting ? secondsRemaining(auction.endAt, now) : 0,
     extended: (auction.extensionCount || 0) > 0,
 
     seller: seller ? { id: String(seller._id), name: seller.name || null } : undefined,
@@ -665,7 +672,10 @@ const browse = async (filters = {}, viewerId = null) => {
   const skip = (safePage - 1) * safeLimit;
   const now = new Date();
 
-  const query = { status: AUCTION_STATUS.LIVE, endAt: { $gt: now } };
+  const query = {
+    status: { $in: [AUCTION_STATUS.LIVE, AUCTION_STATUS.BUY_NOW_RESERVED] },
+    endAt: { $gt: now },
+  };
 
   if (brand) query['device.brand'] = new RegExp(`^${escapeRegex(brand)}$`, 'i');
   if (condition) {

@@ -180,6 +180,7 @@ module.exports = {
     PAYMENT_ORDER_CREATED: 'Payment order created successfully.',
     BUY_NOW_BELOW_START: 'The instant buy price must be higher than the starting price.',
     NO_BUY_NOW: 'This listing does not have an instant buy price.',
+    BUY_NOW_ALREADY_RESERVED: 'Another buyer is currently completing payment for this device. It will become available again in a few minutes if they do not pay.',
     BUY_NOW_PASSED:
       'Bidding has already passed the instant buy price, so this device can only be won by bidding now.',
     BUY_NOW_CLOSING_SOON: 'Instant buy is not available in the last 2 minutes of an auction.',

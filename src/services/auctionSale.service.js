@@ -10,6 +10,8 @@ const { PAYMENT_STATUS } = require('../constants/walletEnums');
 
 /* eslint-disable no-console */
 
+const BUY_NOW_PAYMENT_WINDOW_MS = 10 * 60 * 1000;
+
 /**
  * Completing an auction sale once the winner's payment is captured.
  *
@@ -34,13 +36,33 @@ const isBuyNow = (payment) => payment?.notes?.source === ORDER_SOURCE.BUY_NOW;
 /**
  * A captured Buy Now payment no longer owns the active reservation.
  */
-const refundLostBuyNow = async (payment) => {
-  console.warn(
-    '[Auction] Buy Now payment did not match the active reservation; attempting refund',
-    'auction:', String(payment.auctionId),
-    'paymentId:', String(payment._id),
-    'razorpayPaymentId:', payment.razorpayPaymentId || 'not set'
+const refundLostBuyNow = async (payment, reason = 'buy_now_unavailable') => {
+  console.error(
+    '[Auction] buy-now payment cannot be completed — refunding',
+    'auction:',
+    String(payment.auctionId),
+    'reason:',
+    reason,
+    'paymentId:',
+    String(payment._id)
   );
+
+  if (payment.razorpayPaymentId) {
+    try {
+      await razorpay.refund(payment.razorpayPaymentId, {
+        amountPaise: payment.amountPaise,
+        notes: { reason, auctionId: String(payment.auctionId) },
+      });
+    } catch (err) {
+      console.error(
+        '[Auction] buy-now refund failed — needs manual refund',
+        String(payment._id),
+        err.response?.data || err.message
+      );
+    }
+  } else {
+    console.error('[Auction] cannot auto-refund — no razorpayPaymentId on', String(payment._id));
+  }
 
   try {
     await orderService.cancelUnpaidForBuyer(payment.auctionId, payment.userId);
@@ -88,10 +110,11 @@ const refundLostBuyNow = async (payment) => {
 
   await notifySafely(payment.userId, {
     title: 'Buy Now could not be completed',
-    body: refundCreated
-      ? 'This device was no longer available. Your payment has been refunded.'
-      : 'This device was no longer available. Our team will help complete your refund.',
-    data: { auctionId: String(payment.auctionId), outcome: 'REFUNDED' },
+    body:
+      reason === 'buy_now_payment_expired'
+        ? 'The Buy Now payment window expired, so your payment is being refunded.'
+        : 'This device was no longer available, so your payment is being refunded.',
+    data: { auctionId: String(payment.auctionId), outcome: 'REFUNDED', reason },
   });
 };
 
@@ -138,120 +161,65 @@ const releaseBuyNowReservation = async ({ auctionId, buyerId, paymentId = null }
  *    re-run the sale and a payment landing after the window lapsed cannot
  *    resurrect an auction the sweeper already expired.
  */
-const completeSale = async (payment) => {
+const completeSale = async (payment, { capturedAt = new Date() } = {}) => {
   if (!payment.auctionId) return null;
 
   const now = new Date();
   let sold;
 
-  if (isBuyNow(payment) && payment.notes?.reserved === true) {
+  if (isBuyNow(payment)) {
+    const expiresAt =
+      payment.expiresAt ||
+      new Date(new Date(payment.createdAt).getTime() + BUY_NOW_PAYMENT_WINDOW_MS);
+    if (capturedAt > expiresAt) {
+      await refundLostBuyNow(payment, 'buy_now_payment_expired');
+      return Auction.findById(payment.auctionId);
+    }
+
+    // The auction was reserved at click time (BUY_NOW_RESERVED). Completing the
+    // sale is simply claiming that reservation — no re-checking of prices or bid
+    // state needed because all of that was validated atomically when we reserved.
+    // winnerId is already set; we only accept this payer's payment.
     sold = await Auction.findOneAndUpdate(
       {
         _id: payment.auctionId,
-        status: AUCTION_STATUS.PAYMENT_PENDING,
-        buyNowReservation: true,
+        status: AUCTION_STATUS.BUY_NOW_RESERVED,
         winnerId: payment.userId,
-        paymentId: payment._id,
-        salePricePaise: payment.amountPaise,
-        paymentDueAt: { $gt: now },
       },
       {
         $set: {
           status: AUCTION_STATUS.SOLD,
-          salePricePaise: payment.amountPaise,
+          // winningBidId stays null — Buy Now has no bid row.
           soldAt: now,
           closedAt: now,
-          buyNowReservation: false,
+          paymentId: payment._id,
         },
       },
       { new: true }
     );
 
     if (!sold) {
-      const current = await Auction.findById(payment.auctionId);
-      if (
-        current?.status === AUCTION_STATUS.SOLD &&
-        String(current.paymentId) === String(payment._id)
-      ) {
-        return current;
-      }
-      await refundLostBuyNow(payment);
-      return current;
+      // Reservation expired and the sweeper already reverted the auction to
+      // LIVE, or this is a duplicate webhook after a sale already completed.
+      await refundLostBuyNow(payment, 'buy_now_reservation_expired');
+      return Auction.findById(payment.auctionId);
     }
-  } else if (isBuyNow(payment)) {
-    sold = await Auction.findOneAndUpdate(
-      {
-        _id: payment.auctionId,
-        status: AUCTION_STATUS.LIVE,
-        endAt: { $gt: now },
-        buyNowPricePaise: { $ne: null },
-      },
-      [
-        {
-          $set: {
-            status: AUCTION_STATUS.SOLD,
-            winnerId: payment.userId,
-            // A Buy Now has no winning bid — the price came from the listing.
-            winningBidId: null,
-            salePricePaise: '$buyNowPricePaise',
-            soldAt: now,
-            closedAt: now,
-            paymentId: payment._id,
-          },
-        },
-      ],
-      { new: true }
+
+    // The device went to an instant buyer — everyone who bid has lost.
+    await Bid.updateMany({ auctionId: sold._id }, { status: BID_STATUS.LOST });
+    const losers = await Bid.distinct('bidderId', { auctionId: sold._id });
+    const label = `${sold.device?.brand || ''} ${sold.device?.model || ''}`.trim() || 'a device';
+    await Promise.all(
+      losers
+        .filter((id) => String(id) !== String(payment.userId))
+        .map((id) =>
+          notifySafely(id, {
+            title: 'Auction ended early',
+            body: `${label} was bought instantly by another buyer.`,
+            data: { auctionId: String(sold._id), outcome: BID_STATUS.LOST },
+          })
+        )
     );
-
-    // Fallback: the sweeper may have closed the auction between checkout and
-    // capture. The buyer's money is already captured — if no competing payment
-    // has completed, this captured payment takes priority over an unpaid window.
-    if (!sold) {
-      sold = await Auction.findOneAndUpdate(
-        {
-          _id: payment.auctionId,
-          buyNowPricePaise: { $ne: null },
-          $or: [
-            // Expired in the DB but sweeper hasn't run yet (up to 30-sec window).
-            { status: AUCTION_STATUS.LIVE, endAt: { $lte: now } },
-            { status: { $in: [AUCTION_STATUS.ENDED_NO_BIDS, AUCTION_STATUS.PAYMENT_EXPIRED] } },
-            // PAYMENT_PENDING with no current winner: the previous winner's window
-            // lapsed and passOfferDown cleared winnerId before finding the next
-            // candidate. Safe to take — nobody has been told they won yet.
-            { status: AUCTION_STATUS.PAYMENT_PENDING, winnerId: null },
-          ],
-        },
-        [
-          {
-            $set: {
-              status: AUCTION_STATUS.SOLD,
-              winnerId: payment.userId,
-              winningBidId: null,
-              salePricePaise: '$buyNowPricePaise',
-              soldAt: now,
-              closedAt: { $ifNull: ['$closedAt', now] },
-              paymentId: payment._id,
-            },
-          },
-        ],
-        { new: true }
-      );
-    }
-
-    if (!sold) {
-      // Guard: if this payment already completed the sale (duplicate webhook /
-      // verify race), the auction is SOLD with our paymentId — nothing to do.
-      const current = await Auction.findById(payment.auctionId);
-      if (
-        current?.status === AUCTION_STATUS.SOLD &&
-        String(current.paymentId) === String(payment._id)
-      ) {
-        return current;
-      }
-      await refundLostBuyNow(payment);
-      return current;
-    }
-
   } else {
     sold = await Auction.findOneAndUpdate(
       {

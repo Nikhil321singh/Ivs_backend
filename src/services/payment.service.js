@@ -100,7 +100,7 @@ const createTopupOrder = async (userId, amountInr) => {
  * payment is a buyer paying a seller, not a purchase from us, so it must not
  * trigger a reward — and it must not credit anything to the payer's wallet.
  */
-const creditForPayment = async (payment, { paymentId, signature }) => {
+const creditForPayment = async (payment, { paymentId, signature, capturedAt = new Date() }) => {
   const claimed = await Payment.findOneAndUpdate(
     { _id: payment._id, status: PAYMENT_STATUS.CREATED },
     {
@@ -157,7 +157,7 @@ const creditForPayment = async (payment, { paymentId, signature }) => {
   if (claimed.purpose === PAYMENT_PURPOSE.AUCTION) {
     // A sale between two users. Nothing is credited to anyone's balance — the
     // auction simply becomes SOLD, and both sides are told.
-    await auctionSale.completeSale(claimed);
+    await auctionSale.completeSale(claimed, { capturedAt });
     return claimed;
   }
 
@@ -235,7 +235,7 @@ const handleCheckoutCallback = async ({ orderId, paymentId, signature }) => {
     return { status: 'failed', orderId, paymentId };
   }
 
-  await creditForPayment(payment, { paymentId, signature });
+  await creditForPayment(payment, { paymentId, signature, capturedAt: new Date() });
 
   return { status: 'success', orderId, paymentId };
 };
@@ -254,7 +254,7 @@ const verifyPayment = async (userId, { orderId, paymentId, signature }) => {
     throw new ApiError(httpStatus.NOT_FOUND, MESSAGES.PAYMENT.ORDER_NOT_FOUND);
   }
 
-  const updated = await creditForPayment(payment, { paymentId, signature });
+  const updated = await creditForPayment(payment, { paymentId, signature, capturedAt: new Date() });
 
   if (updated.purpose === PAYMENT_PURPOSE.PLAN) {
     const { credits } = await entitlementService.getSummary(userId);
@@ -289,7 +289,11 @@ const handleWebhook = async (rawBody, signature) => {
   if (event.event === 'payment.captured' && entity?.order_id) {
     const payment = await Payment.findOne({ razorpayOrderId: entity.order_id });
     if (payment) {
-      await creditForPayment(payment, { paymentId: entity.id, signature: null });
+      const capturedAtSeconds = entity.captured_at || entity.created_at;
+      const capturedAt = capturedAtSeconds ? new Date(capturedAtSeconds * 1000) : new Date();
+      await creditForPayment(payment, { paymentId: entity.id, signature: null, capturedAt });
+    } else {
+      await vendorPaymentService.handleWebhookEvent(entity, event.event);
     }
   } else if (event.event === 'payment.failed' && entity?.order_id) {
     const failed = await Payment.findOneAndUpdate(

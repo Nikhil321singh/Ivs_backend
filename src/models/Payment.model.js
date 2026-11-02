@@ -69,6 +69,10 @@ const paymentSchema = new Schema(
       ref: 'Auction',
       default: null,
     },
+    expiresAt: {
+      type: Date,
+      default: null,
+    },
     /**
      * What was actually sold, frozen at purchase time — this, never the live
      * Plan document, is what gets credited on PAID.

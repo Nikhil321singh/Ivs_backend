@@ -14,6 +14,8 @@ const MESSAGES = require('../constants/messages');
 
 /* eslint-disable no-console */
 
+const BUY_NOW_PAYMENT_WINDOW_MS = 10 * 60 * 1000;
+
 /**
  * The winning bidder paying for the device.
  *
@@ -147,7 +149,18 @@ const createOrder = async (userId, auctionId, { shippingAddress = null } = {}) =
   };
 };
 
-/** Atomically reserves the listing for the first buyer to start checkout. */
+/**
+ * Instant purchase. Reserves the device for the buyer for 10 minutes while
+ * they pay; if payment does not land the sweeper reverts the auction to LIVE.
+ *
+ * The reservation is an atomic LIVE → BUY_NOW_RESERVED transition on the
+ * auction document, re-checking every eligibility rule at write time. Exactly
+ * one concurrent click can win; the second sees BUY_NOW_ALREADY_RESERVED.
+ * Bidding is blocked while the auction is reserved.
+ *
+ * If Razorpay order creation fails after the reservation, the reservation is
+ * released immediately so the device goes back on sale.
+ */
 const buyNow = async (userId, auctionId, { shippingAddress = null } = {}) => {
   if (!razorpay.isConfigured()) {
     throw new ApiError(httpStatus.INTERNAL_SERVER_ERROR, MESSAGES.PAYMENT.NOT_CONFIGURED);
@@ -167,32 +180,26 @@ const buyNow = async (userId, auctionId, { shippingAddress = null } = {}) => {
     throw new ApiError(httpStatus.FORBIDDEN, MESSAGES.BID.OWN_AUCTION);
   }
 
+  // If this buyer already holds the reservation, find their open Payment and
+  // return the existing checkout rather than creating a duplicate Razorpay order.
   if (
-    auction.status === AUCTION_STATUS.PAYMENT_PENDING &&
-    auction.buyNowReservation &&
-    String(auction.winnerId) === String(userId) &&
-    auction.paymentDueAt > new Date()
+    auction.status === AUCTION_STATUS.BUY_NOW_RESERVED &&
+    String(auction.winnerId) === String(userId)
   ) {
     const open = await Payment.findOne({
       auctionId: auction._id,
       userId,
       purpose: PAYMENT_PURPOSE.AUCTION,
       status: PAYMENT_STATUS.CREATED,
-      'notes.source': ORDER_SOURCE.BUY_NOW,
-      'notes.reserved': true,
     });
     if (open) {
-      const salesOrder = await orderService.createForAuction(auction, userId, {
-        source: ORDER_SOURCE.BUY_NOW,
-        amountPaise: open.amountPaise,
-        shippingAddress,
-      });
       return {
         orderId: open.razorpayOrderId,
         amount: open.amountPaise,
         currency: open.currency,
         auctionId: String(auction._id),
-        salesOrderId: String(salesOrder._id),
+        expiresAt: open.expiresAt?.toISOString() ?? null,
+        paymentWindowMinutes: 10,
         razorpayKeyId: razorpay.getKeyId(),
         checkout: razorpay.getCheckoutOptions(),
         reused: true,
@@ -200,15 +207,15 @@ const buyNow = async (userId, auctionId, { shippingAddress = null } = {}) => {
     }
   }
 
+  if (auction.status === AUCTION_STATUS.BUY_NOW_RESERVED) {
+    throw new ApiError(httpStatus.CONFLICT, MESSAGES.AUCTION.BUY_NOW_ALREADY_RESERVED);
+  }
   if (auction.status !== AUCTION_STATUS.LIVE) {
     throw new ApiError(httpStatus.CONFLICT, MESSAGES.AUCTION.NOT_LIVE);
   }
   if (!auction.buyNowPricePaise) {
     throw new ApiError(httpStatus.CONFLICT, MESSAGES.AUCTION.NO_BUY_NOW);
   }
-  // Selling at the instant price once bidding has passed it would be selling
-  // below the book. The atomic reservation below repeats this check against the
-  // latest bid so a concurrent bid cannot slip through.
   if (auction.currentBidPaise != null && auction.currentBidPaise >= auction.buyNowPricePaise) {
     throw new ApiError(httpStatus.CONFLICT, MESSAGES.AUCTION.BUY_NOW_PASSED);
   }
@@ -216,16 +223,17 @@ const buyNow = async (userId, auctionId, { shippingAddress = null } = {}) => {
     throw new ApiError(httpStatus.CONFLICT, MESSAGES.AUCTION.BUY_NOW_CLOSING_SOON);
   }
 
-  const salePricePaise = auction.buyNowPricePaise;
-  const now = new Date();
-  const buyNowWindowMinutes = await settingsService.get(SETTING_KEYS.AUCTION_BUY_NOW_WINDOW_MINUTES);
+  const expiresAt = new Date(Math.floor((Date.now() + BUY_NOW_PAYMENT_WINDOW_MS) / 1000) * 1000);
+
+  // Atomic reservation. The filter re-checks every eligibility rule so two
+  // simultaneous clicks cannot both succeed — the second finds status no longer
+  // LIVE and matches nothing.
   const reserved = await Auction.findOneAndUpdate(
     {
-      _id: auction._id,
+      _id: auctionId,
       status: AUCTION_STATUS.LIVE,
-      startAt: { $lte: now },
-      endAt: { $gt: new Date(now.getTime() + 2 * 60 * 1000) },
-      buyNowPricePaise: salePricePaise,
+      endAt: { $gt: new Date() },
+      buyNowPricePaise: { $ne: null },
       $expr: {
         $or: [
           { $eq: [{ $ifNull: ['$currentBidPaise', null] }, null] },
@@ -235,36 +243,38 @@ const buyNow = async (userId, auctionId, { shippingAddress = null } = {}) => {
     },
     {
       $set: {
-        status: AUCTION_STATUS.PAYMENT_PENDING,
+        status: AUCTION_STATUS.BUY_NOW_RESERVED,
         winnerId: userId,
-        winningBidId: null,
-        salePricePaise,
-        closedAt: now,
-        paymentDueAt: new Date(now.getTime() + buyNowWindowMinutes * 60 * 1000),
-        buyNowReservation: true,
-        paymentId: null,
+        salePricePaise: auction.buyNowPricePaise,
+        paymentDueAt: expiresAt,
       },
     },
     { new: true }
   );
+
   if (!reserved) {
+    const current = await Auction.findById(auctionId);
+    if (current?.status === AUCTION_STATUS.BUY_NOW_RESERVED) {
+      throw new ApiError(httpStatus.CONFLICT, MESSAGES.AUCTION.BUY_NOW_ALREADY_RESERVED);
+    }
     throw new ApiError(httpStatus.CONFLICT, MESSAGES.AUCTION.NOT_LIVE);
   }
 
-  let salesOrder;
-  let payment;
-  try {
-    salesOrder = await orderService.createForAuction(reserved, userId, {
-      source: ORDER_SOURCE.BUY_NOW,
-      amountPaise: salePricePaise,
-      shippingAddress,
-    });
+  const salesOrder = await orderService.createForAuction(reserved, userId, {
+    source: ORDER_SOURCE.BUY_NOW,
+    amountPaise: reserved.salePricePaise,
+    shippingAddress,
+  });
 
-    const receipt = `aucbn_${String(reserved._id).slice(-8)}_${Date.now().toString(36)}`;
-    const order = await razorpay.createOrder({
-      amountPaise: salePricePaise,
+  const receipt = `aucbn_${String(reserved._id).slice(-8)}_${Date.now().toString(36)}`;
+
+  let order;
+  try {
+    order = await razorpay.createOrder({
+      amountPaise: reserved.salePricePaise,
       currency: 'INR',
       receipt,
+      expiresAt,
       notes: {
         userId: String(userId),
         purpose: PAYMENT_PURPOSE.AUCTION,
@@ -273,69 +283,35 @@ const buyNow = async (userId, auctionId, { shippingAddress = null } = {}) => {
         reserved: true,
       },
     });
-
-    payment = await Payment.create({
-      userId,
-      razorpayOrderId: order.id,
-      amountPaise: salePricePaise,
-      currency: 'INR',
-      purpose: PAYMENT_PURPOSE.AUCTION,
-      tokens: 0,
-      auctionId: reserved._id,
-      notes: order.notes || null,
-    });
-
-    const attached = await Auction.updateOne(
-      {
-        _id: reserved._id,
-        status: AUCTION_STATUS.PAYMENT_PENDING,
-        buyNowReservation: true,
-        winnerId: userId,
-        paymentId: null,
-      },
-      { $set: { paymentId: payment._id } }
-    );
-    if (!attached.modifiedCount) {
-      throw new Error('Buy Now reservation changed before payment was attached.');
-    }
   } catch (err) {
-    console.error('[Auction] Buy Now checkout creation failed', err.response?.data || err.message);
-    if (payment) {
-      await Payment.updateOne(
-        { _id: payment._id, status: PAYMENT_STATUS.CREATED },
-        { $set: { status: PAYMENT_STATUS.FAILED } }
-      );
-    }
-    await orderService.cancelUnpaidForBuyer(reserved._id, userId);
-    await Auction.updateOne(
-      {
-        _id: reserved._id,
-        status: AUCTION_STATUS.PAYMENT_PENDING,
-        buyNowReservation: true,
-        winnerId: userId,
-        paymentId: payment ? payment._id : null,
-      },
-      {
-        $set: {
-          status: AUCTION_STATUS.LIVE,
-          winnerId: null,
-          winningBidId: null,
-          salePricePaise: null,
-          closedAt: null,
-          paymentDueAt: null,
-          buyNowReservation: false,
-          paymentId: null,
-        },
-      }
+    // Release the reservation so the device goes back on sale immediately.
+    await Auction.findOneAndUpdate(
+      { _id: reserved._id, status: AUCTION_STATUS.BUY_NOW_RESERVED, winnerId: userId },
+      { $set: { status: AUCTION_STATUS.LIVE, winnerId: null, salePricePaise: null, paymentDueAt: null } }
     );
+    console.error('[Auction] Buy Now Razorpay order failed — reservation released', err.response?.data || err.message);
     throw new ApiError(httpStatus.INTERNAL_SERVER_ERROR, MESSAGES.PAYMENT.ORDER_CREATE_FAILED);
   }
 
+  await Payment.create({
+    userId,
+    razorpayOrderId: order.id,
+    amountPaise: reserved.salePricePaise,
+    currency: 'INR',
+    purpose: PAYMENT_PURPOSE.AUCTION,
+    tokens: 0,
+    auctionId: reserved._id,
+    expiresAt,
+    notes: order.notes || null,
+  });
+
   return {
-    orderId: payment.razorpayOrderId,
-    amount: salePricePaise,
+    orderId: order.id,
+    amount: reserved.salePricePaise,
     currency: 'INR',
     auctionId: String(reserved._id),
+    expiresAt: expiresAt.toISOString(),
+    paymentWindowMinutes: 10,
     salesOrderId: String(salesOrder._id),
     razorpayKeyId: razorpay.getKeyId(),
     checkout: razorpay.getCheckoutOptions(),

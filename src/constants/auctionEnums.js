@@ -7,25 +7,29 @@
 /**
  * A listing's lifecycle.
  *
- *   DRAFT           being composed by the seller; invisible to everyone else
- *   SCHEDULED       published, but startAt is still in the future
- *   LIVE            accepting bids
- *   ENDED_NO_BIDS   closed with nobody having bid
- *   PAYMENT_PENDING closed with a winner, waiting for them to pay. Also the
- *                   state a Buy Now sits in between the click and the payment
- *   SOLD            the buyer paid; the deal is done
- *   PAYMENT_EXPIRED nobody paid — the winner missed their window and so did
- *                   every bidder below them (see the second-chance cascade)
- *   CANCELLED       pulled by the seller (before any bid) or by an admin
+ *   DRAFT              being composed by the seller; invisible to everyone else
+ *   SCHEDULED          published, but startAt is still in the future
+ *   LIVE               accepting bids and Buy Now
+ *   BUY_NOW_RESERVED   a buyer clicked Buy Now; device reserved for 10 min while
+ *                      they pay. Bidding is blocked. If payment does not land in
+ *                      time the sweeper reverts this to LIVE automatically.
+ *   ENDED_NO_BIDS      closed with nobody having bid
+ *   PAYMENT_PENDING    closed with a winner, waiting for them to pay
+ *   SOLD               the buyer paid; the deal is done
+ *   PAYMENT_EXPIRED    nobody paid — the winner missed their window and so did
+ *                      every bidder below them (see the second-chance cascade)
+ *   CANCELLED          pulled by the seller (before any bid) or by an admin
  *
- * Only LIVE accepts bids. PAYMENT_PENDING resolves to SOLD, or back to
- * PAYMENT_PENDING for the next bidder down, or finally to PAYMENT_EXPIRED when
- * the bidders run out. Everything else is terminal.
+ * Only LIVE accepts bids. BUY_NOW_RESERVED → SOLD on payment capture, or back
+ * to LIVE when the reservation window lapses. PAYMENT_PENDING resolves to SOLD,
+ * or back to PAYMENT_PENDING for the next bidder down, or finally to
+ * PAYMENT_EXPIRED when the bidders run out. Everything else is terminal.
  */
 const AUCTION_STATUS = Object.freeze({
   DRAFT: 'DRAFT',
   SCHEDULED: 'SCHEDULED',
   LIVE: 'LIVE',
+  BUY_NOW_RESERVED: 'BUY_NOW_RESERVED',
   ENDED_NO_BIDS: 'ENDED_NO_BIDS',
   PAYMENT_PENDING: 'PAYMENT_PENDING',
   SOLD: 'SOLD',
@@ -36,6 +40,7 @@ const AUCTION_STATUS = Object.freeze({
 /** Statuses that mean the auction is finished, however it finished. */
 const CLOSED_STATUSES = Object.freeze([
   AUCTION_STATUS.ENDED_NO_BIDS,
+  AUCTION_STATUS.BUY_NOW_RESERVED,
   AUCTION_STATUS.PAYMENT_PENDING,
   AUCTION_STATUS.SOLD,
   AUCTION_STATUS.PAYMENT_EXPIRED,

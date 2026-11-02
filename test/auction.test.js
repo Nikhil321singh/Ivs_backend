@@ -726,7 +726,11 @@ describe('buy now', () => {
   it('reserves the auction for the buyer while checkout is open', async () => {
     const { auction } = await liveWithBuyNow();
     const buyer = await createAuctionUser();
-    stubCreateOrder('order_buy_now_1');
+    let razorpayExpiry;
+    stubCreateOrder('order_buy_now_1', (body) => {
+      razorpayExpiry = body.expire_by;
+    });
+    const requestStartedAt = Date.now();
 
     const res = await asUser(buyer.token)
       .post(`/api/v1/auctions/${auction._id}/buy-now`)
@@ -734,6 +738,13 @@ describe('buy now', () => {
 
     expect(res.status).toBe(201);
     expect(res.body.data.amount).toBe(2000000);
+    expect(res.body.data.paymentWindowMinutes).toBe(10);
+    const expiresAt = new Date(res.body.data.expiresAt);
+    expect(expiresAt.getTime() - requestStartedAt).toBeGreaterThanOrEqual(10 * 60 * 1000 - 5000);
+    expect(expiresAt.getTime() - requestStartedAt).toBeLessThan(10 * 60 * 1000 + 5000);
+    expect(razorpayExpiry).toBe(Math.floor(expiresAt.getTime() / 1000));
+    const payment = await Payment.findOne({ razorpayOrderId: res.body.data.orderId });
+    expect(payment.expiresAt).toEqual(expiresAt);
 
     const fresh = await Auction.findById(auction._id);
     expect(fresh.status).toBe(AUCTION_STATUS.PAYMENT_PENDING);
@@ -783,6 +794,38 @@ describe('buy now', () => {
     expect(sold.winningBidId).toBeNull();
     bid = await Bid.findOne({ auctionId: auction._id, bidderId: bidder.user._id });
     expect(bid.status).toBe(BID_STATUS.LOST);
+  });
+
+  it('refunds a Buy Now payment captured after its 10-minute deadline', async () => {
+    const { auction } = await liveWithBuyNow();
+    const buyer = await createAuctionUser();
+    stubCreateOrder('order_buy_now_expired');
+
+    const checkout = await asUser(buyer.token)
+      .post(`/api/v1/auctions/${auction._id}/buy-now`)
+      .send({ shippingAddress: ADDRESS });
+    expect(checkout.status).toBe(201);
+
+    await Payment.updateOne(
+      { razorpayOrderId: checkout.body.data.orderId },
+      { $set: { expiresAt: new Date(Date.now() - 1000) } }
+    );
+    const refundId = stubRefund('rfnd_buy_now_expired');
+    const lateCapture = buildWebhook(
+      'payment.captured',
+      checkout.body.data.orderId,
+      'pay_buy_now_expired'
+    );
+    await request(app)
+      .post('/api/v1/wallet/webhook/razorpay')
+      .set('x-razorpay-signature', lateCapture.signature)
+      .set('Content-Type', 'application/json')
+      .send(lateCapture.body);
+
+    expect((await Auction.findById(auction._id)).status).toBe(AUCTION_STATUS.LIVE);
+    expect(refundId).toBe('rfnd_buy_now_expired');
+    const buyerOrders = await asUser(buyer.token).get('/api/v1/orders');
+    expect(buyerOrders.body.data.items[0].fulfilmentStatus).toBe('CANCELLED');
   });
 
   it('refuses once bidding has passed the instant price', async () => {

@@ -171,11 +171,37 @@ const closeAuction = async (auctionId) => {
 };
 
 /**
- * Lazy close. Call before serving or bidding on an auction: if it is LIVE and
- * past its end time, it is closed first and the closed document returned.
+ * Lazy close. Call before serving or bidding on an auction.
+ *
+ * Also reverts an expired Buy Now reservation back to LIVE so a bid or a
+ * second Buy Now attempt sees the correct state without waiting for the sweeper.
  */
 const ensureClosed = async (auction) => {
   if (!auction) return auction;
+
+  if (
+    auction.status === AUCTION_STATUS.BUY_NOW_RESERVED &&
+    auction.paymentDueAt &&
+    auction.paymentDueAt <= new Date()
+  ) {
+    if (auction.endAt <= new Date()) {
+      // Reservation and auction both expired — close it directly.
+      return (await closeAuction(auction._id)) || auction;
+    }
+
+    const reverted = await Auction.findOneAndUpdate(
+      {
+        _id: auction._id,
+        status: AUCTION_STATUS.BUY_NOW_RESERVED,
+        paymentDueAt: { $lte: new Date() },
+      },
+      { $set: { status: AUCTION_STATUS.LIVE, winnerId: null, salePricePaise: null, paymentDueAt: null } },
+      { new: true }
+    );
+    // Use the reverted doc if we won the transition; otherwise re-read.
+    auction = reverted || (await Auction.findById(auction._id));
+  }
+
   if (auction.status !== AUCTION_STATUS.LIVE) return auction;
   if (auction.endAt > new Date()) return auction;
 
@@ -371,110 +397,75 @@ const expireUnpaid = async (limit = BATCH_LIMIT) => {
   return expired;
 };
 
-/** Releases an unpaid instant-buy reservation when its configured window ends. */
-const expireBuyNowReservations = async (limit = BATCH_LIMIT) => {
+/**
+ * Reverts Buy Now reservations whose payment window has lapsed back to LIVE,
+ * so the device goes back on sale without waiting for a bidder or buyer to
+ * trigger the lazy path.
+ */
+const revertExpiredReservations = async (limit = BATCH_LIMIT) => {
   const now = new Date();
+
   const due = await Auction.find({
-    status: AUCTION_STATUS.PAYMENT_PENDING,
-    buyNowReservation: true,
+    status: AUCTION_STATUS.BUY_NOW_RESERVED,
     paymentDueAt: { $lte: now },
   })
+    .select('_id device winnerId endAt')
     .limit(limit)
     .lean();
 
-  let releasedCount = 0;
+  let reverted = 0;
+
   for (const auction of due) {
-    if (auction.paymentId) {
-      const failed = await Payment.findOneAndUpdate(
-        { _id: auction.paymentId, status: PAYMENT_STATUS.CREATED },
-        { $set: { status: PAYMENT_STATUS.FAILED } },
-        { new: true }
-      );
-      if (!failed) {
-        const payment = await Payment.findById(auction.paymentId);
-        if (payment?.status === PAYMENT_STATUS.PAID) {
-          await auctionSale.completeSale(payment);
-        }
-      }
-    }
+    const auctionAlsoEnded = auction.endAt <= now;
 
-    const released = await auctionSale.releaseBuyNowReservation({
-      auctionId: auction._id,
-      buyerId: auction.winnerId,
-      paymentId: auction.paymentId || null,
-    });
-    if (!released) continue;
-
-    releasedCount += 1;
-    if (released.endAt <= now) {
-      await closeAuction(released._id);
-    }
-  }
-
-  return releasedCount;
-};
-
-// shortcut: fixed 60-min abandon window; promote to a setting if ops need to tune it.
-const BUY_NOW_ABANDON_MINUTES = 60;
-
-/**
- * Cancel abandoned Buy Now orders.
- *
- * Legacy Buy Now orders may have no reservation to expire. Cancel those that
- * remain unpaid after the old one-hour abandon window; reserved checkouts are
- * left alone here and released by expireBuyNowReservations at their configured
- * payment deadline.
- *
- * The `paidAt: null` filter makes this safe against a capture that lands
- * concurrently — markPaid sets paidAt, so a paid order can never match here.
- */
-const cancelAbandonedBuyNow = async () => {
-  const cutoff = new Date(Date.now() - BUY_NOW_ABANDON_MINUTES * 60 * 1000);
-  const candidates = await Order.find({
-      source: ORDER_SOURCE.BUY_NOW,
-      paidAt: null,
-      fulfilmentStatus: FULFILMENT_STATUS.PENDING,
-      createdAt: { $lte: cutoff },
-    })
-    .select('_id auctionId buyerId')
-    .limit(BATCH_LIMIT)
-    .lean();
-  let cancelled = 0;
-  for (const order of candidates) {
-    const reserved = await Auction.exists({
-      _id: order.auctionId,
-      status: AUCTION_STATUS.PAYMENT_PENDING,
-      buyNowReservation: true,
-      winnerId: order.buyerId,
-    });
-    if (reserved) continue;
-
-    const result = await Order.updateOne(
-      {
-        _id: order._id,
-        paidAt: null,
-        fulfilmentStatus: FULFILMENT_STATUS.PENDING,
-      },
-      { $set: { fulfilmentStatus: FULFILMENT_STATUS.CANCELLED } }
+    // eslint-disable-next-line no-await-in-loop
+    const claimed = await Auction.findOneAndUpdate(
+      { _id: auction._id, status: AUCTION_STATUS.BUY_NOW_RESERVED, paymentDueAt: { $lte: now } },
+      { $set: { status: AUCTION_STATUS.LIVE, winnerId: null, salePricePaise: null, paymentDueAt: null } },
+      { new: false }
     );
-    cancelled += result.modifiedCount || 0;
+
+    if (!claimed) continue;
+
+    reverted += 1;
+
+    if (auction.winnerId) {
+      const label = deviceLabel(auction) || 'the device';
+      // eslint-disable-next-line no-await-in-loop
+      await notifySafely(auction.winnerId, {
+        title: 'Buy Now reservation expired',
+        body: `Your 10-minute reservation for ${label} has expired. The device is available for others again.`,
+        data: { auctionId: String(auction._id), outcome: 'BUY_NOW_EXPIRED' },
+      });
+    }
+
+    // If the auction's own end time also passed during the reservation window,
+    // close it immediately rather than leaving it as LIVE until the next sweep.
+    if (auctionAlsoEnded) {
+      // eslint-disable-next-line no-await-in-loop
+      await closeAuction(auction._id);
+    }
   }
-  return cancelled;
+
+  return reverted;
 };
 
 /** One full pass. Safe to run concurrently with itself and with live traffic. */
 const sweep = async () => {
-  const [activated, closed, expired] = [await activateDue(), await closeExpired(), await expireUnpaid()];
-  const buyNowExpired = await expireBuyNowReservations();
-  const buyNowCancelled = await cancelAbandonedBuyNow();
+  const [activated, closed, expired, reservationsReverted] = await Promise.all([
+    activateDue(),
+    closeExpired(),
+    expireUnpaid(),
+    revertExpiredReservations(),
+  ]);
 
-  if (activated || closed || expired || buyNowExpired || buyNowCancelled) {
+  if (activated || closed || expired || reservationsReverted) {
     console.log(
-      `[Auction] sweep: ${activated} activated, ${closed} closed, ${expired} payment-expired, ${buyNowExpired} buy-now-released, ${buyNowCancelled} buy-now-abandoned`
+      `[Auction] sweep: ${activated} activated, ${closed} closed, ${expired} payment-expired, ${reservationsReverted} buy-now reservations reverted`
     );
   }
 
-  return { activated, closed, expired, buyNowExpired, buyNowCancelled };
+  return { activated, closed, expired, reservationsReverted };
 };
 
 let timer = null;
@@ -513,8 +504,7 @@ module.exports = {
   activateDue,
   closeExpired,
   expireUnpaid,
-  expireBuyNowReservations,
-  cancelAbandonedBuyNow,
+  revertExpiredReservations,
   sweep,
   startSweeper,
   stopSweeper,
