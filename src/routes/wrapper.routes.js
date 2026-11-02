@@ -1,5 +1,6 @@
 const express = require('express');
 const wrapperController = require('../controllers/wrapper.controller');
+const vendorAuth = require('../middleware/vendorAuth.middleware');
 
 const router = express.Router();
 
@@ -161,5 +162,118 @@ router.post('/digilocker/download-xml', wrapperController.downloadXml);
  *       502: { description: Provider refused — providerStatus and providerMessage are passed through }
  */
 router.post('/digilocker/revoke-token', wrapperController.revokeToken);
+
+/**
+ * @openapi
+ * /wrapper/check-imei:
+ *   post:
+ *     tags: [Wrapper]
+ *     summary: Check an IMEI against C-DOT's CEIR blocklist on behalf of a caller without a stable IP
+ *     description: >
+ *       Unauthenticated server-to-server endpoint. Lends this server's fixed
+ *       source IP to a caller whose egress address rotates. Returns the CEIR
+ *       result verbatim, including upstreamAnswered:false cases — the caller
+ *       decides whether to bill and whether to allow the transaction.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [imei1]
+ *             properties:
+ *               imei1: { type: string, example: "123456789012345" }
+ *               imei2: { type: string, example: "123456789012346", description: "Optional second IMEI for dual-SIM devices." }
+ *     responses:
+ *       200: { description: "CEIR result — check upstreamAnswered and allowTransaction in the response body" }
+ */
+router.post('/check-imei', vendorAuth, wrapperController.checkImei);
+
+/**
+ * @openapi
+ * /wrapper/licences/buy:
+ *   post:
+ *     tags: [Wrapper]
+ *     summary: Create a Razorpay order to buy IMEI-check licences
+ *     description: >
+ *       Returns a Razorpay order the vendor opens in Checkout. Licences are
+ *       credited only after payment is confirmed via /licences/verify or the
+ *       shared Razorpay webhook.
+ *     security: [{ apiKeyAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [quantity]
+ *             properties:
+ *               quantity: { type: integer, example: 100, description: "Number of licences to buy." }
+ *     responses:
+ *       201: { description: Order created — open Razorpay Checkout }
+ *       400: { description: Invalid quantity }
+ *       500: { description: Razorpay not configured }
+ */
+router.post('/licences/buy', vendorAuth, wrapperController.buyLicences);
+
+/**
+ * @openapi
+ * /wrapper/licences/verify:
+ *   post:
+ *     tags: [Wrapper]
+ *     summary: Verify a completed licence payment and credit licences immediately
+ *     security: [{ apiKeyAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [orderId, paymentId, signature]
+ *             properties:
+ *               orderId: { type: string }
+ *               paymentId: { type: string }
+ *               signature: { type: string }
+ *     responses:
+ *       200: { description: Licences credited }
+ *       400: { description: Signature invalid }
+ *       404: { description: Order not found }
+ */
+router.post('/licences/verify', vendorAuth, wrapperController.verifyLicencePurchase);
+
+/**
+ * @openapi
+ * /wrapper/me:
+ *   get:
+ *     tags: [Wrapper]
+ *     summary: Vendor licence balance
+ *     description: Returns how many licences remain, how many have been used, and the total ever granted.
+ *     security: [{ apiKeyAuth: [] }]
+ *     responses:
+ *       200: { description: Balance fetched }
+ *       401: { description: Missing or invalid API key }
+ */
+router.get('/me', vendorAuth, wrapperController.getMyBalance);
+
+/**
+ * @openapi
+ * /wrapper/me/ledger:
+ *   get:
+ *     tags: [Wrapper]
+ *     summary: Vendor licence transaction history
+ *     description: Paginated log of every grant and debit on this vendor account.
+ *     security: [{ apiKeyAuth: [] }]
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 20, maximum: 100 }
+ *     responses:
+ *       200: { description: Ledger fetched }
+ *       401: { description: Missing or invalid API key }
+ */
+router.get('/me/ledger', vendorAuth, wrapperController.getMyLedger);
 
 module.exports = router;

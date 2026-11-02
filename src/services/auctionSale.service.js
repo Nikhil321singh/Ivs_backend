@@ -125,6 +125,49 @@ const completeSale = async (payment) => {
       { new: true }
     );
 
+    // Fallback: the sweeper may have closed the auction between checkout and
+    // capture. The buyer's money is already captured — if no competing payment
+    // has completed, this captured payment takes priority over an unpaid window.
+    if (!sold) {
+      sold = await Auction.findOneAndUpdate(
+        {
+          _id: payment.auctionId,
+          status: {
+            $in: [
+              AUCTION_STATUS.PAYMENT_PENDING,
+              AUCTION_STATUS.ENDED_NO_BIDS,
+              AUCTION_STATUS.PAYMENT_EXPIRED,
+            ],
+          },
+          buyNowPricePaise: { $ne: null },
+          // The sweeper may have closed the auction while this payment was
+          // in-flight, but only if bidding never passed the buy-now price.
+          // A bid above the price means a legitimate bidder won — do not
+          // override them by letting this captured payment claim the device.
+          $expr: {
+            $or: [
+              { $eq: [{ $ifNull: ['$currentBidPaise', null] }, null] },
+              { $lt: ['$currentBidPaise', '$buyNowPricePaise'] },
+            ],
+          },
+        },
+        [
+          {
+            $set: {
+              status: AUCTION_STATUS.SOLD,
+              winnerId: payment.userId,
+              winningBidId: null,
+              salePricePaise: '$buyNowPricePaise',
+              soldAt: now,
+              closedAt: { $ifNull: ['$closedAt', now] },
+              paymentId: payment._id,
+            },
+          },
+        ],
+        { new: true }
+      );
+    }
+
     if (!sold) {
       await refundLostBuyNow(payment);
       return Auction.findById(payment.auctionId);

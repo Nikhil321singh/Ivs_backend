@@ -277,6 +277,22 @@ module.exports = {
   VALIDATION: {
     FAILED: 'Validation failed. Please check your input.',
   },
+  VENDOR: {
+    CREATED: 'Vendor created.',
+    FETCHED: 'Vendor fetched successfully.',
+    LIST_FETCHED: 'Vendors fetched successfully.',
+    UPDATED: 'Vendor updated.',
+    LICENCES_GRANTED: 'Licences granted.',
+    BALANCE_FETCHED: 'Licence balance fetched.',
+    LEDGER_FETCHED: 'Licence history fetched.',
+    NOT_FOUND: 'Vendor not found.',
+    NO_LICENCES: 'No licences remaining. Purchase more to continue.',
+    INVALID_API_KEY: 'Invalid or missing API key.',
+    VENDOR_INACTIVE: 'This vendor account is inactive.',
+    INVALID_QUANTITY: 'Invalid licence quantity.',
+    ORDER_CREATED: 'Licence purchase order created.',
+    PAYMENT_VERIFIED: 'Payment verified. Licences credited.',
+  },
   SERVER: {
     INTERNAL_ERROR: 'Something went wrong. Please try again later.',
     ROUTE_NOT_FOUND: 'The requested route does not exist.',

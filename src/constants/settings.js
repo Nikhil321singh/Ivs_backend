@@ -35,6 +35,7 @@ const SETTING_KEYS = Object.freeze({
   AUCTION_BUY_NOW_WINDOW_HOURS: 'auctionBuyNowWindowHours',
   AUCTION_SECOND_CHANCE_ENABLED: 'auctionSecondChanceEnabled',
   AUCTION_REQUIRE_DIAGNOSIS: 'auctionRequireDiagnosis',
+  VENDOR_LICENCE_PRICE_PAISE: 'vendorLicencePricePaise',
 });
 
 const SETTING_DEFINITIONS = Object.freeze({
@@ -246,6 +247,16 @@ const SETTING_DEFINITIONS = Object.freeze({
     label: 'Require a diagnosis to publish an auction',
     description:
       'When on, a listing cannot go live without a linked device diagnosis. Makes every listing trustworthy, at the cost of listing friction.',
+  },
+  [SETTING_KEYS.VENDOR_LICENCE_PRICE_PAISE]: {
+    type: 'integer',
+    default: 2000,
+    min: 1,
+    max: 100000,
+    public: false,
+    label: 'Vendor licence price (paise)',
+    description:
+      'What one IMEI-check licence costs when a vendor buys via Razorpay. 2000 paise = ₹20. Applies to the next purchase — existing orders keep the price they were raised at.',
   },
 });
 

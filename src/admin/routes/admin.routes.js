@@ -22,6 +22,12 @@ const {
   updateOrderValidator,
   presignedUrlValidator,
   confirmS3PhotoValidator,
+  biddingKycIdParamValidator,
+  rejectBiddingKycValidator,
+  vendorIdParamValidator,
+  createVendorValidator,
+  updateVendorValidator,
+  grantLicencesValidator,
 } = require('../validators/admin.validator');
 const {
   upsertAppVersionValidator,
@@ -1110,6 +1116,246 @@ router.post(
   takeDownAuctionValidator,
   validateRequest,
   adminController.takeDownAuction
+);
+
+/* ------------------------------------------------------------------ *
+ * Bidding KYC review — individuals who want to bid submit a shop/GST  *
+ * form; admin approves or rejects. Approved users get biddingKycStatus *
+ * 'approved' and can then place bids.                                  *
+ * ------------------------------------------------------------------ */
+
+/**
+ * @openapi
+ * /admin/bidding-kyc:
+ *   get:
+ *     tags: [Admin]
+ *     summary: List bidding KYC applications from individual users
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: query, name: page, schema: { type: integer, default: 1 } }
+ *       - { in: query, name: limit, schema: { type: integer, default: 20, maximum: 100 } }
+ *       - { in: query, name: status, schema: { type: string, enum: [pending, approved, rejected] } }
+ *     responses:
+ *       200: { description: Applications fetched successfully }
+ */
+router.get('/bidding-kyc', adminAuth, adminController.listBiddingKyc);
+
+/**
+ * @openapi
+ * /admin/bidding-kyc/{id}:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Get one bidding KYC application with all document photos
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: string } }
+ *     responses:
+ *       200: { description: Application fetched successfully }
+ *       404: { description: Application not found }
+ */
+router.get(
+  '/bidding-kyc/:id',
+  adminAuth,
+  biddingKycIdParamValidator,
+  validateRequest,
+  adminController.getBiddingKyc
+);
+
+/**
+ * @openapi
+ * /admin/bidding-kyc/{id}/approve:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Approve a pending bidding KYC application
+ *     description: The user's biddingKycStatus is set to 'approved' and they can immediately bid.
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: string } }
+ *     responses:
+ *       200: { description: Application approved }
+ *       409: { description: Application is not in pending state }
+ *       404: { description: Application not found }
+ */
+router.post(
+  '/bidding-kyc/:id/approve',
+  adminAuth,
+  biddingKycIdParamValidator,
+  validateRequest,
+  adminController.approveBiddingKyc
+);
+
+/**
+ * @openapi
+ * /admin/bidding-kyc/{id}/reject:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Reject a pending bidding KYC application
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: string } }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [reason]
+ *             properties:
+ *               reason: { type: string, example: "GST number does not match the uploaded certificate." }
+ *     responses:
+ *       200: { description: Application rejected }
+ *       409: { description: Application is not in pending state }
+ *       404: { description: Application not found }
+ */
+router.post(
+  '/bidding-kyc/:id/reject',
+  adminAuth,
+  biddingKycIdParamValidator,
+  rejectBiddingKycValidator,
+  validateRequest,
+  adminController.rejectBiddingKyc
+);
+
+/* ------------------------------------------------------------------ *
+ * Vendor licence management
+ * ------------------------------------------------------------------ */
+
+/**
+ * @openapi
+ * /admin/vendors:
+ *   get:
+ *     tags: [Admin]
+ *     summary: List all vendors
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: query, name: page, schema: { type: integer, default: 1 } }
+ *       - { in: query, name: limit, schema: { type: integer, default: 20 } }
+ *     responses:
+ *       200: { description: Vendors fetched successfully }
+ *   post:
+ *     tags: [Admin]
+ *     summary: Create a vendor and generate their API key
+ *     description: >
+ *       Returns the vendor record and a one-time plain-text API key. The key is
+ *       never stored in plain text — it cannot be recovered after this response.
+ *       The vendor must include it as X-Api-Key on every /wrapper/check-imei call.
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name, email]
+ *             properties:
+ *               name: { type: string, example: "Acme Corp" }
+ *               email: { type: string, example: "api@acmecorp.com" }
+ *     responses:
+ *       201: { description: Vendor created — apiKey returned once }
+ *       422: { description: Validation failed or email already registered }
+ */
+router.get('/vendors', adminAuth, adminController.listVendors);
+router.post('/vendors', adminAuth, createVendorValidator, validateRequest, adminController.createVendor);
+
+/**
+ * @openapi
+ * /admin/vendors/{vendorId}:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Get a vendor by id
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: path, name: vendorId, required: true, schema: { type: string } }
+ *     responses:
+ *       200: { description: Vendor fetched successfully }
+ *       404: { description: Vendor not found }
+ *   patch:
+ *     tags: [Admin]
+ *     summary: Update vendor name, email, or active status
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: path, name: vendorId, required: true, schema: { type: string } }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name: { type: string }
+ *               email: { type: string }
+ *               isActive: { type: boolean }
+ *     responses:
+ *       200: { description: Vendor updated }
+ *       404: { description: Vendor not found }
+ */
+router.get(
+  '/vendors/:vendorId',
+  adminAuth,
+  vendorIdParamValidator,
+  validateRequest,
+  adminController.getVendor
+);
+router.patch(
+  '/vendors/:vendorId',
+  adminAuth,
+  updateVendorValidator,
+  validateRequest,
+  adminController.updateVendor
+);
+
+/**
+ * @openapi
+ * /admin/vendors/{vendorId}/grant:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Grant licences to a vendor
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: path, name: vendorId, required: true, schema: { type: string } }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [amount, note]
+ *             properties:
+ *               amount: { type: integer, minimum: 1, example: 100 }
+ *               note: { type: string, example: "Initial pack — purchase order #PO-2026-001" }
+ *     responses:
+ *       200: { description: Licences granted, vendor.licences reflects the new balance }
+ *       404: { description: Vendor not found }
+ */
+router.post(
+  '/vendors/:vendorId/grant',
+  adminAuth,
+  grantLicencesValidator,
+  validateRequest,
+  adminController.grantVendorLicences
+);
+
+/**
+ * @openapi
+ * /admin/vendors/{vendorId}/ledger:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Licence transaction history for a vendor
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: path, name: vendorId, required: true, schema: { type: string } }
+ *       - { in: query, name: page, schema: { type: integer, default: 1 } }
+ *       - { in: query, name: limit, schema: { type: integer, default: 20 } }
+ *     responses:
+ *       200: { description: Licence history fetched }
+ *       404: { description: Vendor not found }
+ */
+router.get(
+  '/vendors/:vendorId/ledger',
+  adminAuth,
+  vendorIdParamValidator,
+  validateRequest,
+  adminController.getVendorLedger
 );
 
 module.exports = router;
