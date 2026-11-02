@@ -15,6 +15,7 @@ const notificationRoutes = require('./notification.routes');
 const appRoutes = require('./app.routes');
 const wrapperRoutes = require('./wrapper.routes');
 const repairAnalysisRoutes = require('./repairAnalysis.routes');
+const biddingKycRoutes = require('./biddingKyc.routes');
 // Self-contained admin module — see src/admin/README.md.
 const adminModule = require('../admin');
 const PRICING = require('../constants/pricing');
@@ -118,6 +119,9 @@ router.use('/app', appRoutes);
 router.use('/wrapper', wrapperRoutes);
 // External Repair Analysis API — device diagnostics decision trees and chat.
 router.use('/repair-analysis', repairAnalysisRoutes);
+// Bidding KYC — individuals submit shop/GST details for admin review before
+// they can place bids. Vendors are already eligible after standard KYC.
+router.use('/bidding-kyc', biddingKycRoutes);
 router.use('/admin', adminModule.router);
 
 module.exports = router;

@@ -22,10 +22,16 @@ const getKeyId = () => env.razorpay.keyId;
 
 const getCallbackUrl = () => env.razorpay.callbackUrl;
 
-const createOrder = async ({ amountPaise, currency = 'INR', receipt, notes }) => {
+const createOrder = async ({ amountPaise, currency = 'INR', receipt, notes, expiresAt }) => {
   const response = await axios.post(
     `${env.razorpay.apiBaseUrl}/orders`,
-    { amount: amountPaise, currency, receipt, notes },
+    {
+      amount: amountPaise,
+      currency,
+      receipt,
+      notes,
+      ...(expiresAt ? { expire_by: Math.floor(expiresAt.getTime() / 1000) } : {}),
+    },
     {
       timeout: REQUEST_TIMEOUT,
       auth: { username: env.razorpay.keyId, password: env.razorpay.keySecret },

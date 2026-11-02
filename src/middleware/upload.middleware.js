@@ -118,9 +118,53 @@ const requireProfileImage = (req, res, next) => {
   next();
 };
 
+/**
+ * Bidding KYC form: four required images uploaded in one multipart request.
+ */
+const uploadBiddingKycImages = (req, res, next) => {
+  const handler = multerUpload.fields([
+    { name: 'shopVisitingCardPhoto', maxCount: 1 },
+    { name: 'gstPhoto', maxCount: 1 },
+    { name: 'udyamAadhaarPhoto', maxCount: 1 },
+    { name: 'shopPhoto', maxCount: 1 },
+  ]);
+  handler(req, res, (err) => {
+    if (err instanceof multer.MulterError) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return next(
+          new ApiError(
+            httpStatus.BAD_REQUEST,
+            `Images must be smaller than ${env.upload.maxSizeMb}MB.`
+          )
+        );
+      }
+      return next(new ApiError(httpStatus.BAD_REQUEST, err.message));
+    }
+    if (err) return next(err);
+    next();
+  });
+};
+
+const requireBiddingKycPhotos = (req, res, next) => {
+  const files = req.files || {};
+  // The app uploads a single document (its type chosen from the dropdown), so
+  // require at least ONE of the four — not all of them.
+  const fields = ['shopVisitingCardPhoto', 'gstPhoto', 'udyamAadhaarPhoto', 'shopPhoto'];
+  const hasOne = fields.some((field) => files[field]?.length);
+
+  if (!hasOne) {
+    return next(new ApiError(httpStatus.UNPROCESSABLE_ENTITY, MESSAGES.BIDDING_KYC.SHOP_PHOTO_REQUIRED, [
+      { field: 'document', message: MESSAGES.BIDDING_KYC.SHOP_PHOTO_REQUIRED },
+    ]));
+  }
+  next();
+};
+
 module.exports = {
   uploadProfileImage,
   uploadKycImages,
   uploadAuctionPhotos,
   requireProfileImage,
+  uploadBiddingKycImages,
+  requireBiddingKycPhotos,
 };

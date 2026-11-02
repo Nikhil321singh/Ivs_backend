@@ -32,7 +32,6 @@ const SETTING_KEYS = Object.freeze({
   AUCTION_ANTI_SNIPE_WINDOW_SECONDS: 'auctionAntiSnipeWindowSeconds',
   AUCTION_ANTI_SNIPE_EXTEND_SECONDS: 'auctionAntiSnipeExtendSeconds',
   AUCTION_PAYMENT_WINDOW_HOURS: 'auctionPaymentWindowHours',
-  AUCTION_BUY_NOW_WINDOW_HOURS: 'auctionBuyNowWindowHours',
   AUCTION_SECOND_CHANCE_ENABLED: 'auctionSecondChanceEnabled',
   AUCTION_REQUIRE_DIAGNOSIS: 'auctionRequireDiagnosis',
 });
@@ -195,7 +194,7 @@ const SETTING_DEFINITIONS = Object.freeze({
   },
   [SETTING_KEYS.AUCTION_ANTI_SNIPE_WINDOW_SECONDS]: {
     type: 'integer',
-    default: 120,
+    default: 300,
     min: 10,
     max: 3600,
     public: true,
@@ -204,7 +203,7 @@ const SETTING_DEFINITIONS = Object.freeze({
   },
   [SETTING_KEYS.AUCTION_ANTI_SNIPE_EXTEND_SECONDS]: {
     type: 'integer',
-    default: 120,
+    default: 300,
     min: 10,
     max: 3600,
     public: true,
@@ -220,16 +219,6 @@ const SETTING_DEFINITIONS = Object.freeze({
     label: 'Winner payment window (hours)',
     description:
       'How long the winning bidder has to pay. If they miss it the device is offered to the next highest bidder, who gets a fresh window of the same length.',
-  },
-  [SETTING_KEYS.AUCTION_BUY_NOW_WINDOW_HOURS]: {
-    type: 'integer',
-    default: 12,
-    min: 1,
-    max: 720,
-    public: true,
-    label: 'Buy Now payment window (hours)',
-    description:
-      'How long an instant buyer has to pay. Kept separate from the bidding window on purpose: a Buy Now takes the device off the market with no underlying bidders to fall back on, so this is the number to shorten if people start reserving stock they never pay for.',
   },
   [SETTING_KEYS.AUCTION_SECOND_CHANCE_ENABLED]: {
     type: 'boolean',

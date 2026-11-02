@@ -394,6 +394,20 @@ const confirmS3PhotoValidator = [
     }),
 ];
 
+const biddingKycIdParamValidator = [
+  param('id').isMongoId().withMessage('A valid application id is required.'),
+];
+
+const rejectBiddingKycValidator = [
+  ...biddingKycIdParamValidator,
+  body('reason')
+    .trim()
+    .notEmpty()
+    .withMessage('A reason is required when rejecting an application.')
+    .isLength({ max: 500 })
+    .withMessage('reason must be 500 characters or fewer.'),
+];
+
 module.exports = {
   loginValidator,
   updateSettingsValidator,
@@ -413,4 +427,6 @@ module.exports = {
   updateOrderValidator,
   presignedUrlValidator,
   confirmS3PhotoValidator,
+  biddingKycIdParamValidator,
+  rejectBiddingKycValidator,
 };

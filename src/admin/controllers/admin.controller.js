@@ -5,6 +5,7 @@ const MESSAGES = require('../../constants/messages');
 const adminService = require('../services/admin.service');
 const subscriptionAdminService = require('../services/subscription.admin.service');
 const auctionAdminService = require('../services/auction.admin.service');
+const biddingKycAdminService = require('../services/biddingKyc.admin.service');
 const orderService = require('../../services/order.service');
 const settingsService = require('../../services/settings.service');
 const notificationService = require('../../services/notification.service');
@@ -73,6 +74,12 @@ const getUser = asyncHandler(async (req, res) => {
   const data = await adminService.getUserDetail(req.params.userId);
 
   successResponse(res, httpStatus.OK, MESSAGES.ADMIN.USER_FETCHED, data);
+});
+
+const resetUserKyc = asyncHandler(async (req, res) => {
+  const user = await adminService.resetUserKyc(req.params.userId);
+
+  successResponse(res, httpStatus.OK, MESSAGES.ADMIN.KYC_RESET, { user });
 });
 
 /* ------------------------------------------------------------------ *
@@ -345,6 +352,12 @@ const relistAuction = asyncHandler(async (req, res) => {
   successResponse(res, httpStatus.CREATED, MESSAGES.AUCTION.RELISTED, { auction });
 });
 
+const reopenAuctionPayment = asyncHandler(async (req, res) => {
+  const auction = await auctionAdminService.reopenPayment(req.params.auctionId, req.admin._id);
+
+  successResponse(res, httpStatus.OK, MESSAGES.AUCTION.PAYMENT_REOPENED, { auction });
+});
+
 /* ---- Orders ------------------------------------------------------- */
 
 const listOrders = asyncHandler(async (req, res) => {
@@ -373,6 +386,38 @@ const getAuctionStats = asyncHandler(async (req, res) => {
   const stats = await auctionAdminService.getStats();
 
   successResponse(res, httpStatus.OK, MESSAGES.ADMIN.STATS_FETCHED, stats);
+});
+
+/* ---------------------------------------------------------------- *
+ * Bidding KYC review
+ * ---------------------------------------------------------------- */
+
+const listBiddingKyc = asyncHandler(async (req, res) => {
+  const data = await biddingKycAdminService.list(req.query);
+
+  successResponse(res, httpStatus.OK, MESSAGES.BIDDING_KYC.LIST_FETCHED, data);
+});
+
+const getBiddingKyc = asyncHandler(async (req, res) => {
+  const application = await biddingKycAdminService.getOne(req.params.id);
+
+  successResponse(res, httpStatus.OK, MESSAGES.BIDDING_KYC.FETCHED, { application });
+});
+
+const approveBiddingKyc = asyncHandler(async (req, res) => {
+  const application = await biddingKycAdminService.approve(req.params.id, req.admin._id);
+
+  successResponse(res, httpStatus.OK, MESSAGES.BIDDING_KYC.APPROVED, { application });
+});
+
+const rejectBiddingKyc = asyncHandler(async (req, res) => {
+  const application = await biddingKycAdminService.reject(
+    req.params.id,
+    req.body.reason,
+    req.admin._id
+  );
+
+  successResponse(res, httpStatus.OK, MESSAGES.BIDDING_KYC.REJECTED, { application });
 });
 
 module.exports = {
@@ -411,7 +456,13 @@ module.exports = {
   updateListing,
   publishListing,
   relistAuction,
+  reopenAuctionPayment,
   listOrders,
   updateOrder,
   vendorSettlement,
+  listBiddingKyc,
+  getBiddingKyc,
+  approveBiddingKyc,
+  rejectBiddingKyc,
+  resetUserKyc,
 };

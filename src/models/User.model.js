@@ -181,6 +181,15 @@ const userSchema = new Schema(
       enum: Object.values(USER_STATUS),
       default: USER_STATUS.ACTIVE,
     },
+    // Bidding eligibility for individuals. Vendors are eligible after standard
+    // kycCompleted; individuals must separately submit a shop/GST form and have
+    // it approved. Denormalized here so requireKyc can check without a join.
+    // null = never applied, 'pending' = under review, 'approved' / 'rejected'.
+    biddingKycStatus: {
+      type: String,
+      enum: ['pending', 'approved', 'rejected', null],
+      default: null,
+    },
     // Set when the user deletes their own account. The row is kept (financial
     // and audit records point at it) but every personal field is scrubbed and
     // the mobile number is released so the person can sign up again.

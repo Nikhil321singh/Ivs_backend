@@ -18,7 +18,7 @@ winner pays through Razorpay.
 | Who sells | **Both**: Grest's own stock (from the admin portal) and vendors (from the app) |
 | Who can list and bid | **KYC-complete users only** (respects the `kycRequired` kill switch) |
 | Cost to list | **One `AUCTION_LISTING` credit** on publish — vendors only; Grest is never charged |
-| Two ways to buy | **Bid**, or **Buy Now** at an admin-set instant price that ends the auction |
+| Two ways to buy | **Bid**, or **Buy Now** at an admin-set instant price that reserves the listing for the first checkout |
 | Settlement | **Razorpay after winning**, inside a **12h** window (configurable) |
 | Unpaid winner | **Cascades to the next bidder** at *their own* bid, until someone pays or bidders run out |
 | Late bids | **Anti-sniping on**: a bid in the last 2 minutes extends by 2 minutes |
@@ -28,12 +28,10 @@ winner pays through Razorpay.
 
 ### Two things to know before launch
 
-**Buy Now has no griefing protection.** Clicking it takes a device off the
-market for the whole payment window at no cost to the clicker, and — unlike a
-lapsed auction win — there are no underlying bidders to cascade to, so the
-listing simply has to be relisted. This was chosen deliberately over a short
-hold. `auctionBuyNowWindowHours` is a separate setting precisely so it can be
-shortened if people start reserving stock they never pay for.
+**Buy Now checkout is time-limited.** A payment order expires after 10 minutes.
+The auction remains live until a payment is captured, so an abandoned checkout
+does not reserve the listing. If a payment is captured after its deadline, it
+is refunded and does not complete the sale.
 
 **Vendor payout does not exist.** On a vendor sale Grest collects the buyer's
 money and owes the vendor; nothing in the system discharges that debt.
@@ -264,11 +262,13 @@ order's `purpose`. Nothing new needs configuring in Razorpay.
 
 ## 9b. Buy Now, second chances, and orders
 
-**Buy Now** ends the auction immediately at `buyNowPricePaise`. The claim is the
-same atomic conditional update bidding uses, with `$expr` comparing against the
-document's own live values, so two simultaneous instant buyers cannot both win
-and nobody can buy at a price bidding has already passed. Existing bidders are
-marked LOST and told.
+**Buy Now** atomically moves the listing to `PAYMENT_PENDING` for the first
+checkout, at `buyNowPricePaise`. The same single-document conditional update
+used by bidding ensures a concurrent bid and reservation cannot both win.
+Further buyers and bids are rejected until payment succeeds, fails, or the
+reservation expires. A successful capture marks existing bids LOST. Failed or
+late captured payments are refunded; expired reservations return to LIVE (or
+close normally if the auction end time has passed).
 
 **The second-chance cascade.** When a payment window lapses, the device is
 offered to the next bidder *down the book by bidder* — someone who raised their
@@ -313,8 +313,9 @@ happened; the copy starts clean, so a bidder who failed to pay may bid again.
 - **Vendor payout.** Buyer money lands in Grest's Razorpay account.
   `GET /admin/orders/settlement` says what is owed to each vendor; paying it is
   manual. Grest's own listings are unaffected — that money is already Grest's.
-- **Disputes, refunds and returns.** No flow for "it arrived broken", and no
-  refund path for a Buy Now that beat a higher bid to the click.
+- **Disputes and returns.** No flow for "it arrived broken". A captured payment
+  that no longer owns its Buy Now reservation is automatically refunded, but
+  delivery disputes still need an operator process.
 - **Courier integration.** Fulfilment is a status and a free-text note; there is
   no AWB, no tracking link, no carrier API.
 - **Buy Now abuse controls.** No cooling-off, no strike against a buyer who

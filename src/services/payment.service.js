@@ -1,5 +1,6 @@
 const Payment = require('../models/Payment.model');
 const Auction = require('../models/Auction.model');
+const auctionCloser = require('./auctionCloser.service');
 const razorpay = require('./providers/razorpayProvider');
 const walletService = require('./wallet.service');
 const entitlementService = require('./entitlement.service');
@@ -10,6 +11,7 @@ const settingsService = require('./settings.service');
 const { SETTING_KEYS } = require('../constants/settings');
 const { BILLING_MODE } = require('../constants/entitlementEnums');
 const { PAYMENT_STATUS, TXN_REASON, TXN_REF_TYPE } = require('../constants/walletEnums');
+const { ORDER_SOURCE } = require('../constants/auctionEnums');
 const {
   PAYMENT_PURPOSE,
   ENTITLEMENT_REASON,
@@ -98,7 +100,7 @@ const createTopupOrder = async (userId, amountInr) => {
  * payment is a buyer paying a seller, not a purchase from us, so it must not
  * trigger a reward — and it must not credit anything to the payer's wallet.
  */
-const creditForPayment = async (payment, { paymentId, signature }) => {
+const creditForPayment = async (payment, { paymentId, signature, capturedAt = new Date() }) => {
   const claimed = await Payment.findOneAndUpdate(
     { _id: payment._id, status: PAYMENT_STATUS.CREATED },
     {
@@ -110,14 +112,52 @@ const creditForPayment = async (payment, { paymentId, signature }) => {
   );
 
   if (!claimed) {
-    // Already processed by the other path — return current state.
-    return Payment.findById(payment._id);
+    const existing = await Payment.findById(payment._id);
+    if (
+      existing?.status === PAYMENT_STATUS.FAILED &&
+      existing?.purpose === PAYMENT_PURPOSE.AUCTION &&
+      existing?.notes?.source === ORDER_SOURCE.BUY_NOW &&
+      existing?.notes?.reserved === true
+    ) {
+      const capturedAfterFailure = await Payment.findOneAndUpdate(
+        { _id: existing._id, status: PAYMENT_STATUS.FAILED },
+        {
+          $set: {
+            status: PAYMENT_STATUS.PAID,
+            razorpayPaymentId: paymentId,
+            razorpaySignature: signature || null,
+          },
+        },
+        { new: true }
+      );
+      if (capturedAfterFailure) {
+        await auctionSale.completeSale(capturedAfterFailure);
+        return capturedAfterFailure;
+      }
+    }
+
+    // If an auction payment was marked PAID but completeSale failed on a
+    // previous attempt (DB timeout, network blip), the auction may still
+    // need completing. Retry it — completeSale uses atomic conditional
+    // updates, so a redundant call is a safe no-op.
+    if (
+      existing?.status === PAYMENT_STATUS.PAID &&
+      existing?.purpose === PAYMENT_PURPOSE.AUCTION &&
+      existing?.auctionId
+    ) {
+      try {
+        await auctionSale.completeSale(existing);
+      } catch (err) {
+        console.error('[Payment] completeSale retry failed for', String(existing._id), err.message);
+      }
+    }
+    return existing;
   }
 
   if (claimed.purpose === PAYMENT_PURPOSE.AUCTION) {
     // A sale between two users. Nothing is credited to anyone's balance — the
     // auction simply becomes SOLD, and both sides are told.
-    await auctionSale.completeSale(claimed);
+    await auctionSale.completeSale(claimed, { capturedAt });
     return claimed;
   }
 
@@ -195,7 +235,7 @@ const handleCheckoutCallback = async ({ orderId, paymentId, signature }) => {
     return { status: 'failed', orderId, paymentId };
   }
 
-  await creditForPayment(payment, { paymentId, signature });
+  await creditForPayment(payment, { paymentId, signature, capturedAt: new Date() });
 
   return { status: 'success', orderId, paymentId };
 };
@@ -214,7 +254,7 @@ const verifyPayment = async (userId, { orderId, paymentId, signature }) => {
     throw new ApiError(httpStatus.NOT_FOUND, MESSAGES.PAYMENT.ORDER_NOT_FOUND);
   }
 
-  const updated = await creditForPayment(payment, { paymentId, signature });
+  const updated = await creditForPayment(payment, { paymentId, signature, capturedAt: new Date() });
 
   if (updated.purpose === PAYMENT_PURPOSE.PLAN) {
     const { credits } = await entitlementService.getSummary(userId);
@@ -249,13 +289,26 @@ const handleWebhook = async (rawBody, signature) => {
   if (event.event === 'payment.captured' && entity?.order_id) {
     const payment = await Payment.findOne({ razorpayOrderId: entity.order_id });
     if (payment) {
-      await creditForPayment(payment, { paymentId: entity.id, signature: null });
+      const capturedAtSeconds = entity.captured_at || entity.created_at;
+      const capturedAt = capturedAtSeconds ? new Date(capturedAtSeconds * 1000) : new Date();
+      await creditForPayment(payment, { paymentId: entity.id, signature: null, capturedAt });
+    } else {
+      await vendorPaymentService.handleWebhookEvent(entity, event.event);
     }
   } else if (event.event === 'payment.failed' && entity?.order_id) {
-    await Payment.findOneAndUpdate(
+    const failed = await Payment.findOneAndUpdate(
       { razorpayOrderId: entity.order_id, status: PAYMENT_STATUS.CREATED },
-      { status: PAYMENT_STATUS.FAILED, razorpayPaymentId: entity.id }
+      { status: PAYMENT_STATUS.FAILED, razorpayPaymentId: entity.id },
+      { new: true }
     );
+    if (failed?.notes?.source === ORDER_SOURCE.BUY_NOW && failed.notes.reserved === true) {
+      const released = await auctionSale.releaseBuyNowReservation({
+        auctionId: failed.auctionId,
+        buyerId: failed.userId,
+        paymentId: failed._id,
+      });
+      if (released) await auctionCloser.closeAuction(released._id);
+    }
   }
 
   return { event: event.event };

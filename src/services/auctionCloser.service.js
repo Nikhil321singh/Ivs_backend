@@ -1,10 +1,14 @@
 const Auction = require('../models/Auction.model');
 const Bid = require('../models/Bid.model');
+const Order = require('../models/Order.model');
+const Payment = require('../models/Payment.model');
+const auctionSale = require('./auctionSale.service');
 const notificationService = require('./notification.service');
 const settingsService = require('./settings.service');
 const { SETTING_KEYS } = require('../constants/settings');
 const { NOTIFICATION_TYPE } = require('../constants/notification');
-const { AUCTION_STATUS, BID_STATUS } = require('../constants/auctionEnums');
+const { AUCTION_STATUS, BID_STATUS, ORDER_SOURCE, FULFILMENT_STATUS } = require('../constants/auctionEnums');
+const { PAYMENT_STATUS } = require('../constants/walletEnums');
 
 /* eslint-disable no-console */
 
@@ -167,11 +171,37 @@ const closeAuction = async (auctionId) => {
 };
 
 /**
- * Lazy close. Call before serving or bidding on an auction: if it is LIVE and
- * past its end time, it is closed first and the closed document returned.
+ * Lazy close. Call before serving or bidding on an auction.
+ *
+ * Also reverts an expired Buy Now reservation back to LIVE so a bid or a
+ * second Buy Now attempt sees the correct state without waiting for the sweeper.
  */
 const ensureClosed = async (auction) => {
   if (!auction) return auction;
+
+  if (
+    auction.status === AUCTION_STATUS.BUY_NOW_RESERVED &&
+    auction.paymentDueAt &&
+    auction.paymentDueAt <= new Date()
+  ) {
+    if (auction.endAt <= new Date()) {
+      // Reservation and auction both expired — close it directly.
+      return (await closeAuction(auction._id)) || auction;
+    }
+
+    const reverted = await Auction.findOneAndUpdate(
+      {
+        _id: auction._id,
+        status: AUCTION_STATUS.BUY_NOW_RESERVED,
+        paymentDueAt: { $lte: new Date() },
+      },
+      { $set: { status: AUCTION_STATUS.LIVE, winnerId: null, salePricePaise: null, paymentDueAt: null } },
+      { new: true }
+    );
+    // Use the reverted doc if we won the transition; otherwise re-read.
+    auction = reverted || (await Auction.findById(auction._id));
+  }
+
   if (auction.status !== AUCTION_STATUS.LIVE) return auction;
   if (auction.endAt > new Date()) return auction;
 
@@ -348,6 +378,7 @@ const expireUnpaid = async (limit = BATCH_LIMIT) => {
 
   const due = await Auction.find({
     status: AUCTION_STATUS.PAYMENT_PENDING,
+    buyNowReservation: { $ne: true },
     paymentDueAt: { $lte: now },
   })
     .limit(limit)
@@ -366,17 +397,75 @@ const expireUnpaid = async (limit = BATCH_LIMIT) => {
   return expired;
 };
 
+/**
+ * Reverts Buy Now reservations whose payment window has lapsed back to LIVE,
+ * so the device goes back on sale without waiting for a bidder or buyer to
+ * trigger the lazy path.
+ */
+const revertExpiredReservations = async (limit = BATCH_LIMIT) => {
+  const now = new Date();
+
+  const due = await Auction.find({
+    status: AUCTION_STATUS.BUY_NOW_RESERVED,
+    paymentDueAt: { $lte: now },
+  })
+    .select('_id device winnerId endAt')
+    .limit(limit)
+    .lean();
+
+  let reverted = 0;
+
+  for (const auction of due) {
+    const auctionAlsoEnded = auction.endAt <= now;
+
+    // eslint-disable-next-line no-await-in-loop
+    const claimed = await Auction.findOneAndUpdate(
+      { _id: auction._id, status: AUCTION_STATUS.BUY_NOW_RESERVED, paymentDueAt: { $lte: now } },
+      { $set: { status: AUCTION_STATUS.LIVE, winnerId: null, salePricePaise: null, paymentDueAt: null } },
+      { new: false }
+    );
+
+    if (!claimed) continue;
+
+    reverted += 1;
+
+    if (auction.winnerId) {
+      const label = deviceLabel(auction) || 'the device';
+      // eslint-disable-next-line no-await-in-loop
+      await notifySafely(auction.winnerId, {
+        title: 'Buy Now reservation expired',
+        body: `Your 10-minute reservation for ${label} has expired. The device is available for others again.`,
+        data: { auctionId: String(auction._id), outcome: 'BUY_NOW_EXPIRED' },
+      });
+    }
+
+    // If the auction's own end time also passed during the reservation window,
+    // close it immediately rather than leaving it as LIVE until the next sweep.
+    if (auctionAlsoEnded) {
+      // eslint-disable-next-line no-await-in-loop
+      await closeAuction(auction._id);
+    }
+  }
+
+  return reverted;
+};
+
 /** One full pass. Safe to run concurrently with itself and with live traffic. */
 const sweep = async () => {
-  const [activated, closed, expired] = [await activateDue(), await closeExpired(), await expireUnpaid()];
+  const [activated, closed, expired, reservationsReverted] = await Promise.all([
+    activateDue(),
+    closeExpired(),
+    expireUnpaid(),
+    revertExpiredReservations(),
+  ]);
 
-  if (activated || closed || expired) {
+  if (activated || closed || expired || reservationsReverted) {
     console.log(
-      `[Auction] sweep: ${activated} activated, ${closed} closed, ${expired} payment-expired`
+      `[Auction] sweep: ${activated} activated, ${closed} closed, ${expired} payment-expired, ${reservationsReverted} buy-now reservations reverted`
     );
   }
 
-  return { activated, closed, expired };
+  return { activated, closed, expired, reservationsReverted };
 };
 
 let timer = null;
@@ -415,6 +504,7 @@ module.exports = {
   activateDue,
   closeExpired,
   expireUnpaid,
+  revertExpiredReservations,
   sweep,
   startSweeper,
   stopSweeper,
