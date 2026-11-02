@@ -223,13 +223,13 @@ const SETTING_DEFINITIONS = Object.freeze({
   },
   [SETTING_KEYS.AUCTION_BUY_NOW_WINDOW_MINUTES]: {
     type: 'integer',
-    default: 2,
+    default: 10,
     min: 1,
     max: 1440,
     public: true,
     label: 'Buy Now reservation window (minutes)',
     description:
-      'How long the first buyer has to complete Buy Now payment before the listing is released. Default: 2 minutes.',
+      'How long the first buyer has to complete Buy Now payment before the listing is released. Default: 10 minutes.',
   },
   [SETTING_KEYS.AUCTION_SECOND_CHANCE_ENABLED]: {
     type: 'boolean',
