@@ -4,7 +4,7 @@ const { successResponse } = require('../helpers/apiResponse');
 const httpStatus = require('../constants/httpStatus');
 const MESSAGES = require('../constants/messages');
 const provider = require('../services/providers/digiLockerProvider');
-const ivsProvider = require('../services/providers/ivsProvider');
+const ivsProvider = require('../services/providers/cdotIvsProvider');
 const vendorLicenceService = require('../services/vendorLicence.service');
 const vendorPaymentService = require('../services/vendorPayment.service');
 const ProviderRequestLog = require('../models/ProviderRequestLog.model');
@@ -247,7 +247,7 @@ const revokeToken = asyncHandler(async (req, res) => {
 });
 
 /**
- * IMEI blocklist check via C-DOT CEIR, on behalf of a caller without a stable
+ * IMEI blocklist check via CEIR, on behalf of a caller without a stable
  * egress IP. Same rationale as the DigiLocker routes above: the provider is
  * believed to allowlist source addresses, so this server lends its fixed IP.
  *
@@ -264,7 +264,7 @@ const checkImei = asyncHandler(async (req, res) => {
   const result = await ivsProvider.verifyImei({ imei1, imei2 });
 
   // Only consume a licence when CEIR actually processed the lookup. Same
-  // rationale as the in-app billing: C-DOT charges us per lookup it processes,
+  // rationale as the in-app billing: CEIR charges us per lookup it processes,
   // not per attempt. An unreachable service is not billable.
   if (result.upstreamAnswered) {
     await vendorLicenceService.consume(req.vendor._id, {
@@ -277,8 +277,14 @@ const checkImei = asyncHandler(async (req, res) => {
     ? req.vendor.licences - 1
     : req.vendor.licences;
 
+  // Vendor-facing field names carry no provider brand — expose the raw CEIR
+  // status as imei{1,2}RawStatus (the shared provider result keeps its own keys).
+  const { imei1CdotStatus, imei2CdotStatus, ...rest } = result;
+
   return successResponse(res, httpStatus.OK, MESSAGES.WRAPPER.IMEI_CHECKED, {
-    ...result,
+    ...rest,
+    imei1RawStatus: imei1CdotStatus,
+    imei2RawStatus: imei2CdotStatus,
     licencesRemaining,
   });
 });

@@ -168,7 +168,7 @@ router.post('/digilocker/revoke-token', wrapperController.revokeToken);
  * /wrapper/check-imei:
  *   post:
  *     tags: [Wrapper]
- *     summary: Check an IMEI against C-DOT's CEIR blocklist on behalf of a caller without a stable IP
+ *     summary: Check an IMEI against the CEIR blocklist on behalf of a caller without a stable IP
  *     description: >
  *       Unauthenticated server-to-server endpoint. Lends this server's fixed
  *       source IP to a caller whose egress address rotates. Returns the CEIR

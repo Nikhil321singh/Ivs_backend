@@ -489,7 +489,6 @@ module.exports = {
   getBiddingKyc,
   approveBiddingKyc,
   rejectBiddingKyc,
-  resetUserKyc,
   createVendor,
   listVendors,
   getVendor,
