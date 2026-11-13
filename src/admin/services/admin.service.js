@@ -3,6 +3,7 @@ const Admin = require('../models/Admin.model');
 const WalletTransaction = require('../../models/WalletTransaction.model');
 const ImeiVerificationLog = require('../../models/ImeiVerificationLog.model');
 const Payment = require('../../models/Payment.model');
+const Order = require('../../models/Order.model');
 const User = require('../../models/User.model');
 const userService = require('../../services/user.service');
 const { verifyPassword, hashPassword } = require('../utils/password.util');
@@ -228,7 +229,7 @@ const getUserDetail = async (userId) => {
 const getStats = async () => {
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-  const [totalUsers, kycCompleted, totalChecks, checksToday, spentAgg] = await Promise.all([
+  const [totalUsers, kycCompleted, totalChecks, checksToday, spentAgg, salesAgg] = await Promise.all([
     User.countDocuments({}),
     User.countDocuments({ kycCompleted: true }),
     ImeiVerificationLog.countDocuments({}),
@@ -236,6 +237,11 @@ const getStats = async () => {
     WalletTransaction.aggregate([
       { $match: { type: 'DEBIT' } },
       { $group: { _id: null, total: { $sum: '$amount' } } },
+    ]),
+    // True total device sales — every paid order, not just a recent sample.
+    Order.aggregate([
+      { $match: { paidAt: { $ne: null } } },
+      { $group: { _id: null, total: { $sum: '$amountPaise' }, count: { $sum: 1 } } },
     ]),
   ]);
 
@@ -245,7 +251,45 @@ const getStats = async () => {
     totalImeiChecks: totalChecks,
     imeiChecksToday: checksToday,
     tokensSpent: spentAgg[0]?.total || 0,
+    salesTotalPaise: salesAgg[0]?.total || 0,
+    paidOrdersCount: salesAgg[0]?.count || 0,
   };
+};
+
+/**
+ * Clears a user's KYC and Aadhaar verification state so they can redo the
+ * full onboarding flow. Used by support when the user is stuck — e.g. Aadhaar
+ * verified but the app's KYC button is unreachable in that state.
+ *
+ * Wallet balance, IMEI history and financial records are untouched.
+ */
+const resetUserKyc = async (userId) => {
+  const user = await userService.getUserById(userId);
+
+  // Nothing to reset — guard so the admin doesn't get a silent no-op.
+  if (!user.kycCompleted && !user.aadhaarVerified) {
+    throw new ApiError(httpStatus.CONFLICT, 'This user has no KYC data to reset.');
+  }
+
+  user.kycCompleted = false;
+  user.aadhaarVerified = false;
+  user.aadhaarNumber = null;
+  user.aadhaarNumberHash = undefined; // sparse-unique index: undefined excludes the row
+  user.userType = null;
+  user.name = null;
+  user.phone = null;
+  user.companyName = null;
+  user.email = undefined;
+  user.panNumber = undefined;
+  user.gstNumber = undefined;
+  user.isGstRegistered = false;
+  user.businessProofType = null;
+
+  await user.save();
+
+  console.warn('[Admin] KYC reset', { userId: String(userId) });
+
+  return user;
 };
 
 module.exports = {
@@ -258,4 +302,5 @@ module.exports = {
   listUsers,
   getUserDetail,
   getStats,
+  resetUserKyc,
 };

@@ -7,11 +7,12 @@ const MESSAGES = require('../../constants/messages');
 const { VENDOR_TXN_REASON } = require('../../constants/vendorEnums');
 
 /**
- * Generates a cryptographically random API key (hex, 64 chars = 32 bytes).
+ * Generates a cryptographically random API key: the `ivs_` prefix the partner
+ * portal and PARTNER_API.md require, followed by hex (64 chars = 32 bytes).
  * The raw value is returned once and never stored; only its SHA-256 hash is
  * persisted in the Vendor document.
  */
-const generateApiKey = () => crypto.randomBytes(32).toString('hex');
+const generateApiKey = () => `ivs_${crypto.randomBytes(32).toString('hex')}`;
 
 const createVendor = async ({ name, email }) => {
   const rawKey = generateApiKey();

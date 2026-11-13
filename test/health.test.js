@@ -50,7 +50,6 @@ describe('public endpoints', () => {
       auctionAntiSnipeWindowSeconds: 120,
       auctionAntiSnipeExtendSeconds: 120,
       auctionPaymentWindowHours: 12,
-      auctionBuyNowWindowHours: 12,
       auctionSecondChanceEnabled: true,
       auctionRequireDiagnosis: false,
     });

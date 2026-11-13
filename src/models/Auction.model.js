@@ -214,6 +214,9 @@ const auctionSchema = new Schema(
     // the next bidder down rather than ending the auction — see
     // auctionCloser.service.js.
     paymentDueAt: { type: Date, default: null },
+    // Both bid winners and Buy Now buyers use PAYMENT_PENDING. This flag
+    // ensures an abandoned Buy Now returns to LIVE instead of cascading bids.
+    buyNowReservation: { type: Boolean, default: false },
     // The winner's Razorpay payment for the device (purpose AUCTION).
     paymentId: { type: Schema.Types.ObjectId, ref: 'Payment', default: null },
     soldAt: { type: Date, default: null },

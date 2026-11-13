@@ -3,8 +3,6 @@ const Auction = require('../models/Auction.model');
 const Bid = require('../models/Bid.model');
 const auctionCloser = require('./auctionCloser.service');
 const notificationService = require('./notification.service');
-const settingsService = require('./settings.service');
-const { SETTING_KEYS } = require('../constants/settings');
 const { NOTIFICATION_TYPE } = require('../constants/notification');
 const { AUCTION_STATUS, BID_STATUS, ONGOING_BID_STATUSES } = require('../constants/auctionEnums');
 const ApiError = require('../utils/apiError');
@@ -91,19 +89,7 @@ const placeBid = async (userId, auctionId, { amountPaise, idempotencyKey = null,
     throw new ApiError(httpStatus.CONFLICT, MESSAGES.BID.ALREADY_HIGHEST);
   }
 
-  const settings = await settingsService.getAll();
-  const antiSnipeEnabled = settings[SETTING_KEYS.AUCTION_ANTI_SNIPE_ENABLED] === true;
-  const windowMs = settings[SETTING_KEYS.AUCTION_ANTI_SNIPE_WINDOW_SECONDS] * 1000;
-  const extendMs = settings[SETTING_KEYS.AUCTION_ANTI_SNIPE_EXTEND_SECONDS] * 1000;
-
   const now = new Date();
-
-  // True when this bid lands inside the closing window and the auction should
-  // therefore be pushed out. Evaluated by the database against the document's
-  // own endAt, not against the copy we read a moment ago.
-  const isLateBid = {
-    $and: [antiSnipeEnabled, { $lte: [{ $subtract: ['$endAt', now] }, windowMs] }],
-  };
 
   const before = await Auction.findOneAndUpdate(
     {
@@ -129,21 +115,10 @@ const placeBid = async (userId, auctionId, { amountPaise, idempotencyKey = null,
         ],
       },
     },
-    [
-      {
-        $set: {
-          currentBidPaise: amountPaise,
-          currentBidderId: new mongoose.Types.ObjectId(String(userId)),
-          bidCount: { $add: ['$bidCount', 1] },
-          endAt: {
-            $cond: [isLateBid, new Date(now.getTime() + extendMs), '$endAt'],
-          },
-          extensionCount: {
-            $cond: [isLateBid, { $add: ['$extensionCount', 1] }, '$extensionCount'],
-          },
-        },
-      },
-    ],
+    {
+      $set: { currentBidPaise: amountPaise, currentBidderId: new mongoose.Types.ObjectId(String(userId)) },
+      $inc: { bidCount: 1 },
+    },
     // The PRE-update document: it tells us whose bid was just beaten.
     { new: false }
   );
@@ -239,7 +214,7 @@ const placeBid = async (userId, auctionId, { amountPaise, idempotencyKey = null,
     }
   }
 
-  return { bid, auction: updated, duplicate: false, extended: +updated.endAt !== +before.endAt };
+  return { bid, auction: updated, duplicate: false };
 };
 
 /** An auction's complete bid history, newest first. */

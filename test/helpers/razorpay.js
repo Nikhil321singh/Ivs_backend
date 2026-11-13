@@ -24,9 +24,12 @@ const webhookSignature = (rawBody) => hmac(rawBody, WEBHOOK_SECRET);
  * Stubs Razorpay's order-creation endpoint so createTopupOrder() gets a real
  * order id without any network call. Returns the fake order id used.
  */
-const stubCreateOrder = (orderId = `order_${Date.now()}`) => {
+const stubCreateOrder = (orderId = `order_${Date.now()}`, inspectRequest = null) => {
   nock(API_BASE)
-    .post('/v1/orders')
+    .post('/v1/orders', (body) => {
+      if (inspectRequest) inspectRequest(body);
+      return true;
+    })
     .reply(200, (uri, body) => ({
       id: orderId,
       amount: body.amount,

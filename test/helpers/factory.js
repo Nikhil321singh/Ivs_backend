@@ -118,7 +118,7 @@ const createLiveAuction = async (sellerId, overrides = {}) => {
     sellerId,
     status: AUCTION_STATUS.LIVE,
     device: { brand: 'Apple', model: 'iPhone 13', storageGb: 128, color: 'Midnight' },
-    condition: 'GOOD',
+    condition: 'B',
     photos: [{ url: 'https://example.test/p.jpg', publicId: 'auctions/p.jpg' }],
     startPricePaise: 1000000, // ₹10,000
     bidIncrementPaise: 50000, // ₹500
