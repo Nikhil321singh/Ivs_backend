@@ -172,6 +172,7 @@ const list = async ({ page = 1, limit = 20, status = null, search = null } = {})
       .populate('buyerId', 'name mobile')
       .populate('sellerId', 'name mobile')
       .populate('auctionId', 'device photos status')
+      .populate('paymentId', 'razorpayPaymentId razorpayOrderId amountPaise status')
       .lean(),
     Order.countDocuments(query),
   ]);

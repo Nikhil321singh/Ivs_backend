@@ -1,9 +1,12 @@
+const crypto = require('crypto');
 const asyncHandler = require('../helpers/asyncHandler');
 const { successResponse } = require('../helpers/apiResponse');
 const httpStatus = require('../constants/httpStatus');
 const MESSAGES = require('../constants/messages');
 const provider = require('../services/providers/digiLockerProvider');
 const ivsProvider = require('../services/providers/ivsProvider');
+const vendorLicenceService = require('../services/vendorLicence.service');
+const vendorPaymentService = require('../services/vendorPayment.service');
 const ProviderRequestLog = require('../models/ProviderRequestLog.model');
 const { PROVIDER_OPERATION } = require('../constants/aadhaarVerification');
 
@@ -244,7 +247,7 @@ const revokeToken = asyncHandler(async (req, res) => {
 });
 
 /**
- * IMEI blocklist check via C-DOT CEIR, on behalf of a caller without a stable
+ * IMEI blocklist check via CEIR, on behalf of a caller without a stable
  * egress IP. Same rationale as the DigiLocker routes above: the provider is
  * believed to allowlist source addresses, so this server lends its fixed IP.
  *
@@ -256,9 +259,73 @@ const revokeToken = asyncHandler(async (req, res) => {
  */
 const checkImei = asyncHandler(async (req, res) => {
   const { imei1, imei2 } = req.body;
+  const chargeRef = `VLCHG-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+
   const result = await ivsProvider.verifyImei({ imei1, imei2 });
 
-  return successResponse(res, httpStatus.OK, MESSAGES.WRAPPER.IMEI_CHECKED, result);
+  // Only consume a licence when CEIR actually processed the lookup. Same
+  // rationale as the in-app billing: CEIR charges us per lookup it processes,
+  // not per attempt. An unreachable service is not billable.
+  if (result.upstreamAnswered) {
+    await vendorLicenceService.consume(req.vendor._id, {
+      idempotencyKey: `${chargeRef}:consume`,
+      metadata: { chargeRef, referenceId: result.referenceId, imei1 },
+    });
+  }
+
+  const licencesRemaining = result.upstreamAnswered
+    ? req.vendor.licences - 1
+    : req.vendor.licences;
+
+  // Vendor-facing field names carry no provider brand — expose the raw CEIR
+  // status as imei{1,2}RawStatus (the shared provider result keeps its own keys).
+  const { imei1CdotStatus, imei2CdotStatus, ...rest } = result;
+
+  return successResponse(res, httpStatus.OK, MESSAGES.WRAPPER.IMEI_CHECKED, {
+    ...rest,
+    imei1RawStatus: imei1CdotStatus,
+    imei2RawStatus: imei2CdotStatus,
+    licencesRemaining,
+  });
 });
 
-module.exports = { initiateSession, accessToken, issuedFiles, downloadXml, revokeToken, checkImei };
+const buyLicences = asyncHandler(async (req, res) => {
+  const order = await vendorPaymentService.createOrder(req.vendor._id, {
+    quantity: req.body.quantity,
+  });
+
+  return successResponse(res, httpStatus.CREATED, MESSAGES.VENDOR.ORDER_CREATED, order);
+});
+
+const verifyLicencePurchase = asyncHandler(async (req, res) => {
+  const { orderId, paymentId, signature } = req.body;
+
+  const payment = await vendorPaymentService.verifyPayment(req.vendor._id, {
+    orderId,
+    paymentId,
+    signature,
+  });
+
+  return successResponse(res, httpStatus.OK, MESSAGES.VENDOR.PAYMENT_VERIFIED, {
+    payment,
+    licencesRemaining: req.vendor.licences + payment.licences,
+  });
+});
+
+const getMyBalance = asyncHandler(async (req, res) => {
+  const { vendor } = req;
+
+  return successResponse(res, httpStatus.OK, MESSAGES.VENDOR.BALANCE_FETCHED, {
+    licencesRemaining: vendor.licences,
+    totalGranted: vendor.totalGranted,
+    totalUsed: vendor.totalUsed,
+  });
+});
+
+const getMyLedger = asyncHandler(async (req, res) => {
+  const data = await vendorLicenceService.getLedger(req.vendor._id, req.query);
+
+  return successResponse(res, httpStatus.OK, MESSAGES.VENDOR.LEDGER_FETCHED, data);
+});
+
+module.exports = { initiateSession, accessToken, issuedFiles, downloadXml, revokeToken, checkImei, buyLicences, verifyLicencePurchase, getMyBalance, getMyLedger };
