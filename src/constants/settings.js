@@ -15,6 +15,7 @@ const { BILLING_MODE } = require('./entitlementEnums');
 const SETTING_KEYS = Object.freeze({
   AADHAAR_VERIFICATION_ENABLED: 'aadhaarVerificationEnabled',
   KYC_REQUIRED: 'kycRequired',
+  BIDDING_KYC_REQUIRED: 'biddingKycRequired',
   IVS_CHECK_COST: 'ivsCheckCost',
   DIAGNOSE_COST: 'diagnoseCost',
   BILLING_MODE: 'billingMode',
@@ -53,6 +54,14 @@ const SETTING_DEFINITIONS = Object.freeze({
     label: 'KYC required',
     description:
       'When off, users can finish onboarding without submitting KYC: every complete-kyc field becomes optional and /user/skip-kyc marks the account done. Existing KYC data is never deleted.',
+  },
+  [SETTING_KEYS.BIDDING_KYC_REQUIRED]: {
+    type: 'boolean',
+    default: true,
+    public: true,
+    label: 'Bidding KYC required',
+    description:
+      'Gates bidding for individuals, independently of the KYC-required switch. When ON, an individual needs an approved bidding KYC to bid or buy (vendors are always eligible). When OFF, anyone may bid: the backend stops rejecting their bids and the profile reports them as cleared, so the app unlocks prices and bidding without an app update.',
   },
   // Feature prices, in tokens (1 token = ₹1). Editable at runtime so a price
   // change does not need a deploy. Defaults come from constants/pricing.js, so

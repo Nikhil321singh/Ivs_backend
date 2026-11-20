@@ -8,6 +8,7 @@ const userService = require('../services/user.service');
 const tokenService = require('../services/token.service');
 const referralService = require('../services/referral.service');
 const deviceTokenService = require('../services/deviceToken.service');
+const { shapeClientUser } = require('../helpers/clientUser');
 
 const sendOtp = asyncHandler(async (req, res) => {
   const { mobile, countryCode = env.defaultCountryCode } = req.body;
@@ -36,7 +37,7 @@ const verifyOtp = asyncHandler(async (req, res) => {
     res,
     isNewUser ? httpStatus.CREATED : httpStatus.OK,
     isNewUser ? MESSAGES.AUTH.SIGNUP_SUCCESS : MESSAGES.AUTH.LOGIN_SUCCESS,
-    { user, accessToken, refreshToken }
+    { user: await shapeClientUser(user), accessToken, refreshToken }
   );
 });
 
@@ -72,7 +73,9 @@ const logout = asyncHandler(async (req, res) => {
 });
 
 const getProfile = asyncHandler(async (req, res) => {
-  successResponse(res, httpStatus.OK, MESSAGES.AUTH.PROFILE_FETCHED, { user: req.user });
+  successResponse(res, httpStatus.OK, MESSAGES.AUTH.PROFILE_FETCHED, {
+    user: await shapeClientUser(req.user),
+  });
 });
 
 module.exports = { sendOtp, verifyOtp, refreshToken, logout, getProfile };
