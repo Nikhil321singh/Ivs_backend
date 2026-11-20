@@ -3,6 +3,7 @@ const { successResponse } = require('../helpers/apiResponse');
 const httpStatus = require('../constants/httpStatus');
 const MESSAGES = require('../constants/messages');
 const userService = require('../services/user.service');
+const { shapeClientUser } = require('../helpers/clientUser');
 const uploadService = require('../services/upload.service');
 const aadhaarService = require('../services/aadhaar.service');
 const digilockerAadhaarService = require('../services/digilockerAadhaar.service');
@@ -17,7 +18,7 @@ const sendAadhaarOtp = asyncHandler(async (req, res) => {
 const verifyAadhaarOtp = asyncHandler(async (req, res) => {
   const user = await aadhaarService.verifyAadhaarOtp(req.user.id, req.body.otp);
 
-  successResponse(res, httpStatus.OK, MESSAGES.USER.AADHAAR_VERIFIED, { user });
+  successResponse(res, httpStatus.OK, MESSAGES.USER.AADHAAR_VERIFIED, { user: await shapeClientUser(user) });
 });
 
 const completeKyc = asyncHandler(async (req, res) => {
@@ -50,13 +51,13 @@ const completeKyc = asyncHandler(async (req, res) => {
     businessProofImage,
   });
 
-  successResponse(res, httpStatus.OK, MESSAGES.USER.KYC_COMPLETED, { user });
+  successResponse(res, httpStatus.OK, MESSAGES.USER.KYC_COMPLETED, { user: await shapeClientUser(user) });
 });
 
 const skipKyc = asyncHandler(async (req, res) => {
   const user = await userService.skipKyc(req.user.id);
 
-  successResponse(res, httpStatus.OK, MESSAGES.USER.KYC_SKIPPED, { user });
+  successResponse(res, httpStatus.OK, MESSAGES.USER.KYC_SKIPPED, { user: await shapeClientUser(user) });
 });
 
 const deleteAccount = asyncHandler(async (req, res) => {
@@ -80,11 +81,11 @@ const updateProfile = asyncHandler(async (req, res) => {
 
   const user = await userService.updateProfile(req.user.id, req.body, profileImage);
 
-  successResponse(res, httpStatus.OK, MESSAGES.USER.PROFILE_UPDATED, { user });
+  successResponse(res, httpStatus.OK, MESSAGES.USER.PROFILE_UPDATED, { user: await shapeClientUser(user) });
 });
 
 const getProfile = asyncHandler(async (req, res) => {
-  successResponse(res, httpStatus.OK, MESSAGES.USER.PROFILE_FETCHED, { user: req.user });
+  successResponse(res, httpStatus.OK, MESSAGES.USER.PROFILE_FETCHED, { user: await shapeClientUser(req.user) });
 });
 
 const startDigilockerAadhaar = asyncHandler(async (req, res) => {
@@ -149,6 +150,7 @@ const getDigilockerAadhaarVerification = asyncHandler(async (req, res) => {
 
 const getUserDetails = asyncHandler(async (req, res) => {
   const details = await userService.getUserDetails(req.user.id);
+  details.user = await shapeClientUser(details.user);
 
   successResponse(res, httpStatus.OK, MESSAGES.USER.DETAILS_FETCHED, details);
 });

@@ -114,6 +114,7 @@ const update = async (patch, adminId = null) => {
 /** Convenience readers for the kill switches — the hot-path callers. */
 const isAadhaarVerificationEnabled = () => get(SETTING_KEYS.AADHAAR_VERIFICATION_ENABLED);
 const isKycRequired = () => get(SETTING_KEYS.KYC_REQUIRED);
+const isBiddingKycRequired = () => get(SETTING_KEYS.BIDDING_KYC_REQUIRED);
 
 /**
  * Effective price of a paid feature, in tokens.
@@ -162,6 +163,7 @@ module.exports = {
   invalidateCache,
   isAadhaarVerificationEnabled,
   isKycRequired,
+  isBiddingKycRequired,
   getFeatureCost,
   getFeatureCosts,
 };

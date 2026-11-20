@@ -99,4 +99,25 @@ describe('auth', () => {
     expect(res.status).toBe(200);
     expect(res.body.data.user).toBeTruthy();
   });
+
+  it('reports an individual as cleared to bid when bidding KYC is not required', async () => {
+    const settings = require('../src/services/settings.service');
+    const { user, token } = await createUser();
+    await User.findByIdAndUpdate(user._id, { userType: 'individual', biddingKycStatus: null });
+    const profile = () =>
+      request(app).get('/api/v1/auth/profile').set('Authorization', `Bearer ${token}`);
+
+    // Switch ON → the real status (not approved) reaches the app, which gates.
+    await settings.update({ biddingKycRequired: true });
+    let res = await profile();
+    expect(res.body.data.user.biddingKycStatus).toBe(null);
+
+    // Switch OFF → reported as approved so the app unlocks, with no app release.
+    await settings.update({ biddingKycRequired: false });
+    res = await profile();
+    expect(res.body.data.user.biddingKycStatus).toBe('approved');
+
+    // The stored record is untouched — only the response view changed.
+    expect((await User.findById(user._id)).biddingKycStatus).toBe(null);
+  });
 });
