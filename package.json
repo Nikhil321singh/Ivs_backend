@@ -14,6 +14,7 @@
     "seed:plans": "node scripts/seed-plans.js",
     "auctions:sweep": "node scripts/auction-sweep.js",
     "payments:status": "node scripts/payment-status.js",
+    "payments:reconcile": "node scripts/payment-reconcile.js",
     "check:digilocker": "node scripts/check-digilocker.js",
     "token:digilocker": "node scripts/digilocker-token.js"
   },

@@ -1,9 +1,11 @@
 const asyncHandler = require('../helpers/asyncHandler');
 const settingsService = require('../services/settings.service');
+const DeviceToken = require('../models/DeviceToken.model');
 const ApiError = require('../utils/apiError');
 const httpStatus = require('../constants/httpStatus');
 const MESSAGES = require('../constants/messages');
 const USER_TYPE = require('../constants/userType');
+const { DEVICE_PLATFORM } = require('../constants/notification');
 
 /**
  * Gate for anything involving money between two users — listing a device for
@@ -31,7 +33,7 @@ const requireKyc = asyncHandler(async (req, res, next) => {
   }
 
   if (req.user.userType === USER_TYPE.INDIVIDUAL) {
-    if (req.user.biddingKycStatus !== 'approved') {
+    if (req.user.biddingKycStatus !== 'approved' && !(await isOnIosPendingReview(req.user.id))) {
       throw new ApiError(httpStatus.FORBIDDEN, MESSAGES.BIDDING_KYC.BIDDING_KYC_REQUIRED, [
         {
           field: 'biddingKyc',
@@ -44,5 +46,25 @@ const requireKyc = asyncHandler(async (req, res, next) => {
 
   next();
 });
+
+/**
+ * Temporary carve-out: the iOS build that can submit a bidding KYC
+ * application is still in App Store review, so an individual on iOS has no
+ * way to clear the check above through the app. Exempt them by their most
+ * recently seen device platform until that build is live, rather than
+ * dropping the requirement for everyone (Android already ships the real
+ * flow). Remove once the iOS release is approved.
+ *
+ * Unknown platform (no registered device) does not qualify — the exemption
+ * is only for a confirmed iOS client, not a default for missing data.
+ */
+const isOnIosPendingReview = async (userId) => {
+  const latest = await DeviceToken.findOne({ userId, isActive: true })
+    .sort({ lastSeenAt: -1 })
+    .select('platform')
+    .lean();
+
+  return latest?.platform === DEVICE_PLATFORM.IOS;
+};
 
 module.exports = requireKyc;

@@ -62,6 +62,20 @@ const refund = async (razorpayPaymentId, { amountPaise, notes } = {}) => {
   return response.data; // { id, payment_id, amount, status, ... }
 };
 
+/**
+ * Every payment attempt Razorpay has recorded against an order. Used by the
+ * reconciliation sweep to find a captured payment whose webhook never
+ * arrived — Razorpay itself is the only reliable source once both client
+ * paths (JS handler, redirect callback) have failed to report back.
+ */
+const fetchOrderPayments = async (orderId) => {
+  const response = await axios.get(`${env.razorpay.apiBaseUrl}/orders/${orderId}/payments`, {
+    timeout: REQUEST_TIMEOUT,
+    auth: { username: env.razorpay.keyId, password: env.razorpay.keySecret },
+  });
+  return response.data.items || [];
+};
+
 const hmacSha256 = (payload, secret) =>
   crypto.createHmac('sha256', secret).update(payload).digest('hex');
 
@@ -142,6 +156,7 @@ module.exports = {
   getCallbackUrl,
   getCheckoutOptions,
   createOrder,
+  fetchOrderPayments,
   refund,
   verifyCheckoutSignature,
   verifyWebhookSignature,

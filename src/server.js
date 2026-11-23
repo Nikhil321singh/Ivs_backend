@@ -2,6 +2,7 @@ const env = require('./config/env');
 const connectDB = require('./config/database');
 const app = require('./app');
 const auctionCloser = require('./services/auctionCloser.service');
+const paymentReconciler = require('./services/paymentReconciler.service');
 
 let server;
 
@@ -55,6 +56,10 @@ const start = async () => {
   // safe under cluster mode. `scripts/auction-sweep.js` runs the same pass from
   // cron for anyone who would rather schedule it outside the web process.
   auctionCloser.startSweeper({ intervalMs: env.auction.sweepIntervalMs });
+
+  // Catches payments Razorpay captured but that never reached us through
+  // either client path or the webhook — see paymentReconciler.service.js.
+  paymentReconciler.startSweeper({ intervalMs: env.payment.reconcileIntervalMs });
 
   server = app.listen(env.port, () => {
     // eslint-disable-next-line no-console

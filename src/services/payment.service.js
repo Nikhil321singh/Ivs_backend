@@ -299,19 +299,7 @@ const handleWebhook = async (rawBody, signature) => {
   } else if (event.event === 'payment.failed' && entity?.order_id) {
     const payment = await Payment.findOne({ razorpayOrderId: entity.order_id });
     if (payment) {
-      const failed = await Payment.findOneAndUpdate(
-        { razorpayOrderId: entity.order_id, status: PAYMENT_STATUS.CREATED },
-        { status: PAYMENT_STATUS.FAILED, razorpayPaymentId: entity.id },
-        { new: true }
-      );
-      if (failed?.notes?.source === ORDER_SOURCE.BUY_NOW && failed.notes.reserved === true) {
-        const released = await auctionSale.releaseBuyNowReservation({
-          auctionId: failed.auctionId,
-          buyerId: failed.userId,
-          paymentId: failed._id,
-        });
-        if (released) await auctionCloser.closeAuction(released._id);
-      }
+      await markPaymentFailed(entity.order_id, entity.id);
     } else {
       await vendorPaymentService.handleWebhookEvent(entity, event.event);
     }
@@ -320,9 +308,59 @@ const handleWebhook = async (rawBody, signature) => {
   return { event: event.event };
 };
 
+/**
+ * Shared with `reconcilePendingPayment` below — marks a CREATED payment
+ * FAILED and releases any Buy Now reservation it was holding.
+ */
+const markPaymentFailed = async (orderId, razorpayPaymentId) => {
+  const failed = await Payment.findOneAndUpdate(
+    { razorpayOrderId: orderId, status: PAYMENT_STATUS.CREATED },
+    { status: PAYMENT_STATUS.FAILED, razorpayPaymentId },
+    { new: true }
+  );
+  if (failed?.notes?.source === ORDER_SOURCE.BUY_NOW && failed.notes.reserved === true) {
+    const released = await auctionSale.releaseBuyNowReservation({
+      auctionId: failed.auctionId,
+      buyerId: failed.userId,
+      paymentId: failed._id,
+    });
+    if (released) await auctionCloser.closeAuction(released._id);
+  }
+  return failed;
+};
+
+/**
+ * Active fallback for a CREATED payment neither client path (JS handler,
+ * WebView redirect callback) nor the webhook ever reported back on. A UPI
+ * intent checkout hands control to the bank app and Android can kill the
+ * WebView activity during that handoff, so both client paths can miss —
+ * the webhook is the only thing that's supposed to survive that, and this
+ * exists for when it doesn't (misconfigured endpoint, dropped delivery).
+ * Asks Razorpay directly what became of the order instead of waiting.
+ */
+const reconcilePendingPayment = async (payment) => {
+  const attempts = await razorpay.fetchOrderPayments(payment.razorpayOrderId);
+
+  const captured = attempts.find((p) => p.status === 'captured');
+  if (captured) {
+    const capturedAtSeconds = captured.captured_at || captured.created_at;
+    const capturedAt = capturedAtSeconds ? new Date(capturedAtSeconds * 1000) : new Date();
+    await creditForPayment(payment, { paymentId: captured.id, signature: null, capturedAt });
+    return 'settled';
+  }
+
+  if (attempts.length > 0 && attempts.every((p) => p.status === 'failed')) {
+    await markPaymentFailed(payment.razorpayOrderId, attempts[attempts.length - 1].id);
+    return 'failed';
+  }
+
+  return 'pending';
+};
+
 module.exports = {
   createTopupOrder,
   handleCheckoutCallback,
   verifyPayment,
   handleWebhook,
+  reconcilePendingPayment,
 };

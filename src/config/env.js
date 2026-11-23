@@ -360,6 +360,10 @@ const env = {
     sweepIntervalMs: parseInt(process.env.AUCTION_SWEEP_INTERVAL_MS || '30000', 10),
   },
 
+  payment: {
+    reconcileIntervalMs: parseInt(process.env.PAYMENT_RECONCILE_INTERVAL_MS || '300000', 10),
+  },
+
   storage: {
     driver: process.env.STORAGE_DRIVER || 's3',
     imageFolder: process.env.STORAGE_IMAGE_FOLDER || 'ivs/profile',
