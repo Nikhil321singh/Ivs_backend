@@ -148,9 +148,23 @@ describe('listing a device', () => {
     expect(res.status).toBe(403);
   });
 
-  it('freezes the terms once published', async () => {
+  it('allows the seller to edit terms after the auction is live', async () => {
     const { user, token } = await createAuctionUser();
     const auction = await createLiveAuction(user._id);
+
+    const res = await asUser(token)
+      .patch(`/api/v1/auctions/${auction._id}`)
+      .send({ startPricePaise: 1 });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.auction.startPricePaise).toBe(1);
+  });
+
+  it('still refuses an edit once the auction is closed (e.g. sold)', async () => {
+    const { user, token } = await createAuctionUser();
+    const auction = await createLiveAuction(user._id);
+    auction.status = AUCTION_STATUS.SOLD;
+    await auction.save();
 
     const res = await asUser(token)
       .patch(`/api/v1/auctions/${auction._id}`)

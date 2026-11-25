@@ -55,6 +55,18 @@ const EDITABLE_FIELDS = [
 ];
 
 /**
+ * Statuses a seller can still edit from. Deliberately wider than just DRAFT —
+ * includes LIVE (bidding open) and BUY_NOW_RESERVED (a buyer is mid-checkout)
+ * on explicit product instruction, trading away the usual "terms are frozen
+ * once published" guarantee so listings can be corrected after bids exist.
+ */
+const EDITABLE_STATUSES = [
+  AUCTION_STATUS.DRAFT,
+  AUCTION_STATUS.LIVE,
+  AUCTION_STATUS.BUY_NOW_RESERVED,
+];
+
+/**
  * The instant price has to sit above the opening price, or bidding is pointless
  * — the first bid would already match or beat it.
  *
@@ -264,10 +276,7 @@ const create = async (userId, payload) => {
 const update = async (userId, auctionId, payload) => {
   const auction = await loadOwned(userId, auctionId);
 
-  // A published auction's terms are frozen. People bid against a price and a
-  // deadline; letting a seller move either after the fact is the single most
-  // abusable thing a marketplace can allow.
-  if (auction.status !== AUCTION_STATUS.DRAFT) {
+  if (!EDITABLE_STATUSES.includes(auction.status)) {
     throw new ApiError(httpStatus.CONFLICT, MESSAGES.AUCTION.NOT_EDITABLE);
   }
 
@@ -290,7 +299,7 @@ const update = async (userId, auctionId, payload) => {
 const addPhotos = async (userId, auctionId, files) => {
   const auction = await loadOwned(userId, auctionId);
 
-  if (auction.status !== AUCTION_STATUS.DRAFT) {
+  if (!EDITABLE_STATUSES.includes(auction.status)) {
     throw new ApiError(httpStatus.CONFLICT, MESSAGES.AUCTION.NOT_EDITABLE);
   }
   if (!files || files.length === 0) {
@@ -335,7 +344,7 @@ const addPhotos = async (userId, auctionId, files) => {
 const attachUploadedPhotos = async (userId, auctionId, photos) => {
   const auction = await loadOwned(userId, auctionId);
 
-  if (auction.status !== AUCTION_STATUS.DRAFT) {
+  if (!EDITABLE_STATUSES.includes(auction.status)) {
     throw new ApiError(httpStatus.CONFLICT, MESSAGES.AUCTION.NOT_EDITABLE);
   }
   if (!Array.isArray(photos) || photos.length === 0) {
@@ -370,7 +379,7 @@ const attachUploadedPhotos = async (userId, auctionId, photos) => {
 const removePhoto = async (userId, auctionId, photoId) => {
   const auction = await loadOwned(userId, auctionId);
 
-  if (auction.status !== AUCTION_STATUS.DRAFT) {
+  if (!EDITABLE_STATUSES.includes(auction.status)) {
     throw new ApiError(httpStatus.CONFLICT, MESSAGES.AUCTION.NOT_EDITABLE);
   }
 
