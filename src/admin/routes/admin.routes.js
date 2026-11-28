@@ -137,6 +137,41 @@ router.get('/transactions', adminAuth, adminController.listTransactions);
 
 /**
  * @openapi
+ * /admin/payments/summary:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Totals per payment purpose (top-up, plan, bidding, IMEI check, etc.) over a date range
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: query, name: from, schema: { type: string, example: 2026-01-01 } }
+ *       - { in: query, name: to, schema: { type: string, example: 2026-12-31 } }
+ *     responses:
+ *       200: { description: Payments summary fetched }
+ */
+router.get('/payments/summary', adminAuth, adminController.getPaymentsSummary);
+
+/**
+ * @openapi
+ * /admin/payments:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Detailed payment statement across all sources, with Razorpay IDs and payer details
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: query, name: page, schema: { type: integer, default: 1 } }
+ *       - { in: query, name: limit, schema: { type: integer, default: 20 } }
+ *       - { in: query, name: group, schema: { type: string, enum: [CASH, WALLET, CREDIT] } }
+ *       - { in: query, name: status, schema: { type: string, enum: [PAID, FAILED, REFUNDED] } }
+ *       - { in: query, name: method, schema: { type: string, enum: [RAZORPAY, BANK_IMPS] } }
+ *       - { in: query, name: from, schema: { type: string, example: 2026-01-01 } }
+ *       - { in: query, name: to, schema: { type: string, example: 2026-12-31 } }
+ *     responses:
+ *       200: { description: Payments statement fetched }
+ */
+router.get('/payments', adminAuth, adminController.listPaymentsDetailed);
+
+/**
+ * @openapi
  * /admin/imei-checks:
  *   get:
  *     tags: [Admin]

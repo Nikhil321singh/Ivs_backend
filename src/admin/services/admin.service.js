@@ -84,7 +84,7 @@ const listTransactions = async ({ page, limit, type = null, reason = null } = {}
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(safeLimit)
-      .populate('userId', 'name mobile countryCode')
+      .populate('userId', 'name companyName mobile countryCode')
       .lean(),
     WalletTransaction.countDocuments(filter),
   ]);
@@ -104,7 +104,7 @@ const listImeiChecks = async ({ page, limit, status = null } = {}) => {
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(safeLimit)
-      .populate('userId', 'name mobile countryCode')
+      .populate('userId', 'name companyName mobile countryCode')
       // rawResponse is bulky and only useful when debugging a single check.
       .select('-rawResponse')
       .lean(),
