@@ -5,6 +5,7 @@ const MESSAGES = require('../../constants/messages');
 const adminService = require('../services/admin.service');
 const vendorAdminService = require('../services/vendor.admin.service');
 const subscriptionAdminService = require('../services/subscription.admin.service');
+const paymentsAdminService = require('../services/payments.admin.service');
 const auctionAdminService = require('../services/auction.admin.service');
 const biddingKycAdminService = require('../services/biddingKyc.admin.service');
 const orderService = require('../../services/order.service');
@@ -57,6 +58,18 @@ const listTransactions = asyncHandler(async (req, res) => {
   const data = await adminService.listTransactions(req.query);
 
   successResponse(res, httpStatus.OK, MESSAGES.ADMIN.TRANSACTIONS_FETCHED, data);
+});
+
+const getPaymentsSummary = asyncHandler(async (req, res) => {
+  const data = await paymentsAdminService.getPaymentsSummary(req.query);
+
+  successResponse(res, httpStatus.OK, MESSAGES.ADMIN.PAYMENTS_SUMMARY_FETCHED, data);
+});
+
+const listPaymentsDetailed = asyncHandler(async (req, res) => {
+  const data = await paymentsAdminService.listPaymentsDetailed(req.query);
+
+  successResponse(res, httpStatus.OK, MESSAGES.ADMIN.PAYMENTS_FETCHED, data);
 });
 
 const listImeiChecks = asyncHandler(async (req, res) => {
@@ -465,6 +478,8 @@ module.exports = {
   getSettings,
   updateSettings,
   listTransactions,
+  getPaymentsSummary,
+  listPaymentsDetailed,
   listImeiChecks,
   listUsers,
   getUser,

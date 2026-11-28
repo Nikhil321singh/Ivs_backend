@@ -274,6 +274,8 @@ module.exports = {
     SETTINGS_FETCHED: 'Settings fetched successfully.',
     SETTINGS_UPDATED: 'Settings updated successfully.',
     TRANSACTIONS_FETCHED: 'Transactions fetched successfully.',
+    PAYMENTS_SUMMARY_FETCHED: 'Payments summary fetched successfully.',
+    PAYMENTS_FETCHED: 'Payments fetched successfully.',
     IMEI_CHECKS_FETCHED: 'IMEI checks fetched successfully.',
     USERS_FETCHED: 'Users fetched successfully.',
     USER_FETCHED: 'User details fetched successfully.',
